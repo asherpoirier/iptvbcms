@@ -1,0 +1,311 @@
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminAPI } from '../api/api';
+import { ArrowLeft, Save, Server, Plus, Trash2 } from 'lucide-react';
+import PackagesSync from '../components/PackagesSync';
+import BrandingSettings from '../components/BrandingSettings';
+import PanelManagement from '../components/PanelManagement';
+import BouquetsManagement from '../components/BouquetsManagement';
+
+export default function AdminSettings() {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('xtream');
+  
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: async () => {
+      const response = await adminAPI.getSettings();
+      return response.data;
+    },
+  });
+
+  const { data: bouquets } = useQuery({
+    queryKey: ['bouquets'],
+    queryFn: async () => {
+      const response = await adminAPI.getBouquets();
+      return response.data;
+    },
+  });
+
+  const [formData, setFormData] = useState({
+    xtream: {
+      panel_url: '',
+      admin_username: '',
+      admin_password: '',
+      ssl_verify: false,
+    },
+    smtp: {
+      host: '',
+      port: 587,
+      username: '',
+      password: '',
+      from_email: '',
+      from_name: 'IPTV Billing',
+    },
+  });
+
+  const [bouquetsList, setBouquetsList] = useState([]);
+  const [newBouquet, setNewBouquet] = useState({ id: '', name: '' });
+
+  React.useEffect(() => {
+    if (settings) {
+      setFormData({
+        xtream: settings.xtream || formData.xtream,
+        smtp: settings.smtp || formData.smtp,
+      });
+    }
+  }, [settings]);
+
+  React.useEffect(() => {
+    if (bouquets) {
+      setBouquetsList(bouquets);
+    }
+  }, [bouquets]);
+
+  const updateMutation = useMutation({
+    mutationFn: (data) => adminAPI.updateSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['admin-settings']);
+      alert('Settings updated successfully!');
+    },
+  });
+
+  const updateBouquetsMutation = useMutation({
+    mutationFn: (data) => adminAPI.updateBouquets(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['bouquets']);
+      alert('Bouquets updated successfully!');
+    },
+  });
+
+  const testXtreamMutation = useMutation({
+    mutationFn: () => adminAPI.testXtreamUI(),
+    onSuccess: () => {
+      alert('XtreamUI connection successful!');
+    },
+    onError: (error) => {
+      alert('XtreamUI connection failed: ' + (error.response?.data?.error || 'Unknown error'));
+    },
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    updateMutation.mutate(formData);
+  };
+
+  const handleTestXtream = () => {
+    testXtreamMutation.mutate();
+  };
+
+  const syncBouquetsMutation = useMutation({
+    mutationFn: () => adminAPI.syncBouquetsFromPanel(),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries(['bouquets']);
+      if (response.data.bouquets) {
+        setBouquetsList(response.data.bouquets);
+      }
+      alert(`Success! Synced ${response.data.bouquets?.length || 0} bouquets from XtreamUI panel!`);
+    },
+    onError: (error) => {
+      alert('Sync failed: ' + (error.response?.data?.detail || error.message));
+    },
+  });
+
+  const handleSyncFromPanel = () => {
+    if (window.confirm('Fetch bouquets from XtreamUI panel? This will replace your current bouquet list.')) {
+      syncBouquetsMutation.mutate();
+    }
+  };
+
+  const handleAddBouquet = () => {
+    if (newBouquet.id && newBouquet.name) {
+      const updatedBouquets = [...bouquetsList, { id: parseInt(newBouquet.id), name: newBouquet.name }];
+      setBouquetsList(updatedBouquets);
+      setNewBouquet({ id: '', name: '' });
+    }
+  };
+
+  const handleRemoveBouquet = (id) => {
+    const updatedBouquets = bouquetsList.filter(b => b.id !== id);
+    setBouquetsList(updatedBouquets);
+  };
+
+  const handleSaveBouquets = () => {
+    updateBouquetsMutation.mutate(bouquetsList);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Link to="/admin" className="flex items-center gap-2 text-gray-600 hover:text-blue-600">
+            <ArrowLeft className="w-5 h-5" />
+            Back to Dashboard
+          </Link>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-8">System Settings</h1>
+
+        <div className="bg-white rounded-lg shadow">
+          {/* Tabs */}
+          <div className="border-b border-gray-200">
+            <nav className="flex -mb-px">
+              <button
+                onClick={() => setActiveTab('xtream')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'xtream'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                XtreamUI Panel
+              </button>
+              <button
+                onClick={() => setActiveTab('branding')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'branding'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Branding
+              </button>
+              <button
+                onClick={() => setActiveTab('smtp')}
+                className={`px-6 py-4 text-sm font-medium border-b-2 ${
+                  activeTab === 'smtp'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Email (SMTP)
+              </button>
+            </nav>
+          </div>
+
+          {/* Tab Content */}
+          <div className="p-6">
+            {/* Bouquets Tab */}
+            {activeTab === 'bouquets' && (
+              <BouquetsManagement settings={settings} />
+            )}
+
+            {/* XtreamUI Tab */}
+            {activeTab === 'xtream' && (
+              <PanelManagement settings={settings} />
+            )}
+
+            {/* SMTP Tab */}
+            {activeTab === 'smtp' && (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SMTP Host
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.smtp.host}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        smtp: { ...formData.smtp, host: e.target.value }
+                      })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="smtp.gmail.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SMTP Port
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.smtp.port}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        smtp: { ...formData.smtp, port: parseInt(e.target.value) }
+                      })}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="587"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SMTP Username
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.smtp.username}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      smtp: { ...formData.smtp, username: e.target.value }
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="your-email@gmail.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SMTP Password
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.smtp.password}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      smtp: { ...formData.smtp, password: e.target.value }
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    From Email
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.smtp.from_email}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      smtp: { ...formData.smtp, from_email: e.target.value }
+                    })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="noreply@yourdomain.com"
+                  />
+                </div>
+
+                <div className="pt-6 border-t">
+                  <button
+                    type="submit"
+                    disabled={updateMutation.isPending}
+                    className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
+                  >
+                    <Save className="w-5 h-5" />
+                    {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

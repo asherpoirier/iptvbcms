@@ -1,0 +1,89 @@
+/* Dark Theme Support */
+.dark {
+  background-color: #111827 !important;
+  color: #f9fafb !important;
+}
+
+.dark body {
+  background-color: #111827 !important;
+}
+
+.dark .bg-white {
+  background-color: #1f2937 !important;
+}
+
+.dark .bg-gray-50 {
+  background-color: #111827 !important;
+}
+
+.dark .bg-gray-100 {
+  background-color: #1f2937 !important;
+}
+
+.dark .bg-gray-900 {
+  background-color: #030712 !important;
+}
+
+.dark .text-gray-900 {
+  color: #f9fafb !important;
+}
+
+.dark .text-gray-800 {
+  color: #e5e7eb !important;
+}
+
+.dark .text-gray-700 {
+  color: #d1d5db !important;
+}
+
+.dark .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+.dark .text-gray-500 {
+  color: #6b7280 !important;
+}
+
+.dark .border-gray-200 {
+  border-color: #374151 !important;
+}
+
+.dark .border-gray-300 {
+  border-color: #4b5563 !important;
+}
+
+.dark .shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5) !important;
+}
+
+.dark .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
+}
+
+.dark .shadow-xl {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* CSS Variables for Dynamic Theming */
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #7c3aed;
+  --accent-color: #059669;
+}
+
+/* Apply theme colors */
+.bg-primary { background-color: var(--primary-color) !important; }
+.text-primary { color: var(--primary-color) !important; }
+.border-primary { border-color: var(--primary-color) !important; }
+.bg-secondary { background-color: var(--secondary-color) !important; }
+.text-secondary { color: var(--secondary-color) !important; }
+.bg-accent { background-color: var(--accent-color) !important; }
+.text-accent { color: var(--accent-color) !important; }
+
+/* Hide Emergent Badge */
+#emergent-badge {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Global Styles */\n* {\n  margin: 0;\n  padding: 0;\n  box-sizing: border-box;\n}\n\nbody {\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',\n    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',\n    sans-serif;\n  -webkit-font-smoothing: antialiased;\n  -moz-osx-font-smoothing: grayscale;\n  background-color: #f9fafb;\n}\n\ncode {\n  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,\n    'Courier New', monospace;\n}\n\n/* Animations */\n@keyframes fadeIn {\n  from {\n    opacity: 0;\n    transform: translateY(10px);\n  }\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n.fade-in {\n  animation: fadeIn 0.3s ease-in-out;\n}\n\n/* Custom Scrollbar */\n::-webkit-scrollbar {\n  width: 8px;\n  height: 8px;\n}\n\n::-webkit-scrollbar-track {\n  background: #f1f1f1;\n}\n\n::-webkit-scrollbar-thumb {\n  background: #cbd5e1;\n  border-radius: 4px;\n}\n\n::-webkit-scrollbar-thumb:hover {\n  background: #94a3b8;\n}\n\n/* Button Styles */\nbutton:focus {\n  outline: none;\n  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);\n}\n\n/* Form Input Styles */\ninput:focus,\ntextarea:focus,\nselect:focus {\n  outline: none;\n}\n\n/* Card Hover Effects */\n.card-hover {\n  transition: all 0.3s ease;\n}\n\n.card-hover:hover {\n  transform: translateY(-4px);\n  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);\n}\n\n/* Gradient Backgrounds */\n.gradient-blue {\n  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);\n}\n\n.gradient-purple {\n  background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);\n}\n\n.gradient-green {\n  background: linear-gradient(135deg, #059669 0%, #047857 100%);\n}\n\n/* Status Badges */\n.status-active {\n  background-color: #d1fae5;\n  color: #065f46;\n}\n\n.status-pending {\n  background-color: #fef3c7;\n  color: #92400e;\n}\n\n.status-suspended {\n  background-color: #fee2e2;\n  color: #991b1b;\n}\n\n/* Loading Spinner */\n.spinner {\n  border: 3px solid #f3f4f6;\n  border-top: 3px solid #2563eb;\n  border-radius: 50%;\n  width: 40px;\n  height: 40px;\n  animation: spin 1s linear infinite;\n}\n\n@keyframes spin {\n  0% { transform: rotate(0deg); }\n  100% { transform: rotate(360deg); }\n}\n\n/* Table Styles */\ntable {\n  border-collapse: collapse;\n  width: 100%;\n}\n\nthead {\n  background-color: #f9fafb;\n}\n\ntbody tr:hover {\n  background-color: #f9fafb;\n}\n\n/* Utility Classes */\n.shadow-soft {\n  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);\n}\n\n.shadow-medium {\n  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);\n}\n\n.shadow-large {\n  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);\n}\n\n/* Responsive */\n@media (max-width: 768px) {\n  .hide-mobile {\n    display: none;\n  }\n}\n\n/* Toast/Alert Animations */\n.toast-enter {\n  animation: slideInRight 0.3s ease-out;\n}\n\n@keyframes slideInRight {\n  from {\n    transform: translateX(100%);\n    opacity: 0;\n  }\n  to {\n    transform: translateX(0);\n    opacity: 1;\n  }\n}\n\n/* Pricing Card Special Effects */\n.pricing-card {\n  position: relative;\n  overflow: hidden;\n}\n\n.pricing-card::before {\n  content: '';\n  position: absolute;\n  top: 0;\n  left: -100%;\n  width: 100%;\n  height: 100%;\n  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);\n  transition: left 0.5s;\n}\n\n.pricing-card:hover::before {\n  left: 100%;\n}\n\n/* Dashboard Card Stats */\n.stat-card {\n  background: white;\n  border-radius: 0.5rem;\n  padding: 1.5rem;\n  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);\n  transition: all 0.3s;\n}\n\n.stat-card:hover {\n  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);\n  transform: translateY(-2px);\n}\n\n/* Copy Button Feedback */\n.copy-success {\n  animation: pulse 0.5s ease-in-out;\n}\n\n@keyframes pulse {\n  0%, 100% {\n    transform: scale(1);\n  }\n  50% {\n    transform: scale(1.1);\n  }\n}\n

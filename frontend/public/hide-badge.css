@@ -1,0 +1,10 @@
+/* Force hide Emergent badge */
+#emergent-badge,
+a[href*="emergent.sh"],
+[id*="emergent"],
+[class*="emergent-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
