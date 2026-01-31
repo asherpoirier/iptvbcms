@@ -10,6 +10,7 @@ import PaymentGatewaySettings from '../components/PaymentGatewaySettings';
 import EmailSettings from '../components/EmailSettings';
 import CreditReferralSettings from '../components/CreditReferralSettings';
 import LicenseSettings from '../components/LicenseSettings';
+import UpdateManager from '../components/UpdateManager';
 import NotificationSettings from '../components/NotificationSettings';
 
 export default function AdminSettings() {
@@ -42,90 +43,91 @@ export default function AdminSettings() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">System Settings</h1>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
-          {/* Tabs */}
-          <div className="border-b border-gray-200">
-            <nav className="flex -mb-px">
+        <div className="grid lg:grid-cols-4 gap-6">
+          {/* Sidebar Navigation */}
+          <div className="lg:col-span-1">
+            <nav className="bg-white dark:bg-gray-900 rounded-lg shadow p-2 space-y-1">
               <button
                 onClick={() => setActiveTab('panels')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'panels' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'panels' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-panels"
               >
                 XtreamUI Panels
               </button>
               <button
                 onClick={() => setActiveTab('xuione')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'xuione' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'xuione' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-xuione"
               >
                 XuiOne Panels
               </button>
               <button
                 onClick={() => setActiveTab('branding')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'branding' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'branding' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-branding"
               >
                 Branding
               </button>
               <button
                 onClick={() => setActiveTab('payment')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'payment' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'payment' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-payment"
               >
                 Payment Gateways
               </button>
               <button
                 onClick={() => setActiveTab('smtp')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'smtp' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'smtp' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-smtp"
               >
                 Email (SMTP)
               </button>
               <button
                 onClick={() => setActiveTab('credits')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'credits' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'credits' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-credits"
               >
                 Credits & Referrals
               </button>
               <button
                 onClick={() => setActiveTab('notifications')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'notifications' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'notifications' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-notifications"
               >
                 Notifications
               </button>
               <button
                 onClick={() => setActiveTab('license')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'license' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-                data-testid="tab-license"
               >
                 License
+              </button>
+              <button
+                onClick={() => setActiveTab('updates')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'updates' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Updates
               </button>
             </nav>
           </div>
 
-          {/* Tab Content */}
-          <div className="p-6">
+          {/* Content Area */}
+          <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-lg shadow">
+            <div className="p-6">
             {/* Panels Tab - Uses PanelManagement component */}
             {activeTab === 'panels' && (
               <PanelManagement settings={settings} />
@@ -165,6 +167,12 @@ export default function AdminSettings() {
             {activeTab === 'license' && (
               <LicenseSettings settings={settings} />
             )}
+            
+            {/* Updates Tab */}
+            {activeTab === 'updates' && (
+              <UpdateManager />
+            )}
+            </div>
           </div>
         </div>
       </main>

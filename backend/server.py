@@ -5210,6 +5210,84 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
+
+# ===== UPDATE SYSTEM ENDPOINTS =====
+
+from update_manager import update_manager
+
+@app.get("/api/admin/updates/check")
+async def check_for_updates(current_user: dict = Depends(get_current_admin_user)):
+    """Check if updates are available from GitHub"""
+    result = update_manager.check_for_updates()
+    return result
+
+@app.post("/api/admin/updates/apply")
+async def apply_update(current_user: dict = Depends(get_current_admin_user)):
+    """Apply available updates with backup"""
+    try:
+        # Create backup first
+        backup_path = update_manager.create_backup()
+        
+        # Apply update
+        result = update_manager.apply_update(backup_path)
+        
+        if result.get("success"):
+            # Restart services in background
+            import threading
+            def restart_delayed():
+                import time
+                time.sleep(2)
+                update_manager.restart_services()
+            
+            thread = threading.Thread(target=restart_delayed)
+            thread.start()
+            
+            return {
+                "message": "Update applied successfully. Services will restart in 2 seconds.",
+                "version": result.get("version"),
+                "backup_path": backup_path
+            }
+        else:
+            return {
+                "message": f"Update failed: {result.get('error')}. {'Rolled back to backup.' if result.get('rolled_back') else ''}",
+                "error": result.get("error")
+            }
+            
+    except Exception as e:
+        logger.error(f"Update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/updates/backups")
+async def list_backups(current_user: dict = Depends(get_current_admin_user)):
+    """List available backups"""
+    backups = update_manager.list_backups()
+    return {"backups": backups}
+
+@app.post("/api/admin/updates/rollback/{backup_name}")
+async def rollback_to_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
+    """Rollback to a specific backup"""
+    backup_path = f"/app/backups/{backup_name}"
+    
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    success = update_manager.rollback(backup_path)
+    
+    if success:
+        # Restart services
+        import threading
+        def restart_delayed():
+            import time
+            time.sleep(2)
+            update_manager.restart_services()
+        
+        thread = threading.Thread(target=restart_delayed)
+        thread.start()
+        
+        return {"message": "Rollback successful. Services will restart in 2 seconds."}
+    else:
+        raise HTTPException(status_code=500, detail="Rollback failed")
+
 @app.delete("/api/admin/imported-users/{user_id}")
 async def delete_imported_user(user_id: str, current_user: dict = Depends(get_current_admin_user)):
     """Delete an imported user from the billing panel only (does NOT delete from XtreamUI)"""
