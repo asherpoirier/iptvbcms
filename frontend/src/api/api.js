@@ -81,6 +81,9 @@ export const adminAPI = {
   getCustomerDetails: (id) => api.get(`/api/admin/customers/${id}`),
   updateCustomer: (id, data) => api.put(`/api/admin/customers/${id}`, data),
   deleteCustomer: (id) => api.delete(`/api/admin/customers/${id}`),
+  changeCustomerPassword: (id, newPassword) => api.post(`/api/admin/customers/${id}/change-password`, null, {
+    params: { new_password: newPassword }
+  }),
   getOrders: () => api.get('/api/admin/orders'),
   markOrderPaid: (id) => api.post(`/api/admin/orders/${id}/mark-paid`),
   cancelOrder: (id) => api.post(`/api/admin/orders/${id}/cancel`),

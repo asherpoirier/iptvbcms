@@ -2008,35 +2008,70 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
         }
     )
     
-    # Send email notification to user
-    try:
-        user = await users_collection.find_one({"_id": str_to_objectid(ticket["user_id"])})
-        if user:
-            settings = await get_settings()
-            smtp_settings = settings.get("smtp", {})
-            branding = settings.get("branding", {})
-            email_service = get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding)
-            if email_service and email_service.enabled:
-                if new_status == "closed":
-                    await email_service.send_ticket_closed(
-                        user["email"],
-                        user["name"],
-                        ticket_id,
-                        ticket["subject"]
-                    )
-                else:
-                    await email_service.send_ticket_reply(
-                        user["email"],
-                        user["name"],
-                        ticket_id,
-                        ticket["subject"],
-                        reply["message"],
-                        "Support Team"
-                    )
-    except Exception as e:
-        logger.error(f"Failed to send ticket reply email: {e}")
+    return {"message": "Ticket status updated"}
+
+
+@app.post("/api/admin/customers/{customer_id}/change-password")
+async def admin_change_customer_password(
+    customer_id: str,
+    new_password: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Admin changes a customer's password"""
+    user = await users_collection.find_one({"_id": str_to_objectid(customer_id)})
     
-    return {"message": "Reply added successfully"}
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Hash the new password
+    hashed_password = get_password_hash(new_password)
+    
+    # Update password
+    await users_collection.update_one(
+        {"_id": str_to_objectid(customer_id)},
+        {"$set": {"password": hashed_password}}
+    )
+    
+    logger.info(f"Admin {current_user['sub']} changed password for user {customer_id}")
+    
+    return {"message": "Password changed successfully"}
+
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/api/admin/change-password")
+async def admin_change_own_password(
+    request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Admin changes their own password"""
+    admin_id = current_user["sub"]
+    
+    # Get admin user
+    admin = await users_collection.find_one({"_id": str_to_objectid(admin_id)})
+    
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin user not found")
+    
+    # Verify current password
+    if not verify_password(request.current_password, admin["password"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Hash new password
+    hashed_password = get_password_hash(request.new_password)
+    
+    # Update password
+    await users_collection.update_one(
+        {"_id": str_to_objectid(admin_id)},
+        {"$set": {"password": hashed_password}}
+    )
+    
+    logger.info(f"Admin {admin_id} changed their own password")
+    
+    return {"message": "Password changed successfully. Please login again."}
 
 @app.put("/api/admin/tickets/{ticket_id}/status")
 async def update_ticket_status(ticket_id: str, status_update: dict, current_user: dict = Depends(get_current_admin_user)):
@@ -2180,6 +2215,14 @@ async def update_customer(customer_id: str, update_data: dict, current_user: dic
     update_fields = {}
     if "name" in update_data:
         update_fields["name"] = update_data["name"]
+
+
+@app.get("/api/refunds/enabled")
+async def check_refunds_enabled():
+    """Public endpoint to check if refunds are enabled (no auth required)"""
+    settings = await get_settings()
+    return {"enabled": settings.get("refunds_enabled", True)}
+
     if "email" in update_data:
         # Check if new email already exists
         existing = await users_collection.find_one({"email": update_data["email"], "_id": {"$ne": str_to_objectid(customer_id)}})

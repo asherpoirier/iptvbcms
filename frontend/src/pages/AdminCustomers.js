@@ -355,6 +355,23 @@ function CustomerDetailsModal({ customer, onClose }) {
                   </p>
                 </div>
               </div>
+              <div className="mt-4">
+                <button
+                  onClick={() => {
+                    const newPassword = prompt('Enter new password for customer:');
+                    if (newPassword && newPassword.length >= 6) {
+                      adminAPI.changeCustomerPassword(customer.id, newPassword)
+                        .then(() => alert('Password changed successfully!'))
+                        .catch(err => alert('Failed to change password: ' + (err.response?.data?.detail || err.message)));
+                    } else if (newPassword) {
+                      alert('Password must be at least 6 characters');
+                    }
+                  }}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold"
+                >
+                  Change Password
+                </button>
+              </div>
             </div>
 
             {/* Services */}
@@ -530,10 +547,11 @@ function EditCustomerModal({ customer, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              disabled={saveMutation.isLoading}
+              disabled={updateMutation.isLoading}
               className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50"
+              data-testid="save-customer-btn"
             >
-              {saveMutation.isLoading ? 'Saving...' : 'Save Changes'}
+              {updateMutation.isLoading ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

@@ -25,16 +25,21 @@ export default function ServicesPage() {
     },
   });
 
-  // Fetch settings to check if refunds are enabled
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
+  // Fetch refunds setting (public endpoint, no auth required)
+  const { data: refundsData, isLoading: refundsLoading } = useQuery({
+    queryKey: ['refunds-enabled'],
     queryFn: async () => {
-      const response = await adminAPI.getSettings();
-      return response.data;
+      // Use axios directly without auth interceptor for public endpoint
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001'}/api/refunds/enabled`);
+      return response.json();
     },
   });
 
-  const refundsEnabled = settings?.refunds_enabled ?? true;
+  // Show button if loading (optimistic) or if explicitly enabled
+  const refundsEnabled = refundsLoading || refundsData?.enabled === true;
+  
+  // Debug log
+  console.log('Refunds loading:', refundsLoading, 'Refunds data:', refundsData, 'Button visible:', refundsEnabled);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
