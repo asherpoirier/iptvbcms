@@ -205,14 +205,15 @@ export default function AdminDashboard() {
               </Link>
 
               <Link
-                to="/admin/licenses"
+                to="/admin/imported-users"
                 className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-                data-testid="licenses-link"
+                data-testid="imported-users-link"
               >
-                <Key className="w-8 h-8 text-amber-600 mx-auto mb-2" />
-                <h3 className="font-semibold text-gray-900 dark:text-white">Licenses</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Manage license keys</p>
+                <Users className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+                <h3 className="font-semibold text-gray-900 dark:text-white">Imported Users</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">XtreamUI & XuiOne users</p>
               </Link>
+
             </div>
 
             {/* Recent Orders */}
@@ -221,6 +222,7 @@ export default function AdminDashboard() {
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white">Recent Orders</h2>
                 </div>
+
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 dark:bg-gray-800">

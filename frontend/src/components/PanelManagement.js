@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Save, Plus, Edit, Trash2, Server, X, Check, Package, BookOpen } from 'lucide-react';
+import { Save, Plus, Edit, Trash2, Server, X, Check, Package, BookOpen, Users } from 'lucide-react';
 
 export default function PanelManagement({ settings }) {
   const queryClient = useQueryClient();
@@ -11,6 +11,7 @@ export default function PanelManagement({ settings }) {
   const [testingPanelId, setTestingPanelId] = useState(null);
   const [syncingPackages, setSyncingPackages] = useState(null);
   const [syncingBouquets, setSyncingBouquets] = useState(null);
+  const [syncingUsers, setSyncingUsers] = useState(null);
 
   const updateMutation = useMutation({
     mutationFn: (data) => {
@@ -67,6 +68,21 @@ export default function PanelManagement({ settings }) {
     },
   });
 
+  const syncUsersMutation = useMutation({
+    mutationFn: (panelIndex) => adminAPI.syncUsersFromPanel(panelIndex),
+    onSuccess: (response, panelIndex) => {
+      const syncedCount = response.data?.synced || 0;
+      const updatedCount = response.data?.updated || 0;
+      const panelName = response.data?.panel_name || 'panel';
+      alert(`✓ User sync from ${panelName} complete:\n• ${syncedCount} new users imported\n• ${updatedCount} existing users updated`);
+      setSyncingUsers(null);
+    },
+    onError: (error, panelIndex) => {
+      alert(`Failed to sync users: ${error.response?.data?.detail || error.message}`);
+      setSyncingUsers(null);
+    },
+  });
+
   const handleAddPanel = () => {
     setEditingPanel({
       name: '',
@@ -107,6 +123,11 @@ export default function PanelManagement({ settings }) {
     updateMutation.mutate(newPanels);
     setShowModal(false);
     setEditingPanel(null);
+  };
+
+  const handleSyncUsers = (index) => {
+    setSyncingUsers(index);
+    syncUsersMutation.mutate(index);
   };
 
   const handleTestPanel = (panel, index) => {
@@ -199,6 +220,16 @@ export default function PanelManagement({ settings }) {
                     <BookOpen className="w-4 h-4" />
                     {syncingBouquets === index ? 'Syncing...' : 'Sync Bouquets'}
                   </button>
+                  <button
+                    onClick={() => handleSyncUsers(index)}
+                    disabled={syncingUsers === index}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 disabled:opacity-50 border border-indigo-200"
+                    title="Sync Users"
+                  >
+                    <Users className="w-4 h-4" />
+                    {syncingUsers === index ? 'Syncing...' : 'Sync Users'}
+                  </button>
+
                 </div>
               </div>
               <div className="flex gap-2">
@@ -304,7 +335,7 @@ function PanelFormModal({ panel, onClose, onSave }) {
               value={formData.panel_url}
               onChange={(e) => setFormData({ ...formData, panel_url: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              placeholder="https://whmcs:whmcs@redteam.nexus"
+              placeholder="https://yourpanel.com:port"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               API endpoint for panel management (include HTTP auth if needed)
@@ -321,7 +352,7 @@ function PanelFormModal({ panel, onClose, onSave }) {
               value={formData.streaming_url}
               onChange={(e) => setFormData({ ...formData, streaming_url: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              placeholder="http://streaming.example.com:8000"
+              placeholder="https://streaming.example.com:8000"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               URL sent to customers for their IPTV player connections (without auth)
@@ -338,7 +369,7 @@ function PanelFormModal({ panel, onClose, onSave }) {
               value={formData.admin_username}
               onChange={(e) => setFormData({ ...formData, admin_username: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              placeholder="whmcs"
+              placeholder="username"
             />
           </div>
 
@@ -352,7 +383,7 @@ function PanelFormModal({ panel, onClose, onSave }) {
               value={formData.admin_password}
               onChange={(e) => setFormData({ ...formData, admin_password: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              placeholder="••••••••"
+              placeholder="password"
             />
           </div>
 

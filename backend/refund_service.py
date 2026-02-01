@@ -11,6 +11,7 @@ class RefundService:
         self.refunds = db.refunds
         self.orders = db.orders
         self.invoices = db.invoices
+        self.users = db.users
         self.credit_service = credit_service
     
     async def request_refund(
@@ -23,8 +24,15 @@ class RefundService:
         reason: str
     ) -> str:
         """Create a refund request"""
-        # Validate order
-        order = await self.orders.find_one({"_id": order_id, "user_id": user_id})
+        # Validate order (handle both ObjectId and string IDs)
+        from bson import ObjectId
+        try:
+            # Try as ObjectId first
+            order = await self.orders.find_one({"_id": ObjectId(order_id), "user_id": user_id})
+        except:
+            # Fallback to string ID
+            order = await self.orders.find_one({"_id": order_id, "user_id": user_id})
+        
         if not order:
             raise ValueError("Order not found")
         
@@ -40,19 +48,27 @@ class RefundService:
         if existing:
             raise ValueError("Order already refunded")
         
-        # Validate amount
-        if amount > order.get("total", 0):
-            raise ValueError("Refund amount exceeds order total")
+        # Validate amount (use order total if amount exceeds or is 0)
+        order_total = order.get("total", 0)
+        if amount > order_total or amount == 0:
+            amount = order_total  # Default to full order amount
+        
+        # Get user info for display
+        user = await self.users.find_one({"_id": ObjectId(user_id)})
         
         # Create refund request
         refund = {
             "order_id": order_id,
             "user_id": user_id,
+            "user_name": user.get("name", "Unknown") if user else "Unknown",
+            "user_email": user.get("email", "N/A") if user else "N/A",
             "amount": amount,
+            "order_total": order_total,
             "refund_type": refund_type,
             "method": method,
             "reason": reason,
             "status": "pending",
+            "created_at": datetime.utcnow(),
             "requested_at": datetime.utcnow()
         }
         
@@ -63,7 +79,15 @@ class RefundService:
     
     async def approve_refund(self, refund_id: str, admin_id: str, notes: str = ""):
         """Approve and process refund"""
-        refund = await self.refunds.find_one({"_id": refund_id})
+        from bson import ObjectId
+        
+        # Convert refund_id to ObjectId
+        try:
+            refund_oid = ObjectId(refund_id)
+        except:
+            refund_oid = refund_id  # Fallback to string
+        
+        refund = await self.refunds.find_one({"_id": refund_oid})
         if not refund:
             raise ValueError("Refund not found")
         
@@ -72,7 +96,7 @@ class RefundService:
         
         # Update status to approved
         await self.refunds.update_one(
-            {"_id": refund_id},
+            {"_id": refund_oid},
             {"$set": {
                 "status": "approved",
                 "processed_by": admin_id,

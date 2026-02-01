@@ -2,6 +2,7 @@ import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, Dict, List
+from datetime import datetime
 import logging
 import asyncio
 import os
@@ -13,13 +14,14 @@ class EmailService:
     
     def __init__(self, smtp_host: str, smtp_port: int, smtp_username: str, 
                  smtp_password: str, from_email: str, from_name: str = "Digital Services",
-                 email_logger=None, unsubscribe_manager=None, db=None):
+                 email_logger=None, unsubscribe_manager=None, db=None, branding=None):
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
         self.smtp_username = smtp_username
         self.smtp_password = smtp_password
         self.from_email = from_email
-        self.from_name = from_name
+        # Use site name from branding if provided
+        self.from_name = branding.get("site_name", from_name) if branding else from_name
         self.enabled = bool(smtp_host and smtp_username and smtp_password)
         
         # Integration with logging and unsubscribe
@@ -297,7 +299,7 @@ class EmailService:
         customer_id: str = None
     ):
         """Send order confirmation email using template"""
-        if not self.db:
+        if self.db is None:
             logger.error("Database not configured for template emails")
             return False
         
@@ -353,7 +355,7 @@ class EmailService:
         customer_id: str = None
     ):
         """Send service activated email with credentials"""
-        if not self.db:
+        if self.db is None:
             return False
         
         template = await self.db.email_templates.find_one({
@@ -393,12 +395,341 @@ class EmailService:
             customer_id=customer_id,
             recipient_name=customer_name
         )
+    
+    async def send_payment_received(
+        self,
+        user_email: str,
+        user_name: str,
+        order_id: str,
+        total: float
+    ):
+        """Send payment received email using template"""
+        if self.db is None:
+            # Fallback to simple email if no DB
+            content = f"""
+            <h2>Payment Received</h2>
+            <p>Hi {user_name},</p>
+            <p>We have received your payment of <strong>${total:.2f}</strong> for order #{order_id}.</p>
+            <p>Thank you for your payment!</p>
+            """
+            
+            return await self.send_email(
+                to_email=user_email,
+                subject=f"Payment Received - ${total:.2f}",
+                html_content=self._wrap_email(content, "Payment Received", user_email, "transactional"),
+                email_type="transactional",
+                recipient_name=user_name
+            )
+        
+        # Get template from database
+        template = await self.db.email_templates.find_one({
+            "template_type": "payment_received",
+            "is_active": True
+        })
+        
+        if not template:
+            logger.warning("Payment received template not found, using fallback")
+            # Fallback to simple email
+            content = f"""
+            <h2>Payment Received</h2>
+            <p>Hi {user_name},</p>
+            <p>We have received your payment of <strong>${total:.2f}</strong> for order #{order_id}.</p>
+            <p>Thank you for your payment!</p>
+            """
+            
+            return await self.send_email(
+                to_email=user_email,
+                subject=f"Payment Received - ${total:.2f}",
+                html_content=self._wrap_email(content, "Payment Received", user_email, "transactional"),
+                email_type="transactional",
+                recipient_name=user_name
+            )
+        
+        # Use template with variable replacement
+        from datetime import datetime
+        
+        subject = template["subject"].replace("{{amount}}", f"{total:.2f}")
+        content = template["html_content"]
+        content = content.replace("{{customer_name}}", user_name)
+        content = content.replace("{{amount}}", f"{total:.2f}")
+        content = content.replace("{{order_id}}", order_id)
+        content = content.replace("{{payment_method}}", "Manual")
+        content = content.replace("{{payment_date}}", datetime.utcnow().strftime("%Y-%m-%d %H:%M"))
+        
+        wrapped_content = self._wrap_email(content, template["name"], user_email, "transactional")
+        
+        return await self.send_email(
+            to_email=user_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="payment_received",
+            customer_id=None,
+            order_id=order_id,
+            recipient_name=user_name
+        )
+    
+    async def send_reseller_activated(
+        self,
+        customer_email: str,
+        customer_name: str,
+        service_name: str,
+        username: str,
+        password: str,
+        panel_url: str,
+        credits: int,
+        expiry_date: str,
+        customer_id: str = None
+    ):
+        """Send reseller panel activated email"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "reseller_activated",
+            "is_active": True
+        })
+        
+        if not template:
+            # Fallback email
+            content = f"""
+            <h2>Your Reseller Panel is Ready!</h2>
+            <p>Hi {customer_name},</p>
+            <p>Your reseller panel has been activated with <strong>{credits} credits</strong>.</p>
+            <p><strong>Panel URL:</strong> {panel_url}</p>
+            <p><strong>Username:</strong> {username}</p>
+            <p><strong>Password:</strong> {password}</p>
+            <p><strong>Credits:</strong> {credits}</p>
+            <p>Login to your panel and start creating subscriber accounts!</p>
+            """
+            
+            return await self.send_email(
+                to_email=customer_email,
+                subject=f"Reseller Panel Activated - {credits} Credits",
+                html_content=self._wrap_email(content, "Reseller Activated", customer_email, "transactional"),
+                email_type="transactional",
+                customer_id=customer_id,
+                recipient_name=customer_name
+            )
+        
+        # Use template
+        variables = {
+            "customer_name": customer_name,
+            "panel_url": panel_url,
+            "username": username,
+            "password": password,
+            "credits": str(credits),
+            "expiry_date": expiry_date
+        }
+        
+        # Replace variables in template
+        subject = template["subject"]
+        content = template["html_content"]
+        
+        for key, value in variables.items():
+            content = content.replace(f"{{{{{key}}}}}", str(value))
+            subject = subject.replace(f"{{{{{key}}}}}", str(value))
+        
+        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="reseller_activated",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
 
+    async def send_email_verification(
+        self,
+        customer_email: str,
+        customer_name: str,
+        verification_link: str,
+        customer_id: str = None
+    ):
+        """Send email verification using template"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "email_verification",
+            "is_active": True
+        })
+        
+        if not template:
+            logger.warning("Email verification template not found, using fallback")
+            # Fallback
+            content = f"""
+            <h2>Welcome to IPTV Billing!</h2>
+            <p>Hi {customer_name},</p>
+            <p>Thank you for registering. Please verify your email address to activate your account.</p>
+            <p style="margin: 2rem 0;">
+                <a href="{verification_link}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">
+                    Verify Email Address
+                </a>
+            </p>
+            <p>Or copy this link:</p>
+            <p style="background: #f3f4f6; padding: 1rem; border-radius: 4px; word-break: break-all;">{verification_link}</p>
+            """
+            return await self.send_email(
+                to_email=customer_email,
+                subject="Verify Your Email - IPTV Billing",
+                html_content=self._wrap_email(content, "Email Verification", customer_email, "transactional"),
+                email_type="transactional",
+                customer_id=customer_id,
+                recipient_name=customer_name
+            )
+        
+        # Use template
+        subject = template["subject"]
+        content = template["html_content"]
+        content = content.replace("{{customer_name}}", customer_name)
+        content = content.replace("{{verification_link}}", verification_link)
+        
+        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="email_verification",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
+    
+    async def send_welcome_email(
+        self,
+        customer_email: str,
+        customer_name: str,
+        customer_id: str = None
+    ):
+        """Send welcome email using template"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "welcome",
+            "is_active": True
+        })
+        
+        if not template:
+            logger.warning("Welcome email template not found")
+            return False
+        
+        # Use template with variable replacement
+        subject = template["subject"]
+        content = template["html_content"]
+        
+        # Replace all variables
+        content = content.replace("{{customer_name}}", customer_name)
+        content = content.replace("{{company_name}}", self.from_name)
+        content = content.replace("{{dashboard_link}}", f"{self.backend_url}/dashboard")
+        subject = subject.replace("{{company_name}}", self.from_name)
+        
+        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="welcome",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
+    
+    async def send_service_renewed(
+        self,
+        customer_email: str,
+        customer_name: str,
+        service_name: str,
+        username: str,
+        new_expiry_date: str,
+        customer_id: str = None
+    ):
+        """Send service renewed email using template"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "service_renewed",
+            "is_active": True
+        })
+        
+        if not template:
+            logger.warning("Service renewed template not found")
+            return False
+        
+        # Use template
+        subject = template["subject"]
+        content = template["html_content"]
+        content = content.replace("{{customer_name}}", customer_name)
+        content = content.replace("{{service_name}}", service_name)
+        content = content.replace("{{username}}", username)
+        content = content.replace("{{new_expiry_date}}", new_expiry_date)
+        
+        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="service_renewed",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
+    
+    async def send_credits_added(
+        self,
+        customer_email: str,
+        customer_name: str,
+        username: str,
+        credits: int,
+        customer_id: str = None
+    ):
+        """Send credits added email using template"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "credits_added",
+            "is_active": True
+        })
+        
+        if not template:
+            logger.warning("Credits added template not found")
+            return False
+        
+        # Use template
+        subject = template["subject"]
+        subject = subject.replace("{{credits}}", str(credits))
+        
+        content = template["html_content"]
+        content = content.replace("{{customer_name}}", customer_name)
+        content = content.replace("{{username}}", username)
+        content = content.replace("{{credits}}", str(credits))
+        
+        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped_content,
+            email_type="transactional",
+            template_type="credits_added",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
 
 # Global email service instance
 _email_service = None
 
-def get_email_service(smtp_settings: dict, email_logger=None, unsubscribe_manager=None, db=None):
+
+def get_email_service(smtp_settings: dict, email_logger=None, unsubscribe_manager=None, db=None, branding=None):
     """Get or create email service instance"""
     global _email_service
     
@@ -414,7 +745,8 @@ def get_email_service(smtp_settings: dict, email_logger=None, unsubscribe_manage
         from_name=smtp_settings.get("from_name", "Digital Services"),
         email_logger=email_logger,
         unsubscribe_manager=unsubscribe_manager,
-        db=db
+        db=db,
+        branding=branding
     )
     
     return _email_service

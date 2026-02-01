@@ -264,28 +264,27 @@ export default function PaymentGatewaySettings({ settings }) {
                 </div>
               </>
             ) : (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
-                <p className="text-sm text-green-800 dark:text-green-200">
-                  ✓ <strong>Test Mode:</strong> Using Emergent Stripe Key - Supports Bitcoin, USDC, ETH, and cards for testing
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  ℹ <strong>Test Mode:</strong> Using Stripe sandbox environment for testing. Use test card: 4242 4242 4242 4242
                 </p>
               </div>
             )}
             
-            <div className="flex items-center gap-3 pt-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.stripe_crypto_enabled}
-                  onChange={(e) => setFormData({ ...formData, stripe_crypto_enabled: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
-              </label>
-              <span className="text-sm text-gray-700 dark:text-gray-300">Enable crypto payments (Bitcoin, USDC, ETH)</span>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mt-4">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Stripe Test Cards</h4>
+              <div className="space-y-2 text-sm">
+                <p className="text-gray-700 dark:text-gray-300"><code className="bg-white dark:bg-gray-900 px-2 py-1 rounded">4242 4242 4242 4242</code> - Visa (Success)</p>
+                <p className="text-gray-700 dark:text-gray-300"><code className="bg-white dark:bg-gray-900 px-2 py-1 rounded">4000 0025 0000 3155</code> - Visa (3D Secure)</p>
+                <p className="text-gray-700 dark:text-gray-300"><code className="bg-white dark:bg-gray-900 px-2 py-1 rounded">4000 0000 0000 9995</code> - Visa (Declined)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Use any future expiry date and any 3-digit CVC</p>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Remove crypto toggle for standard Stripe */}
 
       {/* PayPal */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">

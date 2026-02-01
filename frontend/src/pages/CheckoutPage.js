@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ordersAPI } from '../api/api';
+import { ordersAPI, servicesAPI } from '../api/api';
 import { useCartStore, useAuthStore } from '../store/store';
-import { ArrowLeft, ShoppingCart, Trash2, AlertCircle, CreditCard, Bitcoin, Copy, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Trash2, AlertCircle, CreditCard, Bitcoin, Copy, CheckCircle, Loader2, RefreshCw, Plus } from 'lucide-react';
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import SquarePaymentForm from '../components/SquarePaymentForm';
 import CheckoutCouponCredits from '../components/CheckoutCouponCredits';
@@ -15,7 +15,7 @@ const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { items, removeItem, clearCart, getTotal } = useCartStore();
+  const { items, removeItem, clearCart, getTotal, updateItemAction } = useCartStore();
   const [error, setError] = React.useState('');
   const [paymentMethod, setPaymentMethod] = useState('manual');
   const [currentOrderId, setCurrentOrderId] = useState(null);
@@ -26,11 +26,31 @@ export default function CheckoutPage() {
   const [appliedCouponCode, setAppliedCouponCode] = useState(null);
   const [creditsUsed, setCreditsUsed] = useState(0);
   
+  // Reseller credentials state
+  const [resellerUsername, setResellerUsername] = useState('');
+  const [resellerPassword, setResellerPassword] = useState('');
+  
   // Blockonomics Bitcoin payment state
   const [btcPaymentData, setBtcPaymentData] = useState(null);
   const [btcPaymentStatus, setBtcPaymentStatus] = useState(null);
   const [btcPolling, setBtcPolling] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
+
+  // Check if cart has reseller products
+  const hasResellerProduct = items.some(item => item.account_type === 'reseller');
+  
+  // Check if cart has subscriber products (for extend/create option)
+  const hasSubscriberProduct = items.some(item => item.account_type === 'subscriber');
+
+  // Fetch user's existing services to show extend option
+  const { data: userServices } = useQuery({
+    queryKey: ['user-services'],
+    queryFn: async () => {
+      const response = await servicesAPI.getAll();
+      return response.data?.filter(s => s.account_type === 'subscriber' && !s.is_credit_addon) || [];
+    },
+    enabled: hasSubscriberProduct, // Only fetch if cart has subscriber products
+  });
 
   // Fetch payment config (public endpoint)
   const { data: settings, isLoading: settingsLoading, error: settingsError } = useQuery({
@@ -75,13 +95,23 @@ export default function CheckoutPage() {
 
     setError('');
     
+    // Validate reseller credentials if needed
+    if (hasResellerProduct && (!resellerUsername || !resellerPassword)) {
+      setError('Please set username and password for your reseller panel');
+      return;
+    }
+    
     const finalTotal = Math.max(0, getTotal() - discountAmount - creditsUsed);
     
     createOrderMutation.mutate({
       items: items,
       total: getTotal(),
       coupon_code: appliedCouponCode,
-      use_credits: creditsUsed
+      use_credits: creditsUsed,
+      reseller_credentials: hasResellerProduct ? {
+        username: resellerUsername,
+        password: resellerPassword
+      } : null
     });
     
     // If fully paid with credits and coupon, redirect to orders
@@ -402,25 +432,80 @@ export default function CheckoutPage() {
               </div>
               <div className="divide-y divide-gray-200">
                 {items.map((item, index) => (
-                  <div key={index} className="p-6 flex justify-between items-start">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{item.product_name}</h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {item.term_months} {item.term_months === 1 ? 'Month' : 'Months'}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">
-                        {item.account_type === 'subscriber' ? 'Subscriber' : 'Reseller'}
-                      </p>
+                  <div key={index} className="p-6">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">{item.product_name}</h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {item.term_months} {item.term_months === 1 ? 'Month' : 'Months'}
+                        </p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          {item.account_type === 'subscriber' ? 'Subscriber' : 'Reseller'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-xl font-bold text-gray-900">${item.price.toFixed(2)}</span>
+                        <button
+                          onClick={() => removeItem(item.product_id, item.term_months)}
+                          className="text-red-600 hover:text-red-700"
+                          data-testid={`remove-item-${index}`}
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xl font-bold text-gray-900">${item.price.toFixed(2)}</span>
-                      <button
-                        onClick={() => removeItem(item.product_id, item.term_months)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
+                    
+                    {/* Extend/Create Option for Subscriber Products */}
+                    {item.account_type === 'subscriber' && userServices && userServices.length > 0 && (
+                      <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                        <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-3">
+                          What would you like to do?
+                        </p>
+                        <div className="space-y-2">
+                          {/* Option to create new line */}
+                          <label className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-transparent has-[:checked]:border-blue-500">
+                            <input
+                              type="radio"
+                              name={`action-${index}`}
+                              checked={!item.action_type || item.action_type === 'create_new'}
+                              onChange={() => updateItemAction(item.product_id, item.term_months, 'create_new', null)}
+                              className="w-4 h-4 text-blue-600"
+                              data-testid={`create-new-${index}`}
+                            />
+                            <Plus className="w-5 h-5 text-green-600" />
+                            <div>
+                              <span className="font-medium text-gray-900 dark:text-white">Create New Line</span>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Get a new subscriber account</p>
+                            </div>
+                          </label>
+                          
+                          <p className="text-xs text-blue-700 dark:text-blue-300 px-2">Or extend one of your existing services:</p>
+                          
+                          {userServices.map((service) => (
+                            <label 
+                              key={service.id} 
+                              className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-transparent has-[:checked]:border-blue-500"
+                            >
+                              <input
+                                type="radio"
+                                name={`action-${index}`}
+                                checked={item.action_type === 'extend' && item.renewal_service_id === service.id}
+                                onChange={() => updateItemAction(item.product_id, item.term_months, 'extend', service.id)}
+                                className="w-4 h-4 text-blue-600"
+                                data-testid={`extend-${service.id}-${index}`}
+                              />
+                              <RefreshCw className="w-5 h-5 text-blue-600" />
+                              <div className="flex-1">
+                                <span className="font-medium text-gray-900 dark:text-white">Extend: {service.xtream_username}</span>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  Expires: {service.expiry_date ? new Date(service.expiry_date).toLocaleDateString() : 'N/A'}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -442,6 +527,62 @@ export default function CheckoutPage() {
                 }}
               />
             </div>
+
+            {/* Reseller Panel Credentials */}
+            {hasResellerProduct && (
+              <div className="mb-6 bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-200 dark:border-purple-700 rounded-lg p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                  </svg>
+                  <h3 className="font-bold text-purple-900 dark:text-purple-200 text-lg">
+                    Reseller Panel Credentials
+                  </h3>
+                </div>
+                
+                <p className="text-sm text-purple-800 dark:text-purple-300 mb-4">
+                  Choose your username and password for your XtreamUI reseller panel. These will be your login credentials.
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-purple-900 dark:text-purple-200 mb-2">
+                      Username *
+                    </label>
+                    <input
+                      type="text"
+                      required={hasResellerProduct}
+                      value={resellerUsername}
+                      onChange={(e) => setResellerUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
+                      placeholder="myreselleraccount"
+                      maxLength="20"
+                    />
+                    <p className="text-xs text-purple-700 dark:text-purple-300 mt-1">
+                      Lowercase letters, numbers, and underscores only (max 20 chars)
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-purple-900 dark:text-purple-200 mb-2">
+                      Password *
+                    </label>
+                    <input
+                      type="password"
+                      required={hasResellerProduct}
+                      value={resellerPassword}
+                      onChange={(e) => setResellerPassword(e.target.value)}
+                      className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
+                      placeholder="Choose a secure password"
+                      minLength="8"
+                    />
+                    <p className="text-xs text-purple-700 dark:text-purple-300 mt-1">
+                      Minimum 8 characters
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow sticky top-4">
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">

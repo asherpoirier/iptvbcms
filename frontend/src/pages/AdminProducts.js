@@ -2,13 +2,26 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users, Grid, List } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 
 export default function AdminProducts() {
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showResellerModal, setShowResellerModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  
+  // Load view mode from localStorage, default to 'card'
+  const [viewMode, setViewMode] = useState(() => {
+    const saved = localStorage.getItem('admin-products-view-mode');
+    return saved || 'card';
+  });
+  
+  // Save view mode to localStorage whenever it changes
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('admin-products-view-mode', mode);
+  };
   
   const { data: products, isLoading } = useQuery({
     queryKey: ['admin-products'],
@@ -27,24 +40,41 @@ export default function AdminProducts() {
     },
   });
 
-  const panels = settings?.xtream?.panels || [];
+  const xtreamPanels = settings?.xtream?.panels || [];
+  const xuionePanels = settings?.xuione?.panels || [];
   
-  const getPanelName = (panelIndex) => {
+  // Combine both panel types with a type indicator
+  const allPanels = [
+    ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index })),
+    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index }))
+  ];
+  
+  // For components that need just XtreamUI panels (like ResellerPackageModal)
+  const panels = xtreamPanels;
+  
+  const getPanelName = (panelIndex, panelType = 'xtream') => {
     if (panelIndex === undefined || panelIndex === null) return 'Default Panel';
-    return panels[panelIndex]?.name || `Panel ${panelIndex}`;
+    
+    if (panelType === 'xuione') {
+      return xuionePanels[panelIndex]?.name || `XuiOne Panel ${panelIndex}`;
+    }
+    return xtreamPanels[panelIndex]?.name || `Panel ${panelIndex}`;
   };
 
-  // Group products by panel
+  // Group products by panel (using both panel_type and panel_index)
   const productsByPanel = React.useMemo(() => {
     if (!products) return {};
     
     const grouped = {};
     products.forEach(product => {
+      const panelType = product.panel_type || 'xtream';
       const panelIndex = product.panel_index ?? 0;
-      if (!grouped[panelIndex]) {
-        grouped[panelIndex] = [];
+      const panelKey = `${panelType}-${panelIndex}`;
+      
+      if (!grouped[panelKey]) {
+        grouped[panelKey] = [];
       }
-      grouped[panelIndex].push(product);
+      grouped[panelKey].push(product);
     });
     
     return grouped;
@@ -57,11 +87,18 @@ export default function AdminProducts() {
 
   const handleEdit = (product) => {
     setEditingProduct(product);
-    setShowModal(true);
+    
+    // Check if it's a reseller product
+    if (product.account_type === 'reseller') {
+      setShowResellerModal(true);  // Show reseller modal
+    } else {
+      setShowModal(true);  // Show subscriber modal
+    }
   };
 
   const handleCloseModal = () => {
     setShowModal(false);
+    setShowResellerModal(false);
     setEditingProduct(null);
   };
 
@@ -99,32 +136,191 @@ export default function AdminProducts() {
               <ArrowLeft className="w-5 h-5" />
               Back to Dashboard
             </Link>
-            <button
-              onClick={handleAddNew}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-5 h-5" />
-              Add New Product
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowResellerModal(true)}
+                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+              >
+                <Plus className="w-5 h-5" />
+                Add Reseller Package
+              </button>
+              <button
+                onClick={handleAddNew}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="w-5 h-5" />
+                Add Subscriber Product
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">Manage Products</h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Manage Products</h1>
+          
+          {/* View Toggle */}
+          <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <button
+              onClick={() => handleViewModeChange('card')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                viewMode === 'card'
+                  ? 'bg-white dark:bg-gray-700 text-blue-600 shadow'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+              }`}
+            >
+              <Grid className="w-4 h-4" />
+              Card View
+            </button>
+            <button
+              onClick={() => handleViewModeChange('list')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                viewMode === 'list'
+                  ? 'bg-white dark:bg-gray-700 text-blue-600 shadow'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+              }`}
+            >
+              <List className="w-4 h-4" />
+              List View
+            </button>
+          </div>
+        </div>
+
+        {/* Reseller Package Modal */}
+        {showResellerModal && (
+          <ResellerPackageModal
+            onClose={() => {
+              setShowResellerModal(false);
+              setEditingProduct(null);
+            }}
+            onSuccess={() => {
+              setShowResellerModal(false);
+              setEditingProduct(null);
+              queryClient.invalidateQueries(['admin-products']);
+            }}
+            panels={allPanels}
+            xtreamPanels={xtreamPanels}
+            xuionePanels={xuionePanels}
+            editingProduct={editingProduct}
+          />
+        )}
 
         {isLoading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           </div>
+        ) : viewMode === 'list' ? (
+          /* List View */
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Product</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Panel</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Details</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Pricing</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                  {products
+                    ?.sort((a, b) => {
+                      // Sort by panel_index first, then by display_order
+                      const panelDiff = (a.panel_index || 0) - (b.panel_index || 0);
+                      if (panelDiff !== 0) return panelDiff;
+                      return (a.display_order || 0) - (b.display_order || 0);
+                    })
+                    .map((product) => (
+                    <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">{product.name}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{product.description}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          product.account_type === 'reseller'
+                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                            : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                        }`}>
+                          {product.account_type === 'reseller' ? 'Reseller' : 'Subscriber'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                        {getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                        {product.account_type === 'reseller' ? (
+                          <div>{product.reseller_credits} credits</div>
+                        ) : (
+                          <div>{product.max_connections} connection{product.max_connections > 1 ? 's' : ''}</div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
+                        {product.prices && Object.entries(product.prices).map(([term, price]) => (
+                          <div key={term} className="whitespace-nowrap">
+                            {product.account_type === 'reseller' ? 'Lifetime' : `${term}mo`}: ${price}
+                          </div>
+                        ))}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          product.active
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                          {product.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleEdit(product)}
+                          className="text-blue-600 hover:text-blue-900 dark:hover:text-blue-400 mr-4"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete ${product.name}?`)) {
+                              deleteMutation.mutate(product.id);
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-900 dark:hover:text-red-400"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
+          /* Card View (existing) */
           <div className="space-y-12">
-            {Object.entries(productsByPanel).sort(([a], [b]) => Number(a) - Number(b)).map(([panelIndex, panelProducts]) => {
-              const panelColor = getPanelColor(Number(panelIndex));
-              const panelName = getPanelName(Number(panelIndex));
+            {Object.entries(productsByPanel).sort(([a], [b]) => {
+              // Sort by type first (xtream before xuione), then by index
+              const [typeA, idxA] = a.split('-');
+              const [typeB, idxB] = b.split('-');
+              if (typeA !== typeB) return typeA.localeCompare(typeB);
+              return Number(idxA) - Number(idxB);
+            }).map(([panelKey, panelProducts]) => {
+              // Parse panelKey: "xtream-0" or "xuione-0"
+              const [panelType, panelIndexStr] = panelKey.split('-');
+              const panelIndex = Number(panelIndexStr);
+              const panelColor = getPanelColor(panelIndex);
+              const panelName = getPanelName(panelIndex, panelType);
               
               return (
-                <div key={panelIndex} className="space-y-6">
+                <div key={panelKey} className="space-y-6">
                   {/* Panel Category Header */}
                   <div className="flex items-center gap-4">
                     <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
@@ -139,10 +335,25 @@ export default function AdminProducts() {
                     <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
                   </div>
 
-                  {/* Products Grid */}
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {panelProducts.map((product, index) => (
-                      <div key={product.id} className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-lg transition relative">
+                  {/* Group by account type */}
+                  {(() => {
+                    const subscribers = panelProducts.filter(p => p.account_type !== 'reseller');
+                    const resellers = panelProducts.filter(p => p.account_type === 'reseller');
+                    
+                    return (
+                      <>
+                        {/* Subscriber Products */}
+                        {subscribers.length > 0 && (
+                          <div className="space-y-4">
+                            <h4 className="text-lg font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                              <Tv className="w-5 h-5" />
+                              Subscription Plans ({subscribers.length})
+                            </h4>
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                              {subscribers
+                                .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                                .map((product, index) => (
+                                <div key={product.id} className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-lg transition relative">
                         {/* Reorder Buttons */}
                         <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
                           <button
@@ -181,7 +392,7 @@ export default function AdminProducts() {
                                 )}
                               </div>
                               <p className="text-xs text-white opacity-75 mt-1">
-                                📡 {getPanelName(product.panel_index)}
+                                📡 {getPanelName(product.panel_index, product.panel_type || 'xtream')}
                               </p>
                             </div>
                             <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -194,26 +405,17 @@ export default function AdminProducts() {
                         </div>
                 <div className="p-6 dark:bg-gray-900">
                   <div className="space-y-2 mb-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Type: <span className="font-semibold text-gray-900 dark:text-white capitalize">{product.account_type}</span>
-                    </p>
                     {product.account_type === 'subscriber' && (
                       <>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Max Connections: <span className="font-semibold text-gray-900 dark:text-white">{product.max_connections}</span>
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Bouquets: <span className="font-semibold text-gray-900 dark:text-white">{product.bouquets.join(', ')}</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{product.max_connections}</span> connection{product.max_connections > 1 ? 's' : ''}
                         </p>
                       </>
                     )}
                     {product.account_type === 'reseller' && (
                       <>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Credits: <span className="font-semibold text-gray-900 dark:text-white">${product.reseller_credits}</span>
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Max Lines: <span className="font-semibold text-gray-900 dark:text-white">{product.reseller_max_lines}</span>
+                          Reseller Credits: <span className="font-semibold text-gray-900 dark:text-white">{product.reseller_credits} credits</span>
                         </p>
                       </>
                     )}
@@ -221,10 +423,9 @@ export default function AdminProducts() {
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mb-4">
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-semibold">Pricing:</p>
                     <div className="space-y-1">
-                      {Object.entries(product.prices).map(([term, price]) => (
-                        <div key={term} className="flex justify-between text-sm">
-                          <span className="text-gray-600 dark:text-gray-400">{term} month{parseInt(term) > 1 ? 's' : ''}:</span>
-                          <span className="font-bold text-blue-600 dark:text-blue-400">${price}</span>
+                      {product.prices && Object.entries(product.prices).map(([term, price]) => (
+                        <div key={term} className="text-center">
+                          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">${price}</span>
                         </div>
                       ))}
                     </div>
@@ -250,8 +451,109 @@ export default function AdminProducts() {
             ))}
           </div>
         </div>
+          )}
+
+          {/* Reseller Products */}
+          {resellers.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Reseller Packages ({resellers.length})
+              </h4>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {resellers
+                  .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                  .map((product, index) => {
+                  // Get panel color for this reseller product
+                  const productPanelColor = getPanelGradient(product.panel_index || 0);
+                  
+                  return (
+                    <div key={product.id} className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-lg transition relative">
+                      {/* Reorder buttons */}
+                      <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
+                        <button
+                          onClick={() => handleReorder(product, 'up')}
+                          disabled={index === 0}
+                          className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
+                            index === 0 ? 'opacity-30 cursor-not-allowed' : ''
+                          }`}
+                          title="Move Up"
+                        >
+                          <ChevronUp className="w-4 h-4 text-gray-700" />
+                        </button>
+                        <button
+                          onClick={() => handleReorder(product, 'down')}
+                          disabled={index === resellers.length - 1}
+                          className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
+                            index === resellers.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
+                          }`}
+                          title="Move Down"
+                        >
+                          <ChevronDown className="w-4 h-4 text-gray-700" />
+                        </button>
+                      </div>
+
+                      {/* Panel-colored gradient header */}
+                      <div className={`bg-gradient-to-r ${productPanelColor} p-4 text-white`}>
+                        <h3 className="text-xl font-bold mb-1">{product.name}</h3>
+                        <p className="text-sm opacity-90">{product.description}</p>
+                        <p className="text-xs opacity-75 mt-1">
+                          📡 {getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
+                        </p>
+                      </div>
+
+                      <div className="p-6">
+                        <div className="space-y-2 mb-4">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="font-semibold">Reseller Credits:</span> {product.reseller_credits} credits
+                          </p>
+                        </div>
+
+                      <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mb-4">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-semibold">Pricing:</p>
+                        <div className="space-y-1">
+                          {product.prices && Object.entries(product.prices).map(([term, price]) => (
+                            <div key={term} className="flex justify-between text-sm">
+                              <span className="text-gray-600 dark:text-gray-400">Purchase (Lifetime):</span>
+                              <span className="font-bold text-purple-600 dark:text-purple-400">${price}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(product)}
+                          className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
+                        >
+                          <Edit className="w-4 h-4" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete ${product.name}?`)) {
+                              deleteMutation.mutate(product.id);
+                            }
+                          }}
+                          className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              </div>
+            </div>
+          )}
+        </>
       );
-    })}
+    })()}
+                </div>
+              );
+            })}
           </div>
         )}
       </main>
@@ -273,7 +575,7 @@ export default function AdminProducts() {
 
 function ProductFormModal({ product, onClose, onSuccess }) {
   const isEditing = !!product;
-  const [selectedPanel, setSelectedPanel] = useState(product?.panel_index || 0);
+  const [selectedPanelInfo, setSelectedPanelInfo] = useState({ type: 'xtream', index: product?.panel_index || 0 });
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [packageType, setPackageType] = useState(product?.is_trial ? 'trial' : 'regular'); // 'regular' or 'trial'
   const [formData, setFormData] = useState({
@@ -291,6 +593,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     price_6: product?.prices?.['6'] || '',
     price_12: product?.prices?.['12'] || '',
     panel_index: product?.panel_index || 0,
+    panel_type: product?.panel_type || 'xtream',
     is_trial: product?.is_trial || false,
     setup_instructions: product?.setup_instructions || '',
   });
@@ -304,34 +607,54 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     },
   });
 
-  const panels = settings?.xtream?.panels || [];
+  const xtreamPanels = settings?.xtream?.panels || [];
+  const xuionePanels = settings?.xuione?.panels || [];
+  
+  // Combine both panel types with a type indicator
+  const allPanels = [
+    ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index, label: `${panel.name} (XtreamUI)` })),
+    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index, label: `${panel.name} (XuiOne)` }))
+  ];
+  
+  const panels = allPanels;
 
   // Fetch available bouquets for selected panel
   const { data: availableBouquets } = useQuery({
-    queryKey: ['bouquets', selectedPanel],
+    queryKey: ['bouquets', selectedPanelInfo.type, selectedPanelInfo.index],
     queryFn: async () => {
-      const response = await adminAPI.getBouquets(selectedPanel);
+      const response = await adminAPI.getBouquets(selectedPanelInfo.index, selectedPanelInfo.type);
       return response.data;
     },
     enabled: panels.length > 0,
   });
 
-  // Fetch regular packages from selected XtreamUI panel
+  // Fetch regular packages from selected panel (XtreamUI or XuiOne)
   const { data: packagesData, isLoading: packagesLoading } = useQuery({
-    queryKey: ['xtream-packages', selectedPanel],
+    queryKey: [`${selectedPanelInfo.type}-packages`, selectedPanelInfo.index],
     queryFn: async () => {
-      const response = await adminAPI.syncPackagesFromPanel(selectedPanel);
-      return response.data.packages || [];
+      if (selectedPanelInfo.type === 'xuione') {
+        const response = await adminAPI.syncXuiOnePackages(selectedPanelInfo.index);
+        return response.data.packages || [];
+      } else {
+        const response = await adminAPI.syncPackagesFromPanel(selectedPanelInfo.index);
+        return response.data.packages || [];
+      }
     },
     enabled: !isEditing && panels.length > 0 && packageType === 'regular',
   });
 
-  // Fetch trial packages from selected XtreamUI panel
+  // Fetch trial packages from selected panel (XtreamUI or XuiOne)
   const { data: trialPackagesData, isLoading: trialPackagesLoading } = useQuery({
-    queryKey: ['xtream-trial-packages', selectedPanel],
+    queryKey: [`${selectedPanelInfo.type}-trial-packages`, selectedPanelInfo.index],
     queryFn: async () => {
-      const response = await adminAPI.syncTrialPackagesFromPanel(selectedPanel);
-      return response.data.packages || [];
+      if (selectedPanelInfo.type === 'xuione') {
+        // XuiOne returns trial packages in a separate field
+        const response = await adminAPI.syncXuiOnePackages(selectedPanelInfo.index);
+        return response.data.trial_packages || [];
+      } else {
+        const response = await adminAPI.syncTrialPackagesFromPanel(selectedPanelInfo.index);
+        return response.data.packages || [];
+      }
     },
     enabled: !isEditing && panels.length > 0 && packageType === 'trial',
   });
@@ -403,7 +726,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         prices: prices,
         active: data.active,
         xtream_package_id: selectedPackage ? selectedPackage.id : (product?.xtream_package_id || null),
-        panel_index: isEditing ? (product?.panel_index ?? selectedPanel) : selectedPanel,
+        panel_index: isEditing ? (product?.panel_index ?? selectedPanelInfo.index) : selectedPanelInfo.index,
+        panel_type: isEditing ? (product?.panel_type ?? selectedPanelInfo.type) : selectedPanelInfo.type,
         is_trial: data.is_trial || false,
         trial_duration: data.trial_duration || 0,
         trial_duration_unit: data.trial_duration_unit || 'days',
@@ -461,14 +785,19 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               <div className="md:col-span-2">
                 <div className={`border rounded-lg p-4 mb-4 ${isEditing ? 'bg-gray-50 border-gray-300' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600'}`}>
                   <label className={`block text-sm font-semibold mb-3 ${isEditing ? 'text-gray-700' : 'text-blue-900 dark:text-blue-200'}`}>
-                    {isEditing ? 'Product Panel' : 'Select XtreamUI Panel *'}
+                    {isEditing ? 'Product Panel' : 'Select Panel (XtreamUI or XuiOne) *'}
                   </label>
                   <select
-                    value={selectedPanel}
+                    value={`${selectedPanelInfo.type}-${selectedPanelInfo.index}`}
                     onChange={(e) => {
-                      const newPanelIndex = parseInt(e.target.value);
-                      setSelectedPanel(newPanelIndex);
-                      setFormData(prev => ({ ...prev, panel_index: newPanelIndex }));
+                      const [type, index] = e.target.value.split('-');
+                      const panelIndex = parseInt(index);
+                      setSelectedPanelInfo({ type, index: panelIndex });
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        panel_index: panelIndex,
+                        panel_type: type
+                      }));
                       setSelectedPackage(null); // Reset package when panel changes
                     }}
                     disabled={isEditing}
@@ -476,9 +805,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                       isEditing ? 'border-gray-300 opacity-75 cursor-not-allowed' : 'border-blue-400'
                     }`}
                   >
-                    {panels.map((panel, index) => (
-                      <option key={index} value={index}>
-                        {panel.name} - {panel.panel_url}
+                    {panels.map((panel, idx) => (
+                      <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
+                        {panel.label} - {panel.panel_url}
                       </option>
                     ))}
                   </select>
@@ -495,7 +824,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border-2 border-green-400 dark:border-green-600 rounded-lg p-6 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                     <Package className="w-5 h-5 text-green-600" />
-                    Select XtreamUI Package * {panels.length > 1 && `(from ${panels[selectedPanel]?.name || 'selected panel'})`}
+                    Select Package * {panels.length > 1 && `(from ${panels.find(p => p.type === selectedPanelInfo.type && p.originalIndex === selectedPanelInfo.index)?.label || 'selected panel'})`}
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                     <strong>Required:</strong> Choose a package to set pricing, duration, connections, and bouquets.
@@ -652,19 +981,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               </p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Account Type *
-              </label>
-              <select
-                value={formData.account_type}
-                onChange={(e) => setFormData({ ...formData, account_type: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="subscriber">Subscriber</option>
-                <option value="reseller">Reseller</option>
-              </select>
-            </div>
+            {/* Account type fixed to subscriber for regular products */}
+            <input type="hidden" name="account_type" value="subscriber" />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -680,10 +998,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               </select>
             </div>
 
-            {/* Subscriber Settings */}
-            {formData.account_type === 'subscriber' && (
-              <>
-                <div className="md:col-span-2">
+            {/* Subscriber Settings (always shown for regular products) */}
+            <>
+              <div className="md:col-span-2">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Subscriber Settings</h3>
                 </div>
 
@@ -735,45 +1052,6 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                   )}
                 </div>
               </>
-            )}
-
-            {/* Reseller Settings */}
-            {formData.account_type === 'reseller' && (
-              <>
-                <div className="md:col-span-2">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Reseller Settings</h3>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reseller Credits
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.reseller_credits}
-                    onChange={(e) => setFormData({ ...formData, reseller_credits: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="500.00"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Lines
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.reseller_max_lines}
-                    onChange={(e) => setFormData({ ...formData, reseller_max_lines: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="50"
-                  />
-                </div>
-              </>
-            )}
 
             {/* Pricing */}
             <div className="md:col-span-2">
@@ -860,3 +1138,206 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     </div>
   );
 }
+
+
+// Reseller Package Modal Component
+function ResellerPackageModal({ onClose, onSuccess, panels, xtreamPanels, xuionePanels, editingProduct }) {
+  const [formData, setFormData] = useState({
+    name: editingProduct?.name || '',
+    description: editingProduct?.description || '',
+    reseller_credits: editingProduct?.reseller_credits || 500,
+    price: editingProduct?.prices ? Object.values(editingProduct.prices)[0] || '' : '',
+    panel_index: editingProduct?.panel_index || 0,
+    panel_type: editingProduct?.panel_type || 'xtream',
+    custom_panel_url: editingProduct?.custom_panel_url || ''
+  });
+  
+  const isEditing = !!editingProduct;
+
+  const saveMutation = useMutation({
+    mutationFn: async (data) => {
+      const prices = {
+        '1': parseFloat(data.price)  // Store as 1-month for compatibility, but it's lifetime
+      };
+      
+      const productData = {
+        name: data.name,
+        description: data.description,
+        account_type: 'reseller',
+        bouquets: [],
+        max_connections: 0,
+        reseller_credits: parseFloat(data.reseller_credits),
+        reseller_max_lines: 0,
+        trial_days: 0,
+        prices: prices,
+        active: true,
+        panel_index: data.panel_index,
+        panel_type: data.panel_type,
+        custom_panel_url: data.custom_panel_url || '',
+        setup_instructions: '',
+        is_trial: false
+      };
+      
+      // Update if editing, create if new
+      if (isEditing) {
+        return adminAPI.updateProduct(editingProduct.id, productData);
+      } else {
+        return adminAPI.createProduct(productData);
+      }
+    },
+    onSuccess: () => {
+      alert(isEditing ? 'Reseller package updated successfully!' : 'Reseller package created successfully!');
+      onSuccess();
+    },
+    onError: (error) => {
+      alert('Error: ' + (error.response?.data?.detail || error.message));
+    },
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    saveMutation.mutate(formData);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{isEditing ? 'Edit Reseller Package' : 'Add Reseller Package'}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Package Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                placeholder="Reseller Panel - 500 Credits"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Description *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                placeholder="Reseller panel with 500 credits"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Reseller Credits *
+              </label>
+              <input
+                type="number"
+                required
+                min="0"
+                step="0.01"
+                value={formData.reseller_credits}
+                onChange={(e) => setFormData({...formData, reseller_credits: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Credits allocated to reseller</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Panel (XtreamUI or XuiOne) *
+              </label>
+              <select
+                value={`${formData.panel_type}-${formData.panel_index}`}
+                onChange={(e) => {
+                  const [type, index] = e.target.value.split('-');
+                  setFormData({...formData, panel_type: type, panel_index: parseInt(index)});
+                }}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                {panels.map((panel, idx) => (
+                  <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
+                    {panel.label || panel.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Selected panel: {panels[formData.panel_index]?.panel_url || 'Not set'}
+              </p>
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Panel URL for Customers *
+              </label>
+              <input
+                type="url"
+                required
+                value={formData.custom_panel_url || ''}
+                onChange={(e) => setFormData({...formData, custom_panel_url: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                placeholder="https://panel.example.com"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                The panel URL that customers will use to access their reseller panel.
+              </p>
+            </div>
+
+            {/* Pricing - One-time payment */}
+            <div className="col-span-2 border-t pt-4 mt-2">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Pricing (One-Time Payment) *</h4>
+              <div>
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-2">Price ($) *</label>
+                <input
+                  type="number"
+                  required
+                  step="0.01"
+                  min="0"
+                  value={formData.price}
+                  onChange={(e) => setFormData({...formData, price: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  placeholder="500.00"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  ℹ️ Lifetime access - One-time payment, no recurring charges
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="col-span-2 flex gap-4 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saveMutation.isPending}
+                className="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
+              >
+                <Save className="w-5 h-5" />
+                {saveMutation.isPending ? (isEditing ? 'Updating...' : 'Creating...') : (isEditing ? 'Update Package' : 'Create Package')}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+

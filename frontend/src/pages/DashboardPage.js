@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { servicesAPI, ordersAPI } from '../api/api';
 import { useAuthStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
-import { Server, ShoppingBag, FileText, LogOut, User, Tv, MessageSquare, Gift, Wallet, Download } from 'lucide-react';
+import { Server, ShoppingBag, FileText, LogOut, User, Tv, MessageSquare, Gift, Wallet, Download, ShoppingCart } from 'lucide-react';
 import CreditBalance from '../components/CreditBalance';
 
 export default function DashboardPage() {
@@ -149,6 +149,16 @@ export default function DashboardPage() {
             <MessageSquare className="w-8 h-8 text-blue-600 mx-auto mb-2" />
             <h3 className="font-semibold text-gray-900 dark:text-white">Support</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get help</p>
+          </Link>
+
+          <Link
+            to="/"
+            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
+            data-testid="shop-services-link"
+          >
+            <ShoppingCart className="w-8 h-8 text-green-600 mx-auto mb-2" />
+            <h3 className="font-semibold text-gray-900 dark:text-white">Shop Services</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Browse plans</p>
           </Link>
 
           <Link
