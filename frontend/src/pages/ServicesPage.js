@@ -25,6 +25,17 @@ export default function ServicesPage() {
     },
   });
 
+  // Fetch settings to check if refunds are enabled
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const response = await adminAPI.getSettings();
+      return response.data;
+    },
+  });
+
+  const refundsEnabled = settings?.refunds_enabled ?? true;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       <header className="bg-white dark:bg-gray-900 shadow-sm">
@@ -59,7 +70,7 @@ export default function ServicesPage() {
           ) : (
             <div className="space-y-6">
               {mainServices.map((service) => (
-                <ServiceCard key={service.id} service={service} navigate={navigate} products={products} />
+                <ServiceCard key={service.id} service={service} navigate={navigate} products={products} refundsEnabled={refundsEnabled} />
               ))}
             </div>
           );
@@ -69,7 +80,7 @@ export default function ServicesPage() {
   );
 }
 
-function ServiceCard({ service, navigate, products }) {
+function ServiceCard({ service, navigate, products, refundsEnabled }) {
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(null);
   const [showRefundModal, setShowRefundModal] = useState(false);
@@ -249,12 +260,14 @@ function ServiceCard({ service, navigate, products }) {
               <Package className="w-5 h-5" />
               Renew Service
             </button>
-            <button
-              onClick={() => setShowRefundModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold"
-            >
-              Request Refund
-            </button>
+            {refundsEnabled && (
+              <button
+                onClick={() => setShowRefundModal(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold"
+              >
+                Request Refund
+              </button>
+            )}
           </div>
         )}
         

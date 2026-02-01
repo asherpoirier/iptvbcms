@@ -10,6 +10,7 @@ import PaymentGatewaySettings from '../components/PaymentGatewaySettings';
 import EmailSettings from '../components/EmailSettings';
 import CreditReferralSettings from '../components/CreditReferralSettings';
 import LicenseSettings from '../components/LicenseSettings';
+import RefundSettings from '../components/RefundSettings';
 import UpdateManager from '../components/UpdateManager';
 import NotificationSettings from '../components/NotificationSettings';
 
@@ -107,6 +108,14 @@ export default function AdminSettings() {
                 Notifications
               </button>
               <button
+                onClick={() => setActiveTab('refunds')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'refunds' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Refunds
+              </button>
+              <button
                 onClick={() => setActiveTab('license')}
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
                   activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -161,6 +170,11 @@ export default function AdminSettings() {
             {/* Notifications Tab */}
             {activeTab === 'notifications' && (
               <NotificationSettings settings={settings} />
+            )}
+            
+            {/* Refunds Tab */}
+            {activeTab === 'refunds' && (
+              <RefundSettings settings={settings} />
             )}
 
             {/* License Tab */}

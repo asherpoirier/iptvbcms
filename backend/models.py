@@ -324,6 +324,7 @@ class Settings(BaseModel):
     branding: BrandingSettings = Field(default_factory=BrandingSettings)
     referral: ReferralSettings = Field(default_factory=ReferralSettings)
     credit: CreditSettings = Field(default_factory=CreditSettings)
+    refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"
     company_email: str = ""
     support_email: str = ""
