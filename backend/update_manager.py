@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 class UpdateManager:
     def __init__(self):
         self.repo_url = "https://github.com/asherpoirier/iptvbcms.git"
-        self.app_dir = "/app"
-        self.backup_dir = "/app/backups"
-        self.version_file = "/app/VERSION.json"
+        self.app_dir = "/opt"
+        self.backup_dir = "/opt/backups"
+        self.version_file = "/opt/VERSION.json"
         
     def get_current_version(self):
         """Get current installed version"""
@@ -106,9 +106,9 @@ class UpdateManager:
             raise Exception(f"Failed to create backup: {e}")
     
     def apply_update(self, backup_path=None):
-        """Pull and apply updates from GitHub"""
+        """Pull and apply updates from GitHub - SAFE METHOD (overlay, don't delete)"""
         try:
-            logger.info("Starting update process...")
+            logger.info("Starting SAFE update process...")
             
             # Clone or pull latest code to temp directory
             temp_dir = "/tmp/iptvbcms_update"
@@ -132,47 +132,43 @@ class UpdateManager:
             
             logger.info(f"Downloaded version: {new_commit}")
             
-            # Copy files from temp to app directory
-            logger.info("Copying backend files...")
-            if os.path.exists(f"{temp_dir}/backend"):
-                # Remove old backend files (except venv and data)
-                for item in os.listdir(f"{self.app_dir}/backend"):
-                    if item not in ['.env', '__pycache__', '.venv', 'data']:
-                        item_path = f"{self.app_dir}/backend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                # Copy new files
-                for item in os.listdir(f"{temp_dir}/backend"):
-                    if item not in ['.env', '__pycache__']:
-                        src = f"{temp_dir}/backend/{item}"
-                        dst = f"{self.app_dir}/backend/{item}"
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dst)
-                        else:
-                            shutil.copy2(src, dst)
+            # SAFE COPY: Overlay files WITHOUT deleting existing ones
+            # This preserves .venv, node_modules, .env, databases, etc.
             
-            logger.info("Copying frontend files...")
+            logger.info("Overlaying backend files (safe mode)...")
+            if os.path.exists(f"{temp_dir}/backend"):
+                # Copy each file individually, preserving existing infrastructure
+                for root, dirs, files in os.walk(f"{temp_dir}/backend"):
+                    # Skip certain directories
+                    dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git']]
+                    
+                    # Create directory structure
+                    rel_path = os.path.relpath(root, f"{temp_dir}/backend")
+                    target_dir = f"{self.app_dir}/backend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/backend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    # Copy files (overwrite existing)
+                    for file in files:
+                        if file not in ['.env']:  # Skip .env
+                            src = os.path.join(root, file)
+                            dst = os.path.join(target_dir, file)
+                            shutil.copy2(src, dst)
+                            logger.info(f"  Updated: {file}")
+            
+            logger.info("Overlaying frontend files (safe mode)...")
             if os.path.exists(f"{temp_dir}/frontend"):
-                # Remove old frontend files (except node_modules and .env)
-                for item in os.listdir(f"{self.app_dir}/frontend"):
-                    if item not in ['node_modules', '.env', 'build']:
-                        item_path = f"{self.app_dir}/frontend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                # Copy new files
-                for item in os.listdir(f"{temp_dir}/frontend"):
-                    if item not in ['node_modules', 'build', '.env']:
-                        src = f"{temp_dir}/frontend/{item}"
-                        dst = f"{self.app_dir}/frontend/{item}"
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dst)
-                        else:
+                for root, dirs, files in os.walk(f"{temp_dir}/frontend"):
+                    # Skip node_modules and build
+                    dirs[:] = [d for d in dirs if d not in ['node_modules', 'build', '__pycache__', '.git']]
+                    
+                    rel_path = os.path.relpath(root, f"{temp_dir}/frontend")
+                    target_dir = f"{self.app_dir}/frontend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/frontend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    for file in files:
+                        if file not in ['.env']:
+                            src = os.path.join(root, file)
+                            dst = os.path.join(target_dir, file)
                             shutil.copy2(src, dst)
             
             # Update version file
@@ -188,7 +184,7 @@ class UpdateManager:
             # Cleanup temp directory
             shutil.rmtree(temp_dir)
             
-            logger.info("✓ Update applied successfully")
+            logger.info("✓ Update applied successfully (safe mode - preserved infrastructure)")
             return {
                 "success": True,
                 "version": version_data,
