@@ -4,11 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { productsAPI, panelsAPI } from '../api/api';
 import { useAuthStore, useCartStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
-import { ShoppingCart, LogIn, UserPlus, Server, Users, Info, X } from 'lucide-react';
+import { ShoppingCart, LogIn, UserPlus, Server, Users } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
 export default function HomePage() {
   const { user } = useAuthStore();
@@ -210,49 +207,12 @@ export default function HomePage() {
                     <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
                   </div>
 
-                  {/* Group by account type */}
-                  {(() => {
-                    const subscribers = panelProducts.filter(p => p.account_type !== 'reseller');
-                    const resellers = panelProducts.filter(p => p.account_type === 'reseller');
-                    
-                    return (
-                      <>
-                        {/* Subscriber Packages */}
-                        {subscribers.length > 0 && (
-                          <div className="space-y-4">
-                            <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                              <Server className="w-5 h-5" />
-                              Subscription Plans
-                            </h4>
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-                              {subscribers
-                                .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                .map((product) => (
-                                  <ProductCard key={product.id} product={product} />
-                                ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Reseller Packages */}
-                        {resellers.length > 0 && (
-                          <div className="space-y-4 mt-8">
-                            <h4 className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                              <Users className="w-5 h-5" />
-                              Reseller Packages
-                            </h4>
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-                              {resellers
-                                .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                .map((product) => (
-                                  <ProductCard key={product.id} product={product} />
-                                ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                  {/* Products Grid */}
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {panelProducts.map((product) => (
+                      <ProductCard key={product.id} product={product} />
+                    ))}
+                  </div>
                 </div>
               );
             })}
@@ -279,9 +239,6 @@ export default function HomePage() {
 function ProductCard({ product }) {
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
-  const [showChannels, setShowChannels] = React.useState(false);
-  const [channels, setChannels] = React.useState([]);
-  const [loadingChannels, setLoadingChannels] = React.useState(false);
 
   const handleAddToCart = (termMonths, price) => {
     if (!user) {
@@ -298,21 +255,6 @@ function ProductCard({ product }) {
     });
 
     window.location.href = '/checkout';
-  };
-  
-  const handleShowChannels = async () => {
-    setShowChannels(true);
-    setLoadingChannels(true);
-    
-    try {
-      const response = await axios.get(`${API_URL}/api/products/${product.id}/channels`);
-      setChannels(response.data.channels || []);
-    } catch (error) {
-      console.error('Failed to load channels:', error);
-      setChannels([]);
-    } finally {
-      setLoadingChannels(false);
-    }
   };
 
   return (
@@ -338,18 +280,15 @@ function ProductCard({ product }) {
         {product.account_type === 'reseller' && (
           <div className="mb-4">
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Reseller Credits:</p>
-            <p className="text-lg font-semibold dark:text-white">{product.reseller_credits} credits</p>
+            <p className="text-lg font-semibold dark:text-white">${product.reseller_credits}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Max Lines: {product.reseller_max_lines}</p>
           </div>
         )}
         <div className="space-y-3 mt-6">
           {Object.entries(product.prices).map(([term, price]) => {
-            // For reseller products, show "Purchase"
-            // For trial products, show trial duration
-            // For regular products, show months
+            // For trial products, show actual trial duration instead of price term
             let displayTerm;
-            if (product.account_type === 'reseller') {
-              displayTerm = 'Purchase';
-            } else if (product.is_trial && product.trial_duration) {
+            if (product.is_trial && product.trial_duration) {
               // Show trial duration (e.g., "1 Day", "7 Days")
               const unit = product.trial_duration_unit || 'days';
               const singularUnit = unit.toLowerCase().endsWith('s') ? unit.slice(0, -1) : unit;
@@ -363,8 +302,11 @@ function ProductCard({ product }) {
               <button
                 key={term}
                 onClick={() => handleAddToCart(parseInt(term), price)}
-                className="w-full flex justify-center items-center bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-gray-600 p-4 rounded-lg transition border border-gray-200 dark:border-gray-600 hover:border-blue-300"
+                className="w-full flex justify-between items-center bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-gray-600 p-4 rounded-lg transition border border-gray-200 dark:border-gray-600 hover:border-blue-300"
               >
+                <span className="font-semibold capitalize dark:text-white">
+                  {displayTerm}
+                </span>
                 <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                   {product.is_trial && parseFloat(price) === 0 ? 'FREE' : `$${price}`}
                 </span>
@@ -372,76 +314,7 @@ function ProductCard({ product }) {
             );
           })}
         </div>
-        
-        {/* Details Button for Subscriber Products */}
-        {product.account_type === 'subscriber' && (
-          <button
-            onClick={handleShowChannels}
-            className="w-full mt-3 flex items-center justify-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-gray-200 dark:border-gray-700 px-4 py-3 rounded-lg hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition font-medium"
-          >
-            <Info className="w-5 h-5" />
-            View Channel List
-          </button>
-        )}
       </div>
-      
-      {/* Channel List Modal */}
-      {showChannels && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowChannels(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800">
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{product.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Live TV Channel Packages</p>
-              </div>
-              <button
-                onClick={() => setShowChannels(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              {loadingChannels ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="mt-4 text-gray-600 dark:text-gray-400">Loading channel packages...</p>
-                </div>
-              ) : channels.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700 mb-4">
-                    <p className="text-sm text-blue-800 dark:text-blue-200">
-                      <strong>Included with this service:</strong> Access to {channels.length} live TV channel packages
-                    </p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                      (Movies and series on-demand content not listed here)
-                    </p>
-                  </div>
-                  
-                  <div className="grid md:grid-cols-2 gap-2">
-                    {channels.map((channel, idx) => (
-                      <div
-                        key={channel.id}
-                        className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
-                      >
-                        <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{idx + 1}</span>
-                        </div>
-                        <span className="font-medium text-gray-900 dark:text-white text-sm">{channel.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-gray-600 dark:text-gray-400">Channel information not available</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

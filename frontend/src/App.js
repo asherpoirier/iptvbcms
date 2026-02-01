@@ -28,7 +28,7 @@ import AdminEmailTemplates from './pages/AdminEmailTemplates';
 import AdminCoupons from './pages/AdminCoupons';
 import AdminRefunds from './pages/AdminRefunds';
 import AdminDownloads from './pages/AdminDownloads';
-import AdminImportedUsers from './pages/AdminImportedUsers';
+import AdminLicenses from './pages/AdminLicenses';
 import TicketsPage from './pages/TicketsPage';
 import DownloadsPage from './pages/DownloadsPage';
 import PayPalSuccessPage from './pages/PayPalSuccessPage';
@@ -202,8 +202,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/admin/imported-users" element={<ProtectedRoute><AdminRoute><AdminImportedUsers /></AdminRoute></ProtectedRoute>} />
-
             <Route
               path="/admin/customers"
               element={
@@ -300,6 +298,16 @@ function App() {
                 <ProtectedRoute>
                   <AdminRoute>
                     <AdminDownloads />
+                  </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/licenses"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <AdminLicenses />
                   </AdminRoute>
                 </ProtectedRoute>
               }

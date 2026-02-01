@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/api';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -8,16 +8,9 @@ export default function EmailVerificationPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('verifying'); // verifying, success, error
   const [message, setMessage] = useState('');
-  const hasVerified = useRef(false); // Prevent double verification in StrictMode
 
   useEffect(() => {
     const verifyEmail = async () => {
-      // Prevent double execution in React StrictMode
-      if (hasVerified.current) {
-        return;
-      }
-      hasVerified.current = true;
-      
       const token = searchParams.get('token');
       
       if (!token) {

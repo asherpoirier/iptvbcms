@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Users, Eye, Edit, Trash2, X, Mail, Calendar, ShoppingBag, Server as ServiceIcon, Search, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ArrowLeft, Users, Eye, Edit, Trash2, X, Mail, Calendar, ShoppingBag, Server as ServiceIcon, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function AdminCustomers() {
   const queryClient = useQueryClient();
@@ -303,8 +303,6 @@ export default function AdminCustomers() {
 
 // Customer Details Modal Component
 function CustomerDetailsModal({ customer, onClose }) {
-  const [showManualServiceModal, setShowManualServiceModal] = useState(false);
-  
   const { data, isLoading } = useQuery({
     queryKey: ['customer-details', customer.id],
     queryFn: async () => {
@@ -355,40 +353,14 @@ function CustomerDetailsModal({ customer, onClose }) {
                   </p>
                 </div>
               </div>
-              <div className="mt-4">
-                <button
-                  onClick={() => {
-                    const newPassword = prompt('Enter new password for customer:');
-                    if (newPassword && newPassword.length >= 6) {
-                      adminAPI.changeCustomerPassword(customer.id, newPassword)
-                        .then(() => alert('Password changed successfully!'))
-                        .catch(err => alert('Failed to change password: ' + (err.response?.data?.detail || err.message)));
-                    } else if (newPassword) {
-                      alert('Password must be at least 6 characters');
-                    }
-                  }}
-                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold"
-                >
-                  Change Password
-                </button>
-              </div>
             </div>
 
             {/* Services */}
             <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-white">
-                  <ServiceIcon className="w-5 h-5" />
-                  Services ({data?.services.length || 0})
-                </h3>
-                <button
-                  onClick={() => setShowManualServiceModal(true)}
-                  className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Service
-                </button>
-              </div>
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                <ServiceIcon className="w-5 h-5" />
+                Services ({data?.services.length || 0})
+              </h3>
               {data?.services.length > 0 ? (
                 <div className="space-y-2">
                   {data.services.map((service) => (
@@ -452,19 +424,6 @@ function CustomerDetailsModal({ customer, onClose }) {
           </div>
         )}
       </div>
-      
-      {/* Manual Service Creation Modal */}
-      {showManualServiceModal && (
-        <ManualServiceModal
-          customer={customer}
-          onClose={() => setShowManualServiceModal(false)}
-          onSuccess={() => {
-            setShowManualServiceModal(false);
-            // Refresh customer details
-            window.location.reload();
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -547,196 +506,11 @@ function EditCustomerModal({ customer, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              disabled={updateMutation.isLoading}
+              disabled={updateMutation.isPending}
               className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50"
               data-testid="save-customer-btn"
             >
-              {updateMutation.isLoading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// Manual Service Creation Modal
-function ManualServiceModal({ customer, onClose, onSuccess }) {
-  const [accountTypeFilter, setAccountTypeFilter] = useState('subscriber');
-  const [panelFilter, setPanelFilter] = useState('all');
-  const [selectedProduct, setSelectedProduct] = useState('');
-
-  // Fetch products
-  const { data: allProducts } = useQuery({
-    queryKey: ['admin-products'],
-    queryFn: async () => {
-      const response = await adminAPI.getProducts();
-      return response.data;
-    },
-  });
-
-  // Fetch settings for panel names
-  const { data: settings } = useQuery({
-    queryKey: ['admin-settings'],
-    queryFn: async () => {
-      const response = await adminAPI.getSettings();
-      return response.data;
-    },
-  });
-
-  // Get panel list
-  const xtreamPanels = settings?.xtream?.panels || [];
-  const xuionePanels = settings?.xuione?.panels || [];
-  const allPanels = [
-    ...xtreamPanels.map((p, i) => ({ ...p, type: 'xtream', index: i, label: `${p.name} (XtreamUI)` })),
-    ...xuionePanels.map((p, i) => ({ ...p, type: 'xuione', index: i, label: `${p.name} (XuiOne)` }))
-  ];
-
-  // Filter products based on selections
-  const filteredProducts = React.useMemo(() => {
-    if (!allProducts) return [];
-    
-    let filtered = allProducts.filter(p => p.account_type === accountTypeFilter);
-    
-    if (panelFilter !== 'all') {
-      const [panelType, panelIndex] = panelFilter.split('-');
-      filtered = filtered.filter(p => 
-        (p.panel_type || 'xtream') === panelType && p.panel_index === parseInt(panelIndex)
-      );
-    }
-    
-    return filtered;
-  }, [allProducts, accountTypeFilter, panelFilter]);
-
-  const createMutation = useMutation({
-    mutationFn: (data) => adminAPI.createManualService(data),
-    onSuccess: () => {
-      alert('Service created successfully! Provisioning in background...');
-      onSuccess();
-    },
-    onError: (error) => {
-      alert('Failed to create service: ' + (error.response?.data?.detail || error.message));
-    },
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    if (!selectedProduct) {
-      alert('Please select a product');
-      return;
-    }
-    
-    const product = allProducts?.find(p => p.id === selectedProduct);
-    const termMonths = 1; // Can be enhanced to read from product
-    
-    createMutation.mutate({
-      user_id: customer.id,
-      product_id: selectedProduct,
-      term_months: termMonths
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-md w-full">
-        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center">
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white">Add Service Manually</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>Customer:</strong> {customer.name} ({customer.email})
-            </p>
-          </div>
-
-          {/* Account Type Filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Service Type *
-            </label>
-            <select
-              value={accountTypeFilter}
-              onChange={(e) => {
-                setAccountTypeFilter(e.target.value);
-                setSelectedProduct(''); // Reset product selection
-              }}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            >
-              <option value="subscriber">Subscriber Service</option>
-              <option value="reseller">Reseller Package</option>
-            </select>
-          </div>
-
-          {/* Panel Filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Panel
-            </label>
-            <select
-              value={panelFilter}
-              onChange={(e) => {
-                setPanelFilter(e.target.value);
-                setSelectedProduct(''); // Reset product selection
-              }}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            >
-              <option value="all">All Panels</option>
-              {allPanels.map((panel, idx) => (
-                <option key={idx} value={`${panel.type}-${panel.index}`}>
-                  {panel.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Product Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Product *
-            </label>
-            <select
-              required
-              value={selectedProduct}
-              onChange={(e) => setSelectedProduct(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            >
-              <option value="">Select a product...</option>
-              {filteredProducts?.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {filteredProducts?.length || 0} products available
-            </p>
-          </div>
-
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-            <p className="text-sm text-yellow-800 dark:text-yellow-200">
-              <strong>Note:</strong> Service will be provisioned with the duration and settings defined by the selected product.
-            </p>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createMutation.isLoading}
-              className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50"
-            >
-              {createMutation.isLoading ? 'Creating...' : 'Create Service'}
+              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

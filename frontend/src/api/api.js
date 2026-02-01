@@ -49,13 +49,6 @@ export const ordersAPI = {
 export const servicesAPI = {
   getAll: () => api.get('/api/services'),
   getOne: (id) => api.get(`/api/services/${id}`),
-  requestRefund: (orderId, amount, reason) => api.post('/api/refund/request', {
-    order_id: orderId,
-    amount: amount,
-    reason: reason,
-    refund_type: 'full',
-    method: 'credit'
-  }),
 };
 
 // Invoices API
@@ -81,9 +74,6 @@ export const adminAPI = {
   getCustomerDetails: (id) => api.get(`/api/admin/customers/${id}`),
   updateCustomer: (id, data) => api.put(`/api/admin/customers/${id}`, data),
   deleteCustomer: (id) => api.delete(`/api/admin/customers/${id}`),
-  changeCustomerPassword: (id, newPassword) => api.post(`/api/admin/customers/${id}/change-password`, null, {
-    params: { new_password: newPassword }
-  }),
   getOrders: () => api.get('/api/admin/orders'),
   markOrderPaid: (id) => api.post(`/api/admin/orders/${id}/mark-paid`),
   cancelOrder: (id) => api.post(`/api/admin/orders/${id}/cancel`),
@@ -95,7 +85,6 @@ export const adminAPI = {
   suspendService: (id) => api.post(`/api/admin/services/${id}/suspend`),
   unsuspendService: (id) => api.post(`/api/admin/services/${id}/unsuspend`),
   cancelService: (id) => api.post(`/api/admin/services/${id}/cancel`),
-  createManualService: (data) => api.post('/api/admin/services/create-manual', data),
   getSettings: () => api.get('/api/admin/settings'),
   updateSettings: (data) => api.put('/api/admin/settings', data),
   // Email endpoints
@@ -123,26 +112,9 @@ export const adminAPI = {
   restoreTemplateVersion: (templateId, versionId) => api.post(`/api/admin/email/templates/${templateId}/restore/${versionId}`),
   uploadAttachment: (formData) => api.post('/api/admin/upload/attachment', formData),
   deleteAttachment: (filename) => api.delete(`/api/admin/upload/attachment/${filename}`),
-  getBouquets: (panelIndex = 0, panelType = 'xtream') => api.get(`/api/admin/bouquets?panel_id=${panelIndex}&panel_type=${panelType}`),
+  getBouquets: (panelIndex = 0) => api.get(`/api/admin/bouquets?panel_id=${panelIndex}`),
   syncBouquetsFromPanel: (panelIndex = 0) => api.get(`/api/admin/bouquets/sync?panel_index=${panelIndex}`),
   syncPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync?panel_index=${panelIndex}`),
-  syncUsersFromPanel: (panelIndex = 0) => api.post(`/api/admin/xtream/sync-users?panel_index=${panelIndex}`),
-  getImportedUsers: (panelIndex) => api.get(`/api/admin/imported-users${panelIndex !== undefined ? `?panel_index=${panelIndex}` : ''}`),
-  suspendImportedUser: (id) => api.post(`/api/admin/imported-users/${id}/suspend`),
-  activateImportedUser: (id) => api.post(`/api/admin/imported-users/${id}/activate`),
-  deleteImportedUser: (id) => api.delete(`/api/admin/imported-users/${id}`),
-
-  // XuiOne Panel endpoints
-  testXuiOne: () => api.post('/api/admin/xuione/test'),
-  syncXuiOnePackages: (panelIndex = 0) => api.get(`/api/admin/xuione/sync-packages?panel_index=${panelIndex}`),
-  syncXuiOneBouquets: (panelIndex = 0) => api.get(`/api/admin/xuione/sync-bouquets?panel_index=${panelIndex}`),
-  syncXuiOneUsers: (panelIndex = 0) => api.post(`/api/admin/xuione/sync-users?panel_index=${panelIndex}`),
-
-  // Notification settings
-  getNotificationSettings: () => api.get('/api/admin/notifications/settings'),
-  updateTelegramSettings: (data) => api.put('/api/admin/notifications/telegram', data),
-  testTelegramNotification: (data) => api.post('/api/admin/notifications/telegram/test', data),
-
   syncTrialPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync-trial?panel_index=${panelIndex}`),
   updateBouquets: (data) => api.put('/api/admin/bouquets', data),
   getPackages: () => api.get('/api/admin/packages'),

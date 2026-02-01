@@ -19,28 +19,6 @@ class ServiceStatus(str, Enum):
     CANCELLED = "cancelled"
     PENDING = "pending"
 
-
-# Imported XtreamUI User Models
-class ImportedUser(BaseModel):
-    id: Optional[str] = None
-    panel_index: int = 0
-    panel_name: str = ""
-    xtream_user_id: int  # User ID in XtreamUI
-    username: str
-    password: str
-    expiry_date: Optional[datetime] = None
-    status: str = "active"  # active, suspended, expired
-    credits: Optional[float] = None  # For resellers
-    max_connections: Optional[int] = None  # For subscribers
-    account_type: str = "subscriber"  # subscriber or reseller
-    created_by_reseller: Optional[str] = None  # Reseller username who created this user
-    last_synced: datetime = Field(default_factory=datetime.utcnow)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
-
-
 class AccountType(str, Enum):
     SUBSCRIBER = "subscriber"
     RESELLER = "reseller"
@@ -85,13 +63,11 @@ class ProductCreate(BaseModel):
     active: bool = True
     xtream_package_id: Optional[int] = None  # XtreamUI package ID for provisioning
     panel_index: Optional[int] = 0  # Which panel this product uses
-    panel_type: Optional[str] = 'xtream'  # Panel type: 'xtream' or 'xuione'
     is_trial: Optional[bool] = False  # Whether this is a trial package
     display_order: Optional[int] = 0  # Order for display (lower = appears first)
     trial_duration: Optional[int] = 0  # Trial duration (e.g., 1, 7, 30)
     trial_duration_unit: Optional[str] = 'days'  # Trial duration unit (hours, days, months)
     setup_instructions: Optional[str] = ""  # Custom setup instructions for this product
-    custom_panel_url: Optional[str] = ""  # Custom panel URL for customers (reseller only)
 
 class Product(ProductCreate):
     id: Optional[str] = None
@@ -102,7 +78,7 @@ class Product(ProductCreate):
     trial_duration: Optional[int] = 0
     trial_duration_unit: Optional[str] = 'days'
     setup_instructions: Optional[str] = ""
-    custom_panel_url: Optional[str] = ""
+    trial_duration_unit: Optional[str] = 'days'
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # Order Models
@@ -112,15 +88,12 @@ class OrderItemCreate(BaseModel):
     term_months: int
     price: float
     account_type: AccountType
-    renewal_service_id: Optional[str] = None  # Service ID to extend (if action_type='extend')
-    action_type: Optional[str] = None  # 'extend' or 'create_new'
 
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
     total: float
     coupon_code: Optional[str] = None
     use_credits: float = 0.0
-    reseller_credentials: Optional[dict] = None  # For custom reseller username/password
 
 class Order(BaseModel):
     id: Optional[str] = None
@@ -131,7 +104,6 @@ class Order(BaseModel):
     coupon_code: Optional[str] = None
     credits_used: float = 0.0
     total: float
-    reseller_credentials: Optional[dict] = None  # Store custom credentials
     status: OrderStatus = OrderStatus.PENDING
     payment_method: str = "manual"
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -228,13 +200,12 @@ class PayPalSettings(BaseModel):
     enabled: bool = False
 
 class StripeSettings(BaseModel):
-    api_key: str = ""  # Deprecated - use test_secret_key or live_secret_key
+    api_key: str = "sk_test_emergent"
     enabled: bool = False
+    crypto_enabled: bool = True
     mode: str = "test"  # test or live
-    test_publishable_key: str = "pk_test_"  # Test publishable key
-    test_secret_key: str = "sk_test_"  # Test secret key
-    live_publishable_key: str = ""  # Live publishable key
-    live_secret_key: str = ""  # Live secret key
+    publishable_key: str = ""  # pk_live_...
+    secret_key: str = ""  # sk_live_...
 
 class SquareSettings(BaseModel):
     access_token: str = ""
@@ -251,20 +222,6 @@ class BlockonomicsSettings(BaseModel):
 
 class XtreamSettings(BaseModel):
     panels: List[XtreamPanel] = []  # Array of panels
-
-class XuiOnePanel(BaseModel):
-    id: Optional[str] = None
-    name: str  # Friendly name like "Main XuiOne Panel"
-    panel_url: str  # Web interface URL (e.g., http://domain.com/Resellers12)
-    api_access_code: str = ""  # API access code (e.g., UfPJlfai) - different from web access
-    api_key: str = ""  # Optional API key for XuiOne authentication
-    admin_username: str
-    admin_password: str
-    ssl_verify: bool = False
-    active: bool = True
-
-class XuiOneSettings(BaseModel):
-    panels: List[XuiOnePanel] = []  # Array of XuiOne panels
 
 class SMTPSettings(BaseModel):
     host: str = ""
@@ -315,7 +272,6 @@ class CreditSettings(BaseModel):
 class Settings(BaseModel):
     id: Optional[str] = None
     xtream: XtreamSettings = Field(default_factory=XtreamSettings)
-    xuione: XuiOneSettings = Field(default_factory=XuiOneSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     paypal: PayPalSettings = Field(default_factory=PayPalSettings)
     stripe: StripeSettings = Field(default_factory=StripeSettings)
@@ -324,7 +280,6 @@ class Settings(BaseModel):
     branding: BrandingSettings = Field(default_factory=BrandingSettings)
     referral: ReferralSettings = Field(default_factory=ReferralSettings)
     credit: CreditSettings = Field(default_factory=CreditSettings)
-    refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"
     company_email: str = ""
     support_email: str = ""
@@ -337,7 +292,6 @@ class Settings(BaseModel):
 class EmailTemplateType(str, Enum):
     ORDER_CONFIRMATION = "order_confirmation"
     SERVICE_ACTIVATED = "service_activated"
-    RESELLER_ACTIVATED = "reseller_activated"  # New template for resellers
     SERVICE_EXPIRY_WARNING = "service_expiry_warning"
     SERVICE_EXPIRED = "service_expired"
     TICKET_REPLY = "ticket_reply"

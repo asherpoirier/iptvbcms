@@ -13,13 +13,8 @@ import aiofiles
 import random
 import string
 import secrets
-import asyncio
 import re
 from bson import ObjectId
-from dotenv import load_dotenv
-
-# Load environment variables from .env file (override existing ones)
-load_dotenv(override=True)
 
 from models import (
     User, UserCreate, UserLogin, UserRole,
@@ -41,8 +36,7 @@ from models import (
     PaymentRetry,
     LifecycleLog, LifecycleAction,
     Download, DownloadCategory, DownloadLog,
-    License, LicenseStatus, LicenseValidation,
-    ImportedUser
+    License, LicenseStatus, LicenseValidation
 )
 from auth import (
     get_password_hash, verify_password, create_access_token,
@@ -73,9 +67,8 @@ app.add_middleware(
 
 # MongoDB connection
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017/iptv_billing")
-DB_NAME = os.getenv("DB_NAME", "test_database")
 client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+db = client.get_database()
 
 # Collections
 users_collection = db.users
@@ -102,7 +95,6 @@ downloads_collection = db.downloads
 download_logs_collection = db.download_logs
 licenses_collection = db.licenses
 license_validations_collection = db.license_validations
-imported_users_collection = db.imported_users
 
 
 # Initialize email logger and unsubscribe manager
@@ -134,8 +126,7 @@ async def get_configured_email_service():
     """Get email service with logger and unsubscribe manager"""
     settings = await get_settings()
     smtp_settings = settings.get("smtp", {})
-    branding = settings.get("branding", {})
-    return get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding)
+    return get_email_service(smtp_settings, email_logger, unsubscribe_manager, db)
 
 def str_to_objectid(id_str: str) -> ObjectId:
     """Convert string ID to ObjectId"""
@@ -437,77 +428,65 @@ async def startup_event():
             {
                 "template_type": "service_activated",
                 "name": "Service Activated - Connection Details",
-                "subject": "Your Streaming Service is Ready",
+                "subject": "Your Service is Active - Connection Details Inside",
                 "html_content": """
-<h2>Welcome to Your Premium Streaming Service</h2>
-
+<h2>🎉 Your Service is Now Active!</h2>
 <p>Hi {{customer_name}},</p>
+<p>Great news! Your service has been activated and is ready to use.</p>
 
-<p>Thank you for choosing us! We are delighted to confirm that your streaming service account has been successfully set up and is ready for you to enjoy.</p>
-
-<p>Your subscription includes access to thousands of channels and on-demand content. You can start watching immediately on up to {{max_connections}} devices at the same time.</p>
-
-<div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0;">
-    <h3 style="margin-top: 0; color: #212529;">Your Account Information</h3>
-    
-    <p style="margin-bottom: 15px;">Below are your personal login credentials. Please keep them safe and do not share with others.</p>
-    
-    <table style="width: 100%; margin-top: 15px;">
+<div style="background-color: #d4edda; padding: 25px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+    <h3 style="margin-top: 0; color: #155724;">Connection Details</h3>
+    <table style="width: 100%; border-collapse: collapse;">
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Service Plan:</td>
-            <td style="padding: 10px 0; color: #212529;">{{service_name}}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Service:</td>
+            <td style="padding: 8px 0;">{{service_name}}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Account Username:</td>
-            <td style="padding: 10px 0; color: #212529; font-family: monospace;">{{username}}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Username:</td>
+            <td style="padding: 8px 0; font-family: monospace; background-color: #f8f9fa; padding: 5px 10px; border-radius: 4px;">{{username}}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Account Passcode:</td>
-            <td style="padding: 10px 0; color: #212529; font-family: monospace;">{{password}}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Password:</td>
+            <td style="padding: 8px 0; font-family: monospace; background-color: #f8f9fa; padding: 5px 10px; border-radius: 4px;">{{password}}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Server Address:</td>
-            <td style="padding: 10px 0; color: #212529; font-size: 13px; word-break: break-all;">{{streaming_url}}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Streaming URL:</td>
+            <td style="padding: 8px 0; font-family: monospace; background-color: #f8f9fa; padding: 5px 10px; border-radius: 4px; word-break: break-all;">{{streaming_url}}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Concurrent Streams:</td>
-            <td style="padding: 10px 0; color: #212529;">{{max_connections}} device(s)</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Max Connections:</td>
+            <td style="padding: 8px 0;">{{max_connections}}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #495057; font-weight: 600;">Valid Until:</td>
-            <td style="padding: 10px 0; color: #212529;">{{expiry_date}}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: #155724;">Expiry Date:</td>
+            <td style="padding: 8px 0;">{{expiry_date}}</td>
         </tr>
     </table>
 </div>
 
-<h3 style="color: #212529;">Getting Started is Easy</h3>
+<div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
+    <h3 style="margin-top: 0; color: #856404;">📱 Setup Instructions</h3>
+    <ol style="margin: 0; padding-left: 20px; color: #856404;">
+        <li style="margin-bottom: 10px;">Download your preferred player (VLC, IPTV Smarters, etc.)</li>
+        <li style="margin-bottom: 10px;">Open the app and select "Add new connection" or "Login"</li>
+        <li style="margin-bottom: 10px;">Enter the connection details provided above</li>
+        <li style="margin-bottom: 10px;">Save and start streaming!</li>
+    </ol>
+</div>
 
-<p>Follow these simple steps to begin watching:</p>
-
-<ol style="line-height: 1.8; color: #495057;">
-    <li>Download a compatible player application on your device (we recommend IPTV Smarters Pro, TiviMate, or VLC Media Player)</li>
-    <li>Open the application and select the option to add a new connection or login</li>
-    <li>Enter your account information from above (username, passcode, and server address)</li>
-    <li>Save your settings and you are all set to start streaming</li>
-</ol>
-
-<div style="background-color: #e7f3ff; padding: 20px; border-radius: 8px; margin: 25px 0;">
-    <h4 style="margin-top: 0; color: #004085;">Important Information</h4>
-    <ul style="margin: 0; line-height: 1.8; color: #004085;">
-        <li>Your subscription is active until {{expiry_date}}</li>
-        <li>You may connect up to {{max_connections}} devices simultaneously</li>
-        <li>For security purposes, please keep your login credentials private</li>
-        <li>You can manage your account and view all services anytime from your dashboard</li>
+<div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #17a2b8;">
+    <h3 style="margin-top: 0; color: #0c5460;">💡 Important Notes</h3>
+    <ul style="margin: 0; padding-left: 20px; color: #0c5460;">
+        <li style="margin-bottom: 8px;">Keep your credentials secure and don't share them</li>
+        <li style="margin-bottom: 8px;">You can connect up to {{max_connections}} device(s) simultaneously</li>
+        <li style="margin-bottom: 8px;">Your service will expire on {{expiry_date}}</li>
+        <li style="margin-bottom: 8px;">Need help? Contact our support team anytime</li>
     </ul>
 </div>
 
-<p>If you need any assistance with setup or have questions about your service, our support team is here to help. Simply reply to this email or contact us through your account dashboard.</p>
-
-<p style="margin-top: 25px;"><a href="{{dashboard_link}}" style="background-color: #007bff; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">Access My Dashboard</a></p>
-
-<p style="margin-top: 30px; color: #6c757d;">We appreciate your business and look forward to providing you with an excellent streaming experience.</p>
-
-<p style="color: #6c757d;">Best regards,<br>The Support Team</p>
+<p>If you have any questions or need assistance with setup, please don't hesitate to reach out to our support team.</p>
+<p><a href="{{dashboard_link}}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Go to Dashboard</a></p>
+<p style="margin-top: 20px;">Happy streaming! 🎬</p>
 """,
                 "text_content": "Your service is active! Username: {{username}}, Password: {{password}}, Streaming URL: {{streaming_url}}. Expires: {{expiry_date}}",
                 "available_variables": ["customer_name", "service_name", "username", "password", "streaming_url", "max_connections", "expiry_date", "dashboard_link"],
@@ -542,150 +521,6 @@ async def startup_event():
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             }
-,
-            {
-                "template_type": "reseller_activated",
-                "name": "Reseller Panel Activated",
-                "subject": "Your Reseller Panel is Ready - {{credits}} Credits",
-                "html_content": """
-<h2>🎉 Your Reseller Panel is Active!</h2>
-<p>Hi {{customer_name}},</p>
-<p>Your reseller panel has been successfully activated and is ready to use!</p>
-
-<div style="background-color: #dbeafe; padding: 25px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
-    <h3 style="margin-top: 0; color: #1e40af;">Reseller Panel Details</h3>
-    <table style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #1e40af;">Panel URL:</td>
-            <td style="padding: 8px 0; font-family: monospace; background-color: #f3f4f6; padding: 5px 10px; border-radius: 4px; word-break: break-all;">{{panel_url}}</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #1e40af;">Username:</td>
-            <td style="padding: 8px 0; font-family: monospace; background-color: #f3f4f6; padding: 5px 10px; border-radius: 4px;">{{username}}</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #1e40af;">Password:</td>
-            <td style="padding: 8px 0; font-family: monospace; background-color: #f3f4f6; padding: 5px 10px; border-radius: 4px;">{{password}}</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #1e40af;">Credits:</td>
-            <td style="padding: 8px 0; font-weight: bold; font-size: 1.2em; color: #059669;">{{credits}} credits</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #1e40af;">Expiry Date:</td>
-            <td style="padding: 8px 0;">{{expiry_date}}</td>
-        </tr>
-    </table>
-</div>
-
-<div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
-    <h3 style="margin-top: 0; color: #92400e;">🚀 Getting Started</h3>
-    <ol style="margin: 0; padding-left: 20px; color: #92400e;">
-        <li style="margin-bottom: 10px;">Login to your reseller panel using the URL above</li>
-        <li style="margin-bottom: 10px;">Enter your username and password</li>
-        <li style="margin-bottom: 10px;">Start creating subscriber accounts for your customers</li>
-        <li style="margin-bottom: 10px;">Each subscriber you create will deduct credits from your balance</li>
-        <li>Manage your lines, monitor usage, and grow your business!</li>
-    </ol>
-</div>
-
-<div style="background-color: #d1fae5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
-    <h3 style="margin-top: 0; color: #065f46;">💡 Important Notes</h3>
-    <ul style="margin: 0; padding-left: 20px; color: #065f46;">
-        <li style="margin-bottom: 8px;">Your {{credits}} credits allow you to create subscriber accounts</li>
-        <li style="margin-bottom: 8px;">Credits are deducted based on the package/duration you assign</li>
-        <li style="margin-bottom: 8px;">Monitor your credit balance in the reseller panel</li>
-        <li style="margin-bottom: 8px;">Purchase additional credit packages anytime to top up</li>
-        <li>Need help? Contact our support team!</li>
-    </ul>
-</div>
-
-<p><a href="{{dashboard_link}}" style="background-color: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Go to Dashboard</a></p>
-<p style="margin-top: 20px;">Start managing your IPTV business today! 🎬</p>
-""",
-                "text_content": "Your reseller panel is active! Panel: {{panel_url}}, Username: {{username}}, Password: {{password}}, Credits: {{credits}}",
-                "available_variables": ["customer_name", "panel_url", "username", "password", "credits", "expiry_date", "dashboard_link"],
-                "description": "Sent when a reseller panel is activated with credentials and credits",
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            },
-            {
-                "template_type": "email_verification",
-                "name": "Email Verification",
-                "subject": "Verify Your Email Address",
-                "html_content": """
-<h2>Welcome to IPTV Billing!</h2>
-<p>Hi {{customer_name}},</p>
-<p>Thank you for registering. Please verify your email address to activate your account.</p>
-<p style="margin: 2rem 0;">
-    <a href="{{verification_link}}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">
-        Verify Email Address
-    </a>
-</p>
-<p>Or copy this link:</p>
-<p style="background: #f3f4f6; padding: 1rem; border-radius: 4px; word-break: break-all;">{{verification_link}}</p>
-<p style="color: #6b7280; font-size: 0.875rem; margin-top: 2rem;">This link will expire in 24 hours.</p>
-""",
-                "text_content": "Verify your email: {{verification_link}}",
-                "available_variables": ["customer_name", "verification_link"],
-                "description": "Sent when a new user registers to verify their email",
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            },
-            {
-                "template_type": "service_renewed",
-                "name": "Service Renewed",
-                "subject": "Service Renewed Successfully",
-                "html_content": """
-<h2>Service Renewed!</h2>
-<p>Hi {{customer_name}},</p>
-<p>Your service has been successfully renewed.</p>
-
-<div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
-    <h3 style="margin-top: 0;">Renewal Details:</h3>
-    <p><strong>Service:</strong> {{service_name}}</p>
-    <p><strong>Username:</strong> {{username}}</p>
-    <p><strong>New Expiry Date:</strong> {{new_expiry_date}}</p>
-</div>
-
-<p>Your existing credentials remain the same.</p>
-<p>Thank you for renewing your service!</p>
-""",
-                "text_content": "Service {{service_name}} renewed. New expiry: {{new_expiry_date}}",
-                "available_variables": ["customer_name", "service_name", "username", "new_expiry_date"],
-                "description": "Sent when a service is renewed/extended",
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            },
-            {
-                "template_type": "credits_added",
-                "name": "Credits Added to Reseller Panel",
-                "subject": "{{credits}} Credits Added to Your Panel",
-                "html_content": """
-<h2>Credits Added!</h2>
-<p>Hi {{customer_name}},</p>
-<p>We have added <strong>{{credits}} credits</strong> to your reseller panel.</p>
-
-<div style="background-color: #dbeafe; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
-    <h3 style="margin-top: 0;">Panel Details:</h3>
-    <p><strong>Panel Username:</strong> {{username}}</p>
-    <p><strong>Credits Added:</strong> {{credits}}</p>
-</div>
-
-<p>Login to your panel to see the updated credits and start creating subscriber accounts!</p>
-<p>Thank you for your purchase!</p>
-""",
-                "text_content": "{{credits}} credits added to your reseller panel ({{username}})",
-                "available_variables": ["customer_name", "username", "credits"],
-                "description": "Sent when credits are added to an existing reseller panel",
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-
         ]
         await email_templates_collection.insert_many(default_templates)
         logger.info("Default email templates created")
@@ -695,8 +530,7 @@ async def startup_event():
     
     # Get email service for lifecycle manager
     smtp_settings = (await get_settings()).get("smtp", {})
-    branding = (await get_settings()).get("branding", {})
-    email_svc = get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding)
+    email_svc = get_email_service(smtp_settings, email_logger, unsubscribe_manager, db)
     xtream_svc = get_xtream_service({})  # Will be configured via settings
     
     lifecycle_manager = ServiceLifecycleManager(db, xtream_svc, email_svc)
@@ -755,23 +589,32 @@ async def register(user_data: UserCreate):
         await referral_service.track_referral(user_data.referral_code, user_data.email)
     
     # Send verification email
-    # Use frontend route for verification to avoid redirect issues
     verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/verify-email?token={verification_token}"
     
     email_service = await get_configured_email_service()
     if email_service and email_service.enabled:
-        await email_service.send_email_verification(
-            customer_email=user_data.email,
-            customer_name=user_data.name,
-            verification_link=verification_link,
-            customer_id=user_id
+        verification_html = f"""
+        <h2>Welcome to IPTV Billing!</h2>
+        <p>Hi {user_data.name},</p>
+        <p>Thank you for registering. Please verify your email address to activate your account.</p>
+        <p style="margin: 2rem 0;">
+            <a href="{verification_link}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">
+                Verify Email Address
+            </a>
+        </p>
+        <p>Or copy this link:</p>
+        <p style="background: #f3f4f6; padding: 1rem; border-radius: 4px; word-break: break-all;">{verification_link}</p>
+        <p style="color: #6b7280; font-size: 0.875rem; margin-top: 2rem;">This link will expire in 24 hours.</p>
+        """
+        
+        await email_service.send_email(
+            to_email=user_data.email,
+            subject="Verify Your Email - IPTV Billing",
+            html_content=email_service._wrap_email(verification_html, "Email Verification"),
+            email_type="transactional",
+            customer_id=user_id,
+            recipient_name=user_data.name
         )
-    
-    # Send Telegram notification
-    await send_telegram_notification(
-        "new_user_registration",
-        f"🆕 *New User Registration*\n\nName: {user_data.name}\nEmail: {user_data.email}"
-    )
     
     return {
         "message": "Registration successful! Please check your email to verify your account.",
@@ -801,15 +644,6 @@ async def verify_email_api(token: str):
             }
         }
     )
-    
-    # Send welcome email
-    email_service = await get_configured_email_service()
-    if email_service and email_service.enabled:
-        await email_service.send_welcome_email(
-            customer_email=user["email"],
-            customer_name=user["name"],
-            customer_id=str(user["_id"])
-        )
     
     # Award signup bonus if referred
     if user.get("referred_by") and credit_service:
@@ -1339,7 +1173,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billingpanel.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://billflow-57.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1419,7 +1253,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billingpanel.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://billflow-57.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1684,7 +1518,6 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         "coupon_code": order_data.coupon_code.upper() if order_data.coupon_code else None,
         "credits_used": credits_used,
         "total": final_total,
-        "reseller_credentials": order_data.reseller_credentials,  # Save custom credentials
         "status": "pending",
         "payment_method": "manual",
         "created_at": datetime.utcnow(),
@@ -1728,14 +1561,6 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
     
     invoice_result = await invoices_collection.insert_one(invoice_dict)
     invoice_id = str(invoice_result.inserted_id)
-    
-    # Send "New Order" Telegram notification
-    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
-    order_items_text = "\n".join([f"- {item.product_name} (${item.price})" for item in order_data.items])
-    await send_telegram_notification(
-        "new_order",
-        f"🛒 *New Order Created*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nTotal: ${final_total:.2f}\n\nItems:\n{order_items_text}"
-    )
     
     # If fully paid with credits, mark order as paid and provision service
     if final_total == 0:
@@ -1925,15 +1750,6 @@ async def create_ticket(ticket_data: TicketCreate, current_user: dict = Depends(
     result = await tickets_collection.insert_one(ticket_dict)
     ticket_dict["id"] = str(result.inserted_id)
     
-    # Get user info for notification
-    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
-    
-    # Send "New Support Ticket" Telegram notification
-    await send_telegram_notification(
-        "new_support_ticket",
-        f"🎫 *New Support Ticket*\n\nFrom: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nSubject: {ticket_data.subject}\nPriority: {ticket_data.priority}\n\nMessage:\n{ticket_data.message[:200]}..."
-    )
-    
     return {"message": "Ticket created successfully", "ticket_id": ticket_dict["id"]}
 
 @app.get("/api/tickets")
@@ -2008,70 +1824,34 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
         }
     )
     
-    return {"message": "Ticket status updated"}
-
-
-@app.post("/api/admin/customers/{customer_id}/change-password")
-async def admin_change_customer_password(
-    customer_id: str,
-    new_password: str,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """Admin changes a customer's password"""
-    user = await users_collection.find_one({"_id": str_to_objectid(customer_id)})
+    # Send email notification to user
+    try:
+        user = await users_collection.find_one({"_id": str_to_objectid(ticket["user_id"])})
+        if user:
+            settings = await get_settings()
+            smtp_settings = settings.get("smtp", {})
+            email_service = get_email_service(smtp_settings)
+            if email_service and email_service.enabled:
+                if new_status == "closed":
+                    await email_service.send_ticket_closed(
+                        user["email"],
+                        user["name"],
+                        ticket_id,
+                        ticket["subject"]
+                    )
+                else:
+                    await email_service.send_ticket_reply(
+                        user["email"],
+                        user["name"],
+                        ticket_id,
+                        ticket["subject"],
+                        reply["message"],
+                        "Support Team"
+                    )
+    except Exception as e:
+        logger.error(f"Failed to send ticket reply email: {e}")
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Hash the new password
-    hashed_password = get_password_hash(new_password)
-    
-    # Update password
-    await users_collection.update_one(
-        {"_id": str_to_objectid(customer_id)},
-        {"$set": {"password": hashed_password}}
-    )
-    
-    logger.info(f"Admin {current_user['sub']} changed password for user {customer_id}")
-    
-    return {"message": "Password changed successfully"}
-
-
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-@app.post("/api/admin/change-password")
-async def admin_change_own_password(
-    request: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """Admin changes their own password"""
-    admin_id = current_user["sub"]
-    
-    # Get admin user
-    admin = await users_collection.find_one({"_id": str_to_objectid(admin_id)})
-    
-    if not admin:
-        raise HTTPException(status_code=404, detail="Admin user not found")
-    
-    # Verify current password
-    if not verify_password(request.current_password, admin["password"]):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-    
-    # Hash new password
-    hashed_password = get_password_hash(request.new_password)
-    
-    # Update password
-    await users_collection.update_one(
-        {"_id": str_to_objectid(admin_id)},
-        {"$set": {"password": hashed_password}}
-    )
-    
-    logger.info(f"Admin {admin_id} changed their own password")
-    
-    return {"message": "Password changed successfully. Please login again."}
+    return {"message": "Reply added successfully"}
 
 @app.put("/api/admin/tickets/{ticket_id}/status")
 async def update_ticket_status(ticket_id: str, status_update: dict, current_user: dict = Depends(get_current_admin_user)):
@@ -2215,14 +1995,6 @@ async def update_customer(customer_id: str, update_data: dict, current_user: dic
     update_fields = {}
     if "name" in update_data:
         update_fields["name"] = update_data["name"]
-
-
-@app.get("/api/refunds/enabled")
-async def check_refunds_enabled():
-    """Public endpoint to check if refunds are enabled (no auth required)"""
-    settings = await get_settings()
-    return {"enabled": settings.get("refunds_enabled", True)}
-
     if "email" in update_data:
         # Check if new email already exists
         existing = await users_collection.find_one({"email": update_data["email"], "_id": {"$ne": str_to_objectid(customer_id)}})
@@ -2342,21 +2114,16 @@ async def mark_order_paid(order_id: str, background_tasks: BackgroundTasks,
             logger.info(f"Referral completed for user {order['user_id']}")
     
     # Send payment received email
-    email_service = await get_configured_email_service()
-    if email_service and email_service.enabled:
-        await email_service.send_payment_received(
-            user_email=user["email"],
-            user_name=user["name"],
-            order_id=order_id,
-            total=order["total"]
-        )
-    
-    # Send "Payment Received" Telegram notification
-    order_items_text = "\n".join([f"- {item['product_name']}" for item in order.get('items', [])])
-    await send_telegram_notification(
-        "payment_received",
-        f"💰 *Payment Received*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nAmount: ${order['total']:.2f}\n\nItems:\n{order_items_text}"
-    )
+    settings = await get_settings()
+    if settings.get("smtp", {}).get("host"):
+        email_service = get_email_service(settings["smtp"])
+        if email_service:
+            await email_service.send_payment_received(
+                user_email=user["email"],
+                user_name=user["name"],
+                order_id=order_id,
+                total=order["total"]
+            )
     
     # Provision services
     background_tasks.add_task(provision_order_services, order_id, order, user)
@@ -2398,7 +2165,9 @@ async def cancel_order(order_id: str, current_user: dict = Depends(get_current_a
     try:
         user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
         if user:
-            email_service = await get_configured_email_service()
+            settings = await get_settings()
+            smtp_settings = settings.get("smtp", {})
+            email_service = get_email_service(smtp_settings)
             if email_service and email_service.enabled:
                 await email_service.send_order_cancelled(
                     user["email"], 
@@ -2414,121 +2183,49 @@ async def cancel_order(order_id: str, current_user: dict = Depends(get_current_a
     return {"message": "Order cancelled successfully"}
 
 async def provision_order_services(order_id: str, order: dict, user: dict):
-    """Provision services (XtreamUI or XuiOne) for paid order"""
+    """Provision XtreamUI services for paid order"""
     try:
         settings = await get_settings()
-        
-        # Get configured email service with all required params
-        email_service = await get_configured_email_service()
-        
-        for item in order["items"]:
-            # Get product details to determine which panel to use
-            product = await products_collection.find_one({"_id": str_to_objectid(item["product_id"])})
-            
-            if not product:
-                logger.error(f"Product {item['product_id']} not found")
-                continue
-            
-            # Get panel type and index from product
-            panel_type = product.get("panel_type", "xtream")
-            panel_index = product.get("panel_index", 0)
-            
-            logger.info(f"Provisioning service for product: {product.get('name')} (Panel: {panel_type}, Index: {panel_index})")
-            
-            # Route to correct panel type
-            if panel_type == "xuione":
-                await provision_xuione_service(order_id, order, user, item, product, settings, email_service)
-            else:
-                await provision_xtream_service(order_id, order, user, item, product, settings, email_service)
-                
-    except Exception as e:
-        logger.error(f"Provisioning error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-async def provision_xtream_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
-    """Provision XtreamUI service"""
-    try:
         xtream_settings = settings.get("xtream", {})
+        
         panels = xtream_settings.get("panels", [])
         
         if not panels or len(panels) == 0:
             logger.warning("XtreamUI not configured, skipping provisioning")
             return
         
-        # Get panel index from product (default to 0 if not set)
-        panel_index = product.get("panel_index", 0)
+        email_service = get_email_service(settings.get("smtp", {}))
         
-        # Validate panel index
-        if panel_index >= len(panels):
-            logger.error(f"Product references panel {panel_index} but only {len(panels)} panels exist. Using first panel.")
-            panel_index = 0
-        
-        panel = panels[panel_index]
-        
-        # Get panel name for display
-        panel_name = panel.get("name", f"Server {panel_index + 1}")
-        
-        # Initialize XtreamUI service for this specific panel
-        xtream_service = XtreamUIService(
-            panel_url=panel["panel_url"],
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"],
-            ssl_verify=panel.get("ssl_verify", False)
-        )
-        
-        # Generate or use custom credentials
-        if item["account_type"] == "reseller" and order.get("reseller_credentials"):
-            # Use customer's chosen credentials for reseller
-            username = order["reseller_credentials"].get("username", generate_username())
-            password = order["reseller_credentials"].get("password", generate_password())
-            logger.info(f"Using custom reseller credentials: {username}")
-        else:
-            # Auto-generate for subscribers or if not provided
+        for item in order["items"]:
+            # Get product details to determine which panel to use
+            product = await products_collection.find_one({"_id": str_to_objectid(item["product_id"])})
+            
+            # Get panel index from product (default to 0 if not set)
+            panel_index = product.get("panel_index", 0)
+            
+            # Validate panel index
+            if panel_index >= len(panels):
+                logger.error(f"Product references panel {panel_index} but only {len(panels)} panels exist. Using first panel.")
+                panel_index = 0
+            
+            panel = panels[panel_index]
+            
+            # Initialize XtreamUI service for this specific panel
+            xtream_service = XtreamUIService(
+                panel_url=panel["panel_url"],
+                admin_username=panel["admin_username"],
+                admin_password=panel["admin_password"],
+                ssl_verify=panel.get("ssl_verify", False)
+            )
+            
+            # Generate credentials
             username = generate_username()
             password = generate_password()
-        
-        # Calculate expiry date
-        term_months = item["term_months"]
-        expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
-        expiry_timestamp = int(expiry_date.timestamp())
-        
-        # Check if item has action_type and renewal_service_id from cart
-        action_type = item.get("action_type", "create_new")  # Default to create_new
-        renewal_service_id = item.get("renewal_service_id")
-        
-        # For subscribers, check if they're renewing
-        existing_subscriber = None
-        if item["account_type"] == "subscriber":
-            if renewal_service_id:
-                # Customer explicitly chose to extend a specific service
-                existing_subscriber = await services_collection.find_one({
-                    "_id": str_to_objectid(renewal_service_id),
-                    "user_id": order["user_id"],
-                    "status": "active"
-                })
-                if existing_subscriber:
-                    logger.info(f"Customer chose to extend service: {existing_subscriber['xtream_username']}")
-            elif action_type == "extend":
-                    # Legacy: find any active service with same product (only if explicitly set to extend)
-                    existing_subscriber = await services_collection.find_one({
-                        "user_id": order["user_id"],
-                        "product_id": item["product_id"],
-                        "status": "active"
-                    })
-                    if existing_subscriber:
-                        logger.info(f"Legacy extend mode: extending {existing_subscriber['xtream_username']}")
-                # If action_type is "create_new" or not set, existing_subscriber remains None
             
-            # For resellers, check if user already has a reseller account (to add credits instead)
-            existing_reseller = None
-            if item["account_type"] == "reseller":
-                existing_reseller = await services_collection.find_one({
-                    "user_id": order["user_id"],
-                    "account_type": "reseller",
-                    "status": "active",
-                    "panel_index": panel_index
-                })
+            # Calculate expiry date
+            term_months = item["term_months"]
+            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+            expiry_timestamp = int(expiry_date.timestamp())
             
             # Create service record
             service_dict = {
@@ -2538,100 +2235,34 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                 "product_name": item["product_name"],
                 "account_type": item["account_type"],
                 "term_months": term_months,
-                "xtream_username": existing_reseller["xtream_username"] if existing_reseller else (existing_subscriber["xtream_username"] if existing_subscriber else username),
-                "xtream_password": existing_reseller["xtream_password"] if existing_reseller else (existing_subscriber["xtream_password"] if existing_subscriber else password),
+                "xtream_username": username,
+                "xtream_password": password,
                 "status": "pending",
-                "panel_index": panel_index,
-                "panel_name": panel_name,  # Add panel name for display
+                "panel_index": panel_index,  # Track which panel this service uses
                 "created_at": datetime.utcnow()
             }
             
             if item["account_type"] == "subscriber":
-                # Check if this is a renewal (existing subscriber)
-                if existing_subscriber:
-                    # Renewal - extend existing service in XtreamUI
-                    logger.info(f"Renewal: Extending XtreamUI line for {existing_subscriber['xtream_username']}")
-                    
-                    # Get package ID from product
-                    package_id = product.get("xtream_package_id", 52)
-                    
-                    # Extend in XtreamUI with complete data
-                    extend_result = xtream_service.extend_subscriber(
-                        username=existing_subscriber["xtream_username"],
-                        password=existing_subscriber["xtream_password"],  # Subscriber's password!
-                        package_id=package_id,
-                        bouquets=product["bouquets"],
-                        max_connections=product["max_connections"],
-                        reseller_notes=f"Renewal: Order {order_id}"
-                    )
-                    
-                    if extend_result.get("success"):
-                        logger.info(f"✓ XtreamUI line extended")
-                    else:
-                        logger.warning(f"XtreamUI extend failed: {extend_result.get('error')}")
-                    
-                    # Calculate new expiry in our database
-                    extend_days = term_months * 30  # Calculate from term
-                    current_expiry = existing_subscriber.get("expiry_date", datetime.utcnow())
-                    if current_expiry < datetime.utcnow():
-                        # Expired, start from now
-                        new_expiry = datetime.utcnow() + timedelta(days=extend_days)
-                    else:
-                        # Active, extend from current expiry
-                        new_expiry = current_expiry + timedelta(days=extend_days)
-                    
-                    # Update existing service expiry in our database
-                    await services_collection.update_one(
-                        {"_id": existing_subscriber["_id"]},
-                        {"$set": {
-                            "expiry_date": new_expiry,
-                            "status": "active"
-                        }}
-                    )
-                    
-                    logger.info(f"Existing service updated with new expiry: {new_expiry}")
-                    
-                    # Send renewal email
-                    if email_service:
-                        await email_service.send_service_renewed(
-                            customer_email=user["email"],
-                            customer_name=user["name"],
-                            service_name=item["product_name"],
-                            username=existing_subscriber["xtream_username"],
-                            new_expiry_date=new_expiry.strftime("%Y-%m-%d"),
-                            customer_id=order["user_id"]
-                        )
-                    
-                    logger.info(f"Service renewed and extended to {new_expiry}")
-                    # Renewal complete, return (service updated)
-                    return
-                    
-                else:
-                    # New subscription - create XtreamUI account
-                    # Get XtreamUI package ID from product
-                    package_id = product.get("xtream_package_id", 52)
-                    
-                    # Create subscriber via form POST
-                    result = xtream_service.create_subscriber_via_form(
-                        username=username,
-                        password=password,
-                        package_id=package_id,
-                        bouquets=product["bouquets"],
-                        customer_name=user["name"]
-                    )
-                    
-                    if result["success"]:
-                        # Extract user ID from result if available
-                        xtream_user_id = result.get("user_id")
-                        
-                        service_dict.update({
-                            "bouquets": product["bouquets"],
-                            "max_connections": product["max_connections"],
-                            "status": "active",
-                            "start_date": datetime.utcnow(),
-                            "expiry_date": expiry_date,
-                            "dedicatedip": xtream_user_id  # Store XtreamUI user ID for suspend/terminate
-                        })
+                # Get XtreamUI package ID from product (stored when product was created)
+                package_id = product.get("xtream_package_id", 52)  # Fallback to package 52 if not set
+                
+                # Create subscriber via form POST (associates with reseller & deducts credits)
+                result = xtream_service.create_subscriber_via_form(
+                    username=username,
+                    password=password,
+                    package_id=package_id,
+                    bouquets=product["bouquets"],
+                    customer_name=user["name"]  # Include customer name in reseller notes
+                )
+                
+                if result["success"]:
+                    service_dict.update({
+                        "bouquets": product["bouquets"],
+                        "max_connections": product["max_connections"],
+                        "status": "active",
+                        "start_date": datetime.utcnow(),
+                        "expiry_date": expiry_date
+                    })
                     
                     # Insert service
                     await services_collection.insert_one(service_dict)
@@ -2639,641 +2270,62 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     # Send activation email
                     if email_service:
                         await email_service.send_service_activated(
-                            customer_email=user["email"],
-                            customer_name=user["name"],
+                            user_email=user["email"],
+                            user_name=user["name"],
                             service_name=item["product_name"],
                             username=username,
                             password=password,
-                            streaming_url=panel.get("streaming_url", panel["panel_url"]),
-                            max_connections=product["max_connections"],
-                            expiry_date=expiry_date.strftime("%Y-%m-%d"),
-                            customer_id=order["user_id"]
+                            panel_url=panel["panel_url"],  # Use correct panel URL
+                            expiry_date=expiry_date.strftime("%Y-%m-%d")
                         )
-                        
-                        # Send "Service Activated" Telegram notification  
-                        await send_telegram_notification(
-                            "service_activated",
-                            f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
-                        )
-                        
-                        logger.info(f"Subscriber provisioned: {username}")
-                    else:
-                        logger.error(f"Failed to provision subscriber: {result.get('error')}")
-                        service_dict["status"] = "failed"
-                        await services_collection.insert_one(service_dict)
                     
-            else:  # reseller
-                if existing_reseller:
-                    # User already has a reseller panel - add credits to XtreamUI
-                    logger.info(f"Adding {product['reseller_credits']} credits to existing reseller {existing_reseller['xtream_username']}")
-                    
-                    # Use the same xtream_service that's already configured with panel details
-                    # (panel variable is already retrieved above)
-                    if xtream_service:
-                        # Add credits via XtreamUI API
-                        credits_result = xtream_service.add_credits(
-                            username=existing_reseller["xtream_username"],
-                            email=user["email"],
-                            credits=product["reseller_credits"]
-                        )
-                        
-                        if credits_result.get("success"):
-                            logger.info(f"✓ Credits added to existing reseller in XtreamUI")
-                        else:
-                            logger.error(f"Failed to add credits: {credits_result.get('error')}")
-                    else:
-                        logger.warning("XtreamUI service not available")
-                    
-                    # Create service record for the credit addition
-                    service_dict.update({
-                        "reseller_credits": product["reseller_credits"],
-                        "reseller_max_lines": 0,
-                        "panel_url": product.get("custom_panel_url", ""),  # Use custom URL only
-                        "status": "active",
-                        "start_date": datetime.utcnow(),
-                        "expiry_date": expiry_date,
-                        "is_credit_addon": True  # Flag to indicate this is credit addition
-                    })
-                    
+                    logger.info(f"Subscriber provisioned: {username}")
+                else:
+                    logger.error(f"Failed to provision subscriber: {result.get('error')}")
+                    service_dict["status"] = "failed"
                     await services_collection.insert_one(service_dict)
                     
-                    # Send email about credit addition
+            else:  # reseller
+                # Create reseller
+                result = xtream_service.create_reseller(
+                    username=username,
+                    password=password,
+                    credits=product["reseller_credits"],
+                    max_lines=product["reseller_max_lines"]
+                )
+                
+                if result["success"]:
+                    service_dict.update({
+                        "reseller_credits": product["reseller_credits"],
+                        "reseller_max_lines": product["reseller_max_lines"],
+                        "status": "active",
+                        "start_date": datetime.utcnow(),
+                        "expiry_date": expiry_date
+                    })
+                    
+                    # Insert service
+                    await services_collection.insert_one(service_dict)
+                    
+                    # Send activation email
                     if email_service:
-                        await email_service.send_credits_added(
-                            customer_email=user["email"],
-                            customer_name=user["name"],
-                            username=existing_reseller["xtream_username"],
-                            credits=product["reseller_credits"],
-                            customer_id=order["user_id"]
+                        await email_service.send_service_activated(
+                            user_email=user["email"],
+                            user_name=user["name"],
+                            service_name=item["product_name"],
+                            username=username,
+                            password=password,
+                            panel_url=panel["panel_url"],  # Use correct panel URL
+                            expiry_date=expiry_date.strftime("%Y-%m-%d")
                         )
                     
-                    logger.info(f"Credits added to existing reseller panel")
+                    logger.info(f"Reseller provisioned: {username}")
                 else:
-                    # Create new reseller panel
-                    result = xtream_service.create_reseller(
-                        username=username,
-                        password=password,
-                        credits=product["reseller_credits"],
-                        email=user["email"],  # Pass customer email
-                        member_group_id=2  # 2 for reseller (typically)
-                    )
-                    
-                    if result["success"]:
-                        # Wait for account to be created in XtreamUI
-                        logger.info("Waiting 10 seconds for account creation to complete...")
-                        await asyncio.sleep(10)
-                        
-                        # Add credits to newly created reseller
-                        if product["reseller_credits"] > 0:
-                            logger.info(f"Adding {product['reseller_credits']} credits to {username}")
-                            credits_result = xtream_service.add_credits(
-                                username=username,
-                                email=user["email"],
-                                credits=product["reseller_credits"]
-                            )
-                            if credits_result.get("success"):
-                                logger.info(f"✓ Credits added successfully")
-                            else:
-                                logger.warning(f"Failed to add credits: {credits_result.get('error')}")
-                                # Log the error but don't fail the whole provisioning
-                        
-                        service_dict.update({
-                            "reseller_credits": product["reseller_credits"],
-                            "reseller_max_lines": product["reseller_max_lines"],
-                            "panel_url": product.get("custom_panel_url", ""),  # Use custom URL only, empty if not set
-                            "status": "active",
-                            "start_date": datetime.utcnow(),
-                            "expiry_date": expiry_date
-                        })
-                        
-                        # Insert service
-                        await services_collection.insert_one(service_dict)
-                        
-                        logger.info(f"Reseller service created in database")
-                        
-                        # Send activation email (reseller-specific)
-                        if email_service:
-                            logger.info(f"Sending reseller activation email to {user['email']}")
-                            panel_url_for_email = product.get("custom_panel_url", "")
-                            logger.info(f"Panel URL for email: {panel_url_for_email}")
-                            if panel_url_for_email:
-                                result = await email_service.send_reseller_activated(
-                                    customer_email=user["email"],
-                                    customer_name=user["name"],
-                                    service_name=item["product_name"],
-                                    username=username,
-                                    password=password,
-                                    panel_url=panel_url_for_email,
-                                    credits=product["reseller_credits"],
-                                    expiry_date=expiry_date.strftime("%Y-%m-%d"),
-                                    customer_id=order["user_id"]
-                                )
-                                if result:
-                                    logger.info(f"✓ Reseller activation email sent successfully")
-                                else:
-                                    logger.error(f"✗ Reseller activation email failed to send")
-                            else:
-                                logger.warning("No custom panel URL set - email not sent")
-                        else:
-                            logger.warning("Email service not available - email not sent")
-                        
-                        logger.info(f"Reseller provisioned: {username}")
-                    else:
-                        logger.error(f"Failed to provision reseller: {result.get('error')}")
-                        service_dict["status"] = "failed"
-                        await services_collection.insert_one(service_dict)
+                    logger.error(f"Failed to provision reseller: {result.get('error')}")
+                    service_dict["status"] = "failed"
+                    await services_collection.insert_one(service_dict)
         
     except Exception as e:
         logger.error(f"Provisioning error: {str(e)}")
-
-
-
-async def extend_xuione_line(xuione_service, existing_service: dict, item: dict, product: dict, order: dict, order_id: str, user: dict, email_service):
-    """Extend/renew an existing XuiOne line using edit_line API"""
-    try:
-        logger.info(f"Extending XuiOne line: {existing_service.get('xtream_username')}")
-        
-        # Login first to get session cookie
-        if not xuione_service.logged_in:
-            if not xuione_service.login():
-                logger.error("XuiOne: Login failed for extension")
-                return
-        
-        # Get the line ID from the existing service (stored in dedicatedip or xuione_line_id)
-        line_id = existing_service.get("dedicatedip") or existing_service.get("xuione_line_id")
-        
-        if not line_id:
-            logger.error(f"No line ID found for service {existing_service.get('_id')}")
-            return
-        
-        # Calculate new expiry date (extend from current expiry if not expired, otherwise from now)
-        extend_days = item["term_months"] * 30
-        current_expiry = existing_service.get("expiry_date", datetime.utcnow())
-        
-        if current_expiry < datetime.utcnow():
-            # Expired, start from now
-            new_expiry = datetime.utcnow() + timedelta(days=extend_days)
-        else:
-            # Active, extend from current expiry
-            new_expiry = current_expiry + timedelta(days=extend_days)
-        
-        new_expiry_str = new_expiry.strftime("%Y-%m-%d")
-        
-        # Prepare edit_line request data
-        request_data = {
-            'id': str(line_id),
-            'package': str(product.get('xtream_package_id', '')),
-            'trial': '1' if product.get('is_trial') else '0',
-            'reseller_notes': f'Renewal - Order {order_id}',
-            'is_isplock': '0'
-        }
-        
-        logger.info(f"Extending line {line_id} to {new_expiry_str}")
-        
-        # Get API URL
-        api_url = xuione_service.get_api_url()
-        
-        # Make API request to edit_line
-        import requests
-        response = xuione_service.session.post(
-            api_url,
-            params={
-                'api_key': xuione_service.api_key,
-                'action': 'edit_line'
-            },
-            data=request_data,
-            headers={
-                'User-Agent': 'IPTV-Billing-System/1.0',
-                'Accept': '*/*'
-            },
-            timeout=30
-        )
-        
-        logger.info(f"XuiOne edit_line response: status={response.status_code}")
-        
-        if response.status_code == 200:
-            try:
-                result = response.json()
-                logger.info(f"XuiOne edit_line result: {result}")
-                
-                if result.get('status') == 'STATUS_SUCCESS':
-                    logger.info(f"✓ XuiOne line extended successfully")
-                    
-                    # Update existing service expiry in our database
-                    await services_collection.update_one(
-                        {"_id": existing_service["_id"]},
-                        {"$set": {
-                            "expiry_date": new_expiry,
-                            "status": "active"
-                        }}
-                    )
-                    
-                    # Send renewal email
-                    if email_service:
-                        await email_service.send_service_renewed(
-                            customer_email=user["email"],
-                            customer_name=user["name"],
-                            service_name=item["product_name"],
-                            username=existing_service["xtream_username"],
-                            new_expiry_date=new_expiry_str,
-                            customer_id=order["user_id"]
-                        )
-                    
-                    logger.info(f"Service renewed and extended to {new_expiry}")
-                else:
-                    logger.error(f"XuiOne edit_line failed: {result}")
-                    
-            except ValueError as json_err:
-                logger.error(f"XuiOne edit_line: Invalid JSON response")
-        else:
-            logger.error(f"XuiOne edit_line HTTP error: {response.status_code}")
-            
-    except Exception as e:
-        logger.error(f"XuiOne extension error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-
-async def provision_xuione_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
-    """Provision XuiOne service using API"""
-    try:
-        xuione_settings = settings.get("xuione", {})
-        panels = xuione_settings.get("panels", [])
-        
-        if not panels or len(panels) == 0:
-            logger.warning("XuiOne not configured, skipping provisioning")
-            return
-        
-        # Get panel index from product
-        panel_index = product.get("panel_index", 0)
-        
-        # Validate panel index
-        if panel_index >= len(panels):
-            logger.error(f"Product references XuiOne panel {panel_index} but only {len(panels)} panels exist. Using first panel.")
-            panel_index = 0
-        
-        panel = panels[panel_index]
-        panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
-        
-        logger.info(f"Provisioning XuiOne service on panel: {panel_name}")
-        
-        # Initialize XuiOne service
-        xuione_service = XuiOneService(
-            panel_url=panel["panel_url"],
-            api_access_code=panel.get("api_access_code", ""),
-            api_key=panel.get("api_key", ""),
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"],
-            ssl_verify=panel.get("ssl_verify", False)
-        )
-        
-        # Generate or use custom credentials
-        if item["account_type"] == "reseller" and order.get("reseller_credentials"):
-            username = order["reseller_credentials"].get("username", generate_username())
-            password = order["reseller_credentials"].get("password", generate_password())
-            logger.info(f"Using custom reseller credentials: {username}")
-        else:
-            username = generate_username()
-            password = generate_password()
-        
-        # Calculate expiry date
-        term_months = item["term_months"]
-        expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
-        expiry_date_str = expiry_date.strftime("%Y-%m-%d")
-        
-        # Create service record
-        service_dict = {
-            "user_id": order["user_id"],
-            "order_id": order_id,
-            "product_id": item["product_id"],
-            "product_name": item["product_name"],
-            "account_type": item["account_type"],
-            "term_months": term_months,
-            "xtream_username": username,  # Keep field name for compatibility
-            "xtream_password": password,
-            "status": "pending",
-            "panel_index": panel_index,
-            "panel_type": "xuione",
-            "panel_name": panel_name,
-            "created_at": datetime.utcnow()
-        }
-        
-        if item["account_type"] == "subscriber":
-            # Check for existing service (renewal scenario)
-            existing_service = None
-            renewal_service_id = item.get("renewal_service_id")
-            
-            if renewal_service_id:
-                # Customer explicitly chose to extend a specific service
-                existing_service = await services_collection.find_one({
-                    "_id": str_to_objectid(renewal_service_id),
-                    "user_id": order["user_id"],
-                    "status": "active",
-                    "panel_type": "xuione"
-                })
-                if existing_service:
-                    logger.info(f"Renewal: Extending XuiOne line {existing_service.get('xtream_username')}")
-            
-            if existing_service:
-                # RENEWAL - Extend existing line using edit_line API
-                await extend_xuione_line(xuione_service, existing_service, item, product, order, order_id, user, email_service)
-                return
-            else:
-                # NEW SUBSCRIPTION - Create new line
-                logger.info(f"Creating XuiOne subscriber: {username}")
-            
-            # XuiOne API requires api_key
-            if not xuione_service.api_key:
-                logger.error("XuiOne API key not configured!")
-                service_dict["status"] = "failed"
-                service_dict["error"] = "API key not configured"
-                await services_collection.insert_one(service_dict)
-                return
-            
-            # Make API request to create line
-            # Note: XuiOne API might require BOTH api_key AND session cookies
-            import requests
-            try:
-                # Login first to get session cookie
-                if not xuione_service.logged_in:
-                    login_result = xuione_service.login()
-                    if not login_result:
-                        logger.error("XuiOne: Failed to login before API call")
-                        service_dict["status"] = "failed"
-                        service_dict["error"] = "Login failed"
-                        await services_collection.insert_one(service_dict)
-                        return
-                
-                # Use the logged-in session (with cookies) for API calls
-                logger.info(f"Using session with cookies: {bool(xuione_service.session.cookies)}")
-                
-                # Use the API URL (with API access code) instead of web URL
-                api_url = xuione_service.get_api_url()
-                
-                logger.info(f"XuiOne API URL: {api_url}/?api_key=***&action=create_line")
-                
-                logger.info(f"Creating line: package={product.get('xtream_package_id', '')}, connections={product['max_connections']}, expiry={expiry_date_str}, is_trial={product.get('is_trial', False)}")
-                
-                # XuiOne WHMCS module format (from working implementation)
-                request_data = {
-                    'username': username,
-                    'password': password,
-                    'package': str(product.get('xtream_package_id', '')),  # Package ID from XuiOne
-                    'trial': '1' if product.get('is_trial') else '0',  # Important: trial flag!
-                    'reseller_notes': f'Billing System - Order {order_id}',
-                    'is_isplock': '0'  # ISP lock disabled by default
-                }
-                
-                logger.info(f"Request data: {request_data}")
-                
-                # Use the logged-in session (has cookies) instead of fresh session
-                response = xuione_service.session.post(
-                    api_url,
-                    params={
-                        'api_key': xuione_service.api_key,
-                        'action': 'create_line'
-                    },
-                    data=request_data,
-                    headers={
-                        'User-Agent': 'IPTV-Billing-System/1.0',
-                        'Accept': '*/*'
-                    },
-                    timeout=30
-                )
-                
-                logger.info(f"XuiOne create_line response: status={response.status_code}, content-type={response.headers.get('content-type')}")
-                logger.info(f"Response preview: {response.text[:500]}")
-                
-                if response.status_code == 200:
-                    # Try to parse as JSON regardless of content-type (XuiOne sends wrong headers)
-                    try:
-                        result = response.json()
-                        logger.info(f"XuiOne create_line result: {result}")
-                        
-                        if result.get('status') == 'STATUS_SUCCESS':
-                            logger.info(f"✓ XuiOne line created successfully")
-                            
-                            # Store the line ID for future renewals
-                            line_id = result.get('data', {}).get('id')
-                            
-                            service_dict.update({
-                                "bouquets": product["bouquets"],
-                                "max_connections": product["max_connections"],
-                                "status": "active",
-                                "start_date": datetime.utcnow(),
-                                "expiry_date": expiry_date,
-                                "dedicatedip": line_id,  # Store XuiOne line ID for renewals
-                                "xuione_line_id": line_id,  # Alternative field name
-                                "panel_url": panel.get("panel_url", "")  # Store panel URL for customer display
-                            })
-                        elif result.get('status') == 'STATUS_INVALID_PACKAGE':
-                            logger.error(f"XuiOne: Invalid package - check bouquets configuration")
-                            service_dict["status"] = "failed"
-                            service_dict["error"] = "Invalid package/bouquets configuration"
-                        else:
-                            logger.error(f"XuiOne API returned error: {result}")
-                            service_dict["status"] = "failed"
-                            service_dict["error"] = result.get("message", result.get("status", "Unknown error"))
-                    except ValueError as json_err:
-                        # If it's truly not JSON, it might be HTML login page
-                        if '<html' in response.text.lower():
-                            logger.error("XuiOne API returned HTML (login page) - authentication failed")
-                            service_dict["status"] = "failed"
-                            service_dict["error"] = "API authentication failed - check API key"
-                        else:
-                            logger.error(f"XuiOne response is not valid JSON: {json_err}")
-                            service_dict["status"] = "failed"
-                            service_dict["error"] = "Invalid API response"
-                else:
-                    logger.error(f"XuiOne API HTTP error: {response.status_code}")
-                    service_dict["status"] = "failed"
-                    service_dict["error"] = f"HTTP {response.status_code}"
-                    
-            except Exception as api_err:
-                logger.error(f"XuiOne API error: {api_err}")
-                service_dict["status"] = "failed"
-                service_dict["error"] = str(api_err)
-            
-            # Insert service record
-            await services_collection.insert_one(service_dict)
-            
-            # Send activation email if successful
-            if service_dict["status"] == "active" and email_service:
-                await email_service.send_service_activated(
-                    customer_email=user["email"],
-                    customer_name=user["name"],
-                    service_name=item["product_name"],
-                    username=username,
-                    password=password,
-                    streaming_url=panel.get("panel_url", ""),  # XuiOne uses panel_url for streaming
-                    max_connections=product["max_connections"],
-                    expiry_date=expiry_date_str,
-                    customer_id=order["user_id"]
-                )
-                
-                # Send "Service Activated" Telegram notification
-                await send_telegram_notification(
-                    "service_activated",
-                    f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XuiOne)\nUsername: {username}\nExpiry: {expiry_date_str}"
-                )
-        
-        else:
-            # RESELLER PROVISIONING
-            logger.info(f"Creating XuiOne reseller: {username}")
-            
-            # XuiOne API requires api_key
-            if not xuione_service.api_key:
-                logger.error("XuiOne API key not configured!")
-                service_dict["status"] = "failed"
-                service_dict["error"] = "API key not configured"
-                await services_collection.insert_one(service_dict)
-                return
-            
-            # Login first to get session cookie
-            if not xuione_service.logged_in:
-                if not xuione_service.login():
-                    logger.error("XuiOne: Login failed")
-                    service_dict["status"] = "failed"
-                    service_dict["error"] = "Login failed"
-                    await services_collection.insert_one(service_dict)
-                    return
-            
-            # Get API URL
-            api_url = xuione_service.get_api_url()
-            
-            # Prepare create_user request for reseller
-            request_data = {
-                'username': username,
-                'password': password,
-                'email': user.get('email', ''),
-                'member_group_id': '2',  # 2 = Reseller
-                'credits': str(int(product.get('reseller_credits', 0))),  # Integer string
-                'notes': f'Billing System - Order {order_id}',
-                'owner_id': '247'  # Parent reseller ID (numeric)
-            }
-            
-            logger.info(f"Creating reseller with {product.get('reseller_credits', 0)} credits")
-            
-            import requests
-            try:
-                response = xuione_service.session.post(
-                    api_url,
-                    params={
-                        'api_key': xuione_service.api_key,
-                        'action': 'create_user'
-                    },
-                    data=request_data,
-                    headers={
-                        'User-Agent': 'IPTV-Billing-System/1.0',
-                        'Accept': '*/*'
-                    },
-                    timeout=30
-                )
-                
-                logger.info(f"XuiOne create_user response: status={response.status_code}")
-                
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        logger.info(f"XuiOne create_user result: {result}")
-                        
-                        if result.get('status') == 'STATUS_SUCCESS':
-                            logger.info(f"✓ XuiOne reseller created successfully")
-                            
-                            # Store the reseller ID
-                            reseller_id = result.get('data', {}).get('id')
-                            
-                            # Add credits via adjust_credits action (all params in query string)
-                            if product.get('reseller_credits', 0) > 0:
-                                credits_amount = int(product['reseller_credits'])
-                                logger.info(f"Adding {credits_amount} credits to reseller {reseller_id}")
-                                
-                                credits_response = xuione_service.session.post(
-                                    api_url,
-                                    params={
-                                        'api_key': xuione_service.api_key,
-                                        'action': 'adjust_credits',
-                                        'id': reseller_id,
-                                        'credits': str(credits_amount),
-                                        'reason': f'Initial allocation - Order {order_id}'
-                                    },
-                                    headers={
-                                        'User-Agent': 'IPTV-Billing-System/1.0',
-                                        'Accept': '*/*'
-                                    },
-                                    timeout=30
-                                )
-                                
-                                if credits_response.status_code == 200:
-                                    try:
-                                        credits_result = credits_response.json()
-                                        logger.info(f"Adjust credits result: {credits_result}")
-                                        
-                                        if credits_result.get('status') == 'STATUS_SUCCESS':
-                                            logger.info(f"✓ Credits adjusted successfully")
-                                            
-                                            # Verify new balance
-                                            verify_response = xuione_service.session.get(
-                                                api_url,
-                                                params={
-                                                    'api_key': xuione_service.api_key,
-                                                    'action': 'get_user',
-                                                    'id': reseller_id
-                                                },
-                                                timeout=10
-                                            )
-                                            if verify_response.status_code == 200:
-                                                verify_data = verify_response.json()
-                                                new_balance = verify_data.get('data', {}).get('credits', 'unknown')
-                                                logger.info(f"✓ Verified new credit balance: {new_balance}")
-                                        else:
-                                            logger.warning(f"Failed to adjust credits: {credits_result}")
-                                    except ValueError:
-                                        logger.warning("Credits response not JSON")
-                                else:
-                                    logger.warning(f"Adjust credits HTTP error: {credits_response.status_code}")
-                            
-                            service_dict.update({
-                                "status": "active",
-                                "start_date": datetime.utcnow(),
-                                "expiry_date": None,  # Resellers don't expire
-                                "dedicatedip": reseller_id,  # Store reseller ID
-                                "xuione_reseller_id": reseller_id,
-                                "reseller_credits": product.get('reseller_credits', 0),
-                                "panel_url": panel.get("panel_url", "")  # Store panel URL for customer display
-                            })
-                        else:
-                            logger.error(f"XuiOne create_user failed: {result}")
-                            service_dict["status"] = "failed"
-                            service_dict["error"] = result.get("message", result.get("status", "Unknown error"))
-                    except ValueError as json_err:
-                        logger.error(f"XuiOne response is not valid JSON")
-                        service_dict["status"] = "failed"
-                        service_dict["error"] = "Invalid API response"
-                else:
-                    logger.error(f"XuiOne create_user HTTP error: {response.status_code}")
-                    service_dict["status"] = "failed"
-                    service_dict["error"] = f"HTTP {response.status_code}"
-                    
-            except Exception as api_err:
-                logger.error(f"XuiOne create_user error: {api_err}")
-                service_dict["status"] = "failed"
-                service_dict["error"] = str(api_err)
-            
-            # Insert service record
-            await services_collection.insert_one(service_dict)
-            
-            # Send activation email if successful
-            if service_dict["status"] == "active" and email_service:
-                # Note: Email templates may need to be adapted for reseller accounts
-                logger.info(f"Reseller {username} created with {product.get('reseller_credits', 0)} credits")
-
-    
-    except Exception as e:
-        logger.error(f"XuiOne provisioning error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-
 
 @app.post("/api/admin/services/{service_id}/suspend")
 async def suspend_service(service_id: str, current_user: dict = Depends(get_current_admin_user)):
@@ -3396,61 +2448,6 @@ async def get_panel_names():
     
     raise HTTPException(status_code=500, detail="XtreamUI service not configured")
 
-
-class ManualServiceCreate(BaseModel):
-    user_id: str
-    product_id: str
-    term_months: int = 1
-
-@app.post("/api/admin/services/create-manual")
-async def create_manual_service(service_data: ManualServiceCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_admin_user)):
-    """Manually create a service for a customer (admin only)"""
-    import uuid
-    
-    # Get user
-    user = await users_collection.find_one({"_id": str_to_objectid(service_data.user_id)})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get product
-    product = await products_collection.find_one({"_id": str_to_objectid(service_data.product_id)})
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Create a manual order
-    order_id = str(uuid.uuid4())
-    order_dict = {
-        "_id": order_id,
-        "user_id": service_data.user_id,
-        "items": [{
-            "product_id": service_data.product_id,
-            "product_name": product.get("name"),
-            "account_type": product.get("account_type"),
-            "term_months": service_data.term_months,
-            "price": 0,
-            "action_type": "create_new"
-        }],
-        "subtotal": 0,
-        "discount_amount": 0,
-        "credits_used": 0,
-        "total": 0,
-        "status": "paid",
-        "payment_method": "manual_admin",
-        "created_at": datetime.utcnow(),
-        "paid_at": datetime.utcnow()
-    }
-    
-    await orders_collection.insert_one(order_dict)
-    
-    # Provision service in background
-    background_tasks.add_task(provision_order_services, order_id, order_dict, user)
-    
-    return {
-        "message": "Service creation initiated. Provisioning in background...",
-        "order_id": order_id
-    }
-
-
 @app.get("/api/admin/products")
 async def get_all_products_admin(current_user: dict = Depends(get_current_admin_user)):
     """Get all products (admin) sorted by display_order"""
@@ -3466,18 +2463,6 @@ async def create_product(product: ProductCreate, current_user: dict = Depends(ge
     """Create new product"""
     product_dict = product.dict()
     product_dict["created_at"] = datetime.utcnow()
-    
-    # Auto-assign display_order if not set
-    if "display_order" not in product_dict or product_dict["display_order"] is None:
-        # Get the max display_order for this panel_index and account_type
-        max_order = 0
-        async for p in products_collection.find({
-            "panel_index": product_dict.get("panel_index", 0),
-            "account_type": product_dict.get("account_type", "subscriber")
-        }).sort("display_order", -1).limit(1):
-            max_order = p.get("display_order", 0)
-        
-        product_dict["display_order"] = max_order + 1
     
     result = await products_collection.insert_one(product_dict)
     
@@ -3520,14 +2505,10 @@ async def reorder_product(product_id: str, direction: str = Query(...), current_
     
     current_order = product.get("display_order", 0)
     panel_index = product.get("panel_index", 0)
-    account_type = product.get("account_type", "subscriber")
     
-    # Get all products in same panel AND same account type, sorted by display_order
+    # Get all products in same panel, sorted by display_order
     panel_products = []
-    async for p in products_collection.find({
-        "panel_index": panel_index,
-        "account_type": account_type
-    }).sort("display_order", 1):
+    async for p in products_collection.find({"panel_index": panel_index}).sort("display_order", 1):
         panel_products.append(p)
     
     # Find current product index in the list
@@ -3610,456 +2591,6 @@ async def update_admin_settings(settings_update: Settings,
     get_email_service(settings_dict.get("smtp", {}))
     
     return {"message": "Settings updated successfully"}
-
-# ===== NOTIFICATION SETTINGS ENDPOINTS =====
-
-class TelegramSettings(BaseModel):
-    enabled: bool = False
-    bot_token: str = ""
-    chat_id: str = ""
-    events: dict = {}
-
-class TestTelegramRequest(BaseModel):
-    bot_token: str
-    chat_id: str
-
-@app.get("/api/admin/notifications/settings")
-async def get_notification_settings(current_user: dict = Depends(get_current_admin_user)):
-    """Get notification settings"""
-    settings = await get_settings()
-    notifications = settings.get("notifications", {})
-    return {
-        "telegram": notifications.get("telegram", {
-            "enabled": False,
-            "bot_token": "",
-            "chat_id": "",
-            "events": {
-                "new_order": True,
-                "payment_received": True,
-                "new_user": True,
-                "service_activated": True,
-                "service_expired": False,
-                "ticket_created": True,
-                "ticket_replied": False
-            }
-        })
-    }
-
-@app.put("/api/admin/notifications/telegram")
-async def update_telegram_settings(telegram: TelegramSettings, current_user: dict = Depends(get_current_admin_user)):
-    """Update Telegram notification settings"""
-    settings = await get_settings()
-    
-    if "notifications" not in settings:
-        settings["notifications"] = {}
-    
-    settings["notifications"]["telegram"] = telegram.dict()
-    
-    await settings_collection.update_one(
-        {},
-        {"$set": {"notifications": settings["notifications"]}},
-        upsert=True
-    )
-    
-    return {"message": "Telegram settings updated successfully"}
-
-@app.post("/api/admin/notifications/telegram/test")
-async def test_telegram_notification(request: TestTelegramRequest, current_user: dict = Depends(get_current_admin_user)):
-    """Send a test message to verify Telegram settings"""
-    import httpx
-    
-    if not request.bot_token or not request.chat_id:
-        raise HTTPException(status_code=400, detail="Bot token and chat ID are required")
-    
-    try:
-        # Get branding for site name
-        settings = await get_settings()
-        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
-        
-        message = f"🔔 *Test Notification*\n\nThis is a test message from {site_name}.\n\nYour Telegram notifications are configured correctly! ✅"
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://api.telegram.org/bot{request.bot_token}/sendMessage",
-                json={
-                    "chat_id": request.chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                },
-                timeout=10.0
-            )
-            
-            result = response.json()
-            
-            if response.status_code == 200 and result.get("ok"):
-                return {"message": "Test message sent successfully!"}
-            else:
-                # Get the actual error from Telegram
-                error_desc = result.get('description', f'HTTP {response.status_code}')
-                
-                # Provide helpful messages for common errors
-                if response.status_code == 401 or "Unauthorized" in error_desc:
-                    raise HTTPException(status_code=400, detail="Invalid bot token. Please check your token from @BotFather.")
-                elif "chat not found" in error_desc.lower():
-                    raise HTTPException(status_code=400, detail="Chat not found. Please check your Chat ID.")
-                elif "bot was blocked" in error_desc.lower():
-                    raise HTTPException(status_code=400, detail="Bot was blocked by user. Please unblock the bot and try again.")
-                elif "chat_id is empty" in error_desc.lower():
-                    raise HTTPException(status_code=400, detail="Chat ID cannot be empty.")
-                elif "CHAT_WRITE_FORBIDDEN" in error_desc:
-                    raise HTTPException(status_code=400, detail="Bot doesn't have permission to send messages. Make sure you've started a conversation with the bot first (send /start to your bot).")
-                else:
-                    raise HTTPException(status_code=400, detail=f"Telegram error: {error_desc}")
-                
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=500, detail="Request timed out. Please check your internet connection.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send test message: {str(e)}")
-
-# Helper function to send Telegram notifications
-async def send_telegram_notification(event_type: str, message: str):
-    """Send a Telegram notification if enabled for the event type"""
-    try:
-        settings = await get_settings()
-        telegram = settings.get("notifications", {}).get("telegram", {})
-        
-        if not telegram.get("enabled"):
-            return False
-        
-        events = telegram.get("events", {})
-        if not events.get(event_type, False):
-            return False
-        
-        bot_token = telegram.get("bot_token", "")
-        chat_id = telegram.get("chat_id", "")
-        
-        if not bot_token or not chat_id:
-            return False
-        
-        import httpx
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown"
-                },
-                timeout=10.0
-            )
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send Telegram notification: {str(e)}")
-        return False
-
-# ===== XUIONE PANEL ENDPOINTS =====
-
-from xuione_service import XuiOneService, get_xuione_service
-
-@app.post("/api/admin/xuione/test")
-async def test_xuione_connection(current_user: dict = Depends(get_current_admin_user)):
-    """Test XuiOne panel connection"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    settings = await get_settings()
-    panels = settings.get("xuione", {}).get("panels", [])
-    
-    if not panels:
-        raise HTTPException(status_code=400, detail="No XuiOne panels configured. Please add a panel first.")
-    
-    panel = panels[0]
-    logger.info(f"Testing XuiOne panel: {panel.get('name', 'Unknown')}")
-    logger.info(f"Panel URL: {panel.get('panel_url', 'Not set')}")
-    
-    try:
-        service = get_xuione_service(panel)
-        
-        if not service:
-            logger.error("Failed to create XuiOne service instance")
-            raise HTTPException(status_code=500, detail="Failed to initialize XuiOne service. Check panel configuration.")
-        
-        result = service.test_connection()
-        
-        if result.get("success"):
-            logger.info(f"✓ XuiOne connection test successful")
-            return {"message": result.get("message", "Connection successful")}
-        else:
-            error_msg = result.get("error", "Connection failed")
-            logger.error(f"✗ XuiOne connection test failed: {error_msg}")
-            raise HTTPException(status_code=400, detail=error_msg)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"✗ XuiOne test connection exception: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Connection test error: {str(e)}")
-
-@app.get("/api/admin/xuione/sync-packages")
-async def sync_xuione_packages(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
-    """Sync packages from XuiOne panel - Returns package list for selection, does NOT create products"""
-    settings = await get_settings()
-    panels = settings.get("xuione", {}).get("panels", [])
-    
-    if panel_index >= len(panels):
-        raise HTTPException(status_code=400, detail="Invalid panel index")
-    
-    panel = panels[panel_index]
-    panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
-    
-    service = get_xuione_service(panel)
-    if not service:
-        raise HTTPException(status_code=500, detail="XuiOne service not available")
-    
-    result = service.get_packages()
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch packages"))
-    
-    packages = result.get("packages", [])
-    
-    # Separate regular and trial packages
-    regular_packages = [p for p in packages if not p.get('is_trial')]
-    trial_packages = [p for p in packages if p.get('is_trial')]
-    
-    # Return packages for selection in the product form (DO NOT create products automatically)
-    return {
-        "success": True,
-        "packages": regular_packages,
-        "trial_packages": trial_packages,
-        "all_packages": packages,
-        "count": len(regular_packages),
-        "trial_count": len(trial_packages),
-        "total_count": len(packages),
-        "panel_name": panel_name,
-        "panel_index": panel_index
-    }
-
-@app.get("/api/admin/xuione/sync-bouquets")
-async def sync_xuione_bouquets(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
-    """Sync bouquets from XuiOne panel"""
-    settings = await get_settings()
-    panels = settings.get("xuione", {}).get("panels", [])
-    
-    if panel_index >= len(panels):
-        raise HTTPException(status_code=400, detail="Invalid panel index")
-    
-    panel = panels[panel_index]
-    panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
-    
-    service = get_xuione_service(panel)
-    if not service:
-        raise HTTPException(status_code=500, detail="XuiOne service not available")
-    
-    result = service.get_bouquets()
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch bouquets"))
-    
-    bouquets = result.get("bouquets", [])
-    
-    # Store bouquets in settings
-    if "xuione" not in settings:
-        settings["xuione"] = {}
-    if "panels" not in settings["xuione"]:
-        settings["xuione"]["panels"] = panels
-    
-    # Update panel with bouquets
-    settings["xuione"]["panels"][panel_index]["bouquets"] = bouquets
-    
-    await settings_collection.update_one(
-        {},
-        {"$set": {"xuione": settings["xuione"]}},
-        upsert=True
-    )
-    
-    return {
-        "message": f"Synced {len(bouquets)} bouquets from {panel_name}",
-        "bouquets": bouquets,
-        "panel_name": panel_name
-    }
-
-@app.post("/api/admin/xuione/sync-users")
-async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
-    """Sync users from XuiOne panel to billing system (1:1 mirror)"""
-    settings = await get_settings()
-    panels = settings.get("xuione", {}).get("panels", [])
-    
-    if panel_index >= len(panels):
-        raise HTTPException(status_code=400, detail="Invalid panel index")
-    
-    panel = panels[panel_index]
-    panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
-    
-    service = get_xuione_service(panel)
-    if not service:
-        raise HTTPException(status_code=500, detail="XuiOne service not available")
-    
-    synced_count = 0
-    updated_count = 0
-    removed_count = 0
-    total_users = 0
-    
-    xuione_subscriber_usernames = set()
-    xuione_reseller_usernames = set()
-    
-    # Sync subscribers
-    result = service.get_users()
-    
-    if result.get("success"):
-        users_data = result.get("users", [])
-        total_users += len(users_data)
-        
-        for user_data in users_data:
-            username = user_data.get("username", "")
-            if not username:
-                continue
-            
-            xuione_subscriber_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "panel_type": "xuione",
-                "account_type": "subscriber"
-            })
-            
-            expiry_str = user_data.get("expiry", "")
-            expiry_date = None
-            if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
-                for fmt in date_formats:
-                    try:
-                        expiry_date = datetime.strptime(expiry_str.strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-            
-            status = "active"
-            if expiry_date and expiry_date < datetime.utcnow():
-                status = "expired"
-            
-            user_doc = {
-                "panel_index": panel_index,
-                "panel_name": panel_name,
-                "panel_type": "xuione",
-                "username": username,
-                "password": user_data.get("password", ""),
-                "expiry_date": expiry_date,
-                "status": status,
-                "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
-                "account_type": "subscriber",
-                "last_synced": datetime.utcnow()
-            }
-            
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": user_doc}
-                )
-                updated_count += 1
-            else:
-                user_doc["created_at"] = datetime.utcnow()
-                user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                await imported_users_collection.insert_one(user_doc)
-                synced_count += 1
-    
-    # Sync subresellers
-    reseller_result = service.get_subresellers()
-    reseller_synced = 0
-    reseller_updated = 0
-    
-    if reseller_result.get("success"):
-        resellers_data = reseller_result.get("users", [])
-        total_users += len(resellers_data)
-        
-        for reseller_data in resellers_data:
-            username = reseller_data.get("username", "")
-            if not username:
-                continue
-            
-            xuione_reseller_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "panel_type": "xuione",
-                "account_type": "reseller"
-            })
-            
-            expiry_str = reseller_data.get("expiry", "NEVER")
-            expiry_date = None
-            if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
-                for fmt in date_formats:
-                    try:
-                        expiry_date = datetime.strptime(expiry_str.strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-            
-            reseller_doc = {
-                "panel_index": panel_index,
-                "panel_name": panel_name,
-                "panel_type": "xuione",
-                "username": username,
-                "password": "",
-                "expiry_date": expiry_date,
-                "status": "active",
-                "credits": float(reseller_data.get("credits", 0) or 0),
-                "member_group": reseller_data.get("member_group", ""),
-                "owner": reseller_data.get("owner", ""),
-                "account_type": "reseller",
-                "last_synced": datetime.utcnow()
-            }
-            
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": reseller_doc}
-                )
-                reseller_updated += 1
-                updated_count += 1
-            else:
-                reseller_doc["created_at"] = datetime.utcnow()
-                reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.insert_one(reseller_doc)
-                reseller_synced += 1
-                synced_count += 1
-    
-    # Cleanup stale users
-    if xuione_subscriber_usernames:
-        stale = await imported_users_collection.find({
-            "panel_index": panel_index,
-            "panel_type": "xuione",
-            "account_type": "subscriber",
-            "username": {"$nin": list(xuione_subscriber_usernames)}
-        }).to_list(None)
-        if stale:
-            await imported_users_collection.delete_many({"_id": {"$in": [s["_id"] for s in stale]}})
-            removed_count += len(stale)
-    
-    stale_resellers = await imported_users_collection.find({
-        "panel_index": panel_index,
-        "panel_type": "xuione",
-        "account_type": "reseller",
-        "username": {"$nin": list(xuione_reseller_usernames)}
-    }).to_list(None)
-    if stale_resellers:
-        await imported_users_collection.delete_many({"_id": {"$in": [s["_id"] for s in stale_resellers]}})
-        removed_count += len(stale_resellers)
-    
-    return {
-        "success": True,
-        "synced": synced_count,
-        "updated": updated_count,
-        "removed": removed_count,
-        "total": total_users,
-        "panel_name": panel_name
-    }
 
 # ===== EMAIL MANAGEMENT ENDPOINTS =====
 
@@ -4816,33 +3347,17 @@ async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dic
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/bouquets")
-async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_user: dict = Depends(get_current_admin_user)):
+async def get_bouquets(panel_id: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Get available bouquets for a specific panel"""
     settings = await get_settings()
     
-    # Get bouquets based on panel type
-    if panel_type == 'xuione':
-        # Get XuiOne panel bouquets
-        xuione_panels = settings.get("xuione", {}).get("panels", [])
-        if panel_id < len(xuione_panels):
-            panel = xuione_panels[panel_id]
-            bouquets = panel.get("bouquets", [])
-            if bouquets:
-                return bouquets
-    else:
-        # Get XtreamUI panel bouquets (existing logic)
-        xtream_panels = settings.get("xtream", {}).get("panels", [])
-        if panel_id < len(xtream_panels):
-            panel = xtream_panels[panel_id]
-            bouquets = panel.get("bouquets", [])
-            if bouquets:
-                return bouquets
-    
-    # Legacy fallback
+    # Get bouquets for specific panel
     panel_bouquets = settings.get(f"bouquets_panel_{panel_id}", [])
+    
     if panel_bouquets:
         return panel_bouquets
     
+    # Fallback to legacy bouquets if no panel-specific ones
     legacy_bouquets = settings.get("bouquets", [])
     if legacy_bouquets:
         return legacy_bouquets
@@ -4853,570 +3368,6 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
         {"id": 2, "name": "Movies"},
         {"id": 3, "name": "Sports"},
     ]
-
-
-
-
-@app.post("/api/admin/xtream/sync-users")
-async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
-    """Sync users and subresellers from XtreamUI panel to billing system (1:1 mirror)"""
-    settings = await get_settings()
-    panels = settings.get("xtream", {}).get("panels", [])
-    
-    if panel_index >= len(panels):
-        raise HTTPException(status_code=400, detail="Invalid panel index")
-    
-    panel = panels[panel_index]
-    panel_name = panel.get("name", f"Panel {panel_index + 1}")
-    
-    # Initialize XtreamUI service
-    xtream_service = get_xtream_service(panel)
-    
-    if not xtream_service:
-        raise HTTPException(status_code=500, detail="XtreamUI service not available")
-    
-    synced_count = 0
-    updated_count = 0
-    removed_count = 0
-    total_users = 0
-    
-    # Track all usernames found in XtreamUI for cleanup
-    xtream_subscriber_usernames = set()
-    xtream_reseller_usernames = set()
-    
-    # === SYNC SUBSCRIBERS (users table) ===
-    result = xtream_service.get_reseller_users()
-    
-    if result.get("success"):
-        users_data = result.get("users", [])
-        total_users += len(users_data)
-        
-        for user_data in users_data:
-            username = user_data.get("username", "")
-            if not username:
-                continue
-            
-            xtream_subscriber_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "account_type": "subscriber"
-            })
-            
-            # Parse expiry date - handle multiple formats
-            expiry_str = user_data.get("expiry", "")
-            expiry_date = None
-            if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                # Try multiple date formats
-                date_formats = [
-                    "%Y-%m-%d %H:%M:%S",  # Full datetime: 2026-03-01 17:16:52
-                    "%Y-%m-%d",            # Date only: 2026-02-26
-                ]
-                for fmt in date_formats:
-                    try:
-                        expiry_date = datetime.strptime(expiry_str.strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-            
-            # Determine status
-            status = "active"
-            if expiry_date and expiry_date < datetime.utcnow():
-                status = "expired"
-            elif "suspend" in user_data.get("status", "").lower():
-                status = "suspended"
-            
-            user_doc = {
-                "panel_index": panel_index,
-                "panel_name": panel_name,
-                "username": username,
-                "password": user_data.get("password", ""),
-                "expiry_date": expiry_date,
-                "status": status,
-                "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
-                "account_type": "subscriber",
-                "last_synced": datetime.utcnow()
-            }
-            
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": user_doc}
-                )
-                updated_count += 1
-            else:
-                user_doc["created_at"] = datetime.utcnow()
-                user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                await imported_users_collection.insert_one(user_doc)
-                synced_count += 1
-    
-    # === SYNC SUBRESELLERS (reg_users table) ===
-    reseller_result = xtream_service.get_subresellers()
-    reseller_synced = 0
-    reseller_updated = 0
-    
-    if reseller_result.get("success"):
-        resellers_data = reseller_result.get("users", [])
-        total_users += len(resellers_data)
-        
-        for reseller_data in resellers_data:
-            username = reseller_data.get("username", "")
-            if not username:
-                continue
-            
-            xtream_reseller_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "account_type": "reseller"
-            })
-            
-            # Parse expiry - resellers usually have "NEVER"
-            expiry_str = reseller_data.get("expiry", "NEVER")
-            expiry_date = None
-            if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                # Try multiple date formats
-                date_formats = [
-                    "%Y-%m-%d %H:%M:%S",  # Full datetime
-                    "%Y-%m-%d",            # Date only
-                ]
-                for fmt in date_formats:
-                    try:
-                        expiry_date = datetime.strptime(expiry_str.strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-            
-            reseller_doc = {
-                "panel_index": panel_index,
-                "panel_name": panel_name,
-                "username": username,
-                "password": "",  # Reseller passwords not exposed
-                "expiry_date": expiry_date,
-                "status": "active",
-                "credits": float(reseller_data.get("credits", 0) or 0),
-                "member_group": reseller_data.get("member_group", ""),
-                "owner": reseller_data.get("owner", ""),
-                "account_type": "reseller",
-                "last_synced": datetime.utcnow()
-            }
-            
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": reseller_doc}
-                )
-                reseller_updated += 1
-                updated_count += 1
-            else:
-                reseller_doc["created_at"] = datetime.utcnow()
-                reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.insert_one(reseller_doc)
-                reseller_synced += 1
-                synced_count += 1
-    
-    # === CLEANUP: Remove users that no longer exist in XtreamUI ===
-    # This ensures the billing panel is a 1:1 mirror of XtreamUI
-    
-    # Remove subscribers that no longer exist
-    if xtream_subscriber_usernames:  # Only cleanup if we got valid data
-        stale_subscribers = await imported_users_collection.find({
-            "panel_index": panel_index,
-            "account_type": "subscriber",
-            "username": {"$nin": list(xtream_subscriber_usernames)}
-        }).to_list(None)
-        
-        if stale_subscribers:
-            stale_ids = [s["_id"] for s in stale_subscribers]
-            await imported_users_collection.delete_many({"_id": {"$in": stale_ids}})
-            removed_count += len(stale_subscribers)
-    
-    # Remove resellers that no longer exist (only if we got valid reseller data)
-    # Note: Empty reseller list is valid (e.g., no direct subresellers)
-    stale_resellers = await imported_users_collection.find({
-        "panel_index": panel_index,
-        "account_type": "reseller",
-        "username": {"$nin": list(xtream_reseller_usernames)}
-    }).to_list(None)
-    
-    if stale_resellers:
-        stale_ids = [s["_id"] for s in stale_resellers]
-        await imported_users_collection.delete_many({"_id": {"$in": stale_ids}})
-        removed_count += len(stale_resellers)
-    
-    return {
-        "success": True,
-        "synced": synced_count,
-        "updated": updated_count,
-        "removed": removed_count,
-        "total": total_users,
-        "panel_name": panel_name,
-        "details": {
-            "subscribers": {"synced": synced_count - reseller_synced, "updated": updated_count - reseller_updated},
-            "resellers": {"synced": reseller_synced, "updated": reseller_updated},
-            "removed": removed_count
-        }
-    }
-
-@app.get("/api/admin/imported-users")
-async def get_imported_users(panel_index: Optional[int] = None, current_user: dict = Depends(get_current_admin_user)):
-    """Get all imported XtreamUI users"""
-    query = {}
-    if panel_index is not None:
-        query["panel_index"] = panel_index
-    
-    users = []
-    async for user in imported_users_collection.find(query).sort([("panel_index", 1), ("username", 1)]):
-        user["id"] = str(user["_id"])
-        del user["_id"]
-        users.append(user)
-    
-    return users
-
-@app.post("/api/admin/imported-users/{user_id}/suspend")
-async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_current_admin_user)):
-    """Suspend an imported user on XtreamUI or XuiOne panel"""
-    user = await imported_users_collection.find_one({"_id": str_to_objectid(user_id)})
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get panel settings
-    settings = await get_settings()
-    panel_type = user.get("panel_type", "xtream")
-    panel_index = user.get("panel_index", 0)
-    
-    if panel_type == "xtream":
-        # XtreamUI suspension
-        panels = settings.get("xtream", {}).get("panels", [])
-        
-        if panel_index >= len(panels):
-            raise HTTPException(status_code=400, detail="Invalid panel")
-        
-        panel = panels[panel_index]
-        xtream_service = XtreamUIService(
-            panel_url=panel["panel_url"],
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
-        )
-        
-        # Use stored user_id if available
-        xtream_user_id = user.get("xtream_user_id")
-        
-        result = xtream_service.suspend_account(
-            username=user["username"],
-            password=user.get("password", ""),
-            user_id=str(xtream_user_id) if xtream_user_id else None
-        )
-        
-        if result.get("success"):
-            await imported_users_collection.update_one(
-                {"_id": str_to_objectid(user_id)},
-                {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
-            )
-            return {"message": "User suspended successfully on XtreamUI panel"}
-        else:
-            raise HTTPException(status_code=500, detail=result.get("error", "Failed to suspend"))
-    
-    elif panel_type == "xuione":
-        # XuiOne suspension
-        panels = settings.get("xuione", {}).get("panels", [])
-        
-        if panel_index >= len(panels):
-            raise HTTPException(status_code=400, detail="Invalid panel")
-        
-        panel = panels[panel_index]
-        xuione_service = XuiOneService(
-            panel_url=panel["panel_url"],
-            api_access_code=panel.get("api_access_code", ""),
-            api_key=panel.get("api_key", ""),
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
-        )
-        
-        # Login and disable line
-        if xuione_service.login():
-            line_id = user.get("xtream_user_id")  # XuiOne line ID
-            if line_id:
-                api_url = xuione_service.get_api_url()
-                response = xuione_service.session.post(
-                    api_url,
-                    params={'api_key': xuione_service.api_key, 'action': 'edit_line'},
-                    data={'id': str(line_id), 'enabled': '0'},
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    await imported_users_collection.update_one(
-                        {"_id": str_to_objectid(user_id)},
-                        {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
-                    )
-                    return {"message": "User suspended successfully on XuiOne panel"}
-                else:
-                    raise HTTPException(status_code=500, detail=f"XuiOne API error: {response.status_code}")
-            else:
-                raise HTTPException(status_code=400, detail="User ID not found for XuiOne line")
-        else:
-            raise HTTPException(status_code=500, detail="XuiOne login failed")
-    
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
-
-@app.post("/api/admin/imported-users/{user_id}/activate")
-async def activate_imported_user(user_id: str, current_user: dict = Depends(get_current_admin_user)):
-    """Activate/enable an imported user on XtreamUI or XuiOne panel"""
-    user = await imported_users_collection.find_one({"_id": str_to_objectid(user_id)})
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get panel settings
-    settings = await get_settings()
-    panel_type = user.get("panel_type", "xtream")
-    panel_index = user.get("panel_index", 0)
-    
-    if panel_type == "xtream":
-        # XtreamUI activation
-        panels = settings.get("xtream", {}).get("panels", [])
-        
-        if panel_index >= len(panels):
-            raise HTTPException(status_code=400, detail="Invalid panel")
-        
-        panel = panels[panel_index]
-        xtream_service = XtreamUIService(
-            panel_url=panel["panel_url"],
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
-        )
-        
-        # Use stored user_id if available
-        xtream_user_id = user.get("xtream_user_id")
-        
-        result = xtream_service.unsuspend_account(
-            username=user["username"],
-            password=user.get("password", ""),
-            user_id=str(xtream_user_id) if xtream_user_id else None
-        )
-        
-        if result.get("success"):
-            await imported_users_collection.update_one(
-                {"_id": str_to_objectid(user_id)},
-                {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
-            )
-            return {"message": "User activated successfully on XtreamUI panel"}
-        else:
-            raise HTTPException(status_code=500, detail=result.get("error", "Failed to activate"))
-    
-    elif panel_type == "xuione":
-        # XuiOne activation
-        panels = settings.get("xuione", {}).get("panels", [])
-        
-        if panel_index >= len(panels):
-            raise HTTPException(status_code=400, detail="Invalid panel")
-        
-        panel = panels[panel_index]
-        xuione_service = XuiOneService(
-            panel_url=panel["panel_url"],
-            api_access_code=panel.get("api_access_code", ""),
-            api_key=panel.get("api_key", ""),
-            admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
-        )
-        
-        # Login and enable line
-        if xuione_service.login():
-            line_id = user.get("xtream_user_id")  # XuiOne line ID
-            if line_id:
-                api_url = xuione_service.get_api_url()
-                response = xuione_service.session.post(
-                    api_url,
-                    params={'api_key': xuione_service.api_key, 'action': 'edit_line'},
-                    data={'id': str(line_id), 'enabled': '1'},  # Enable with enabled=1
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    await imported_users_collection.update_one(
-                        {"_id": str_to_objectid(user_id)},
-                        {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
-                    )
-                    return {"message": "User activated successfully on XuiOne panel"}
-                else:
-                    raise HTTPException(status_code=500, detail=f"XuiOne API error: {response.status_code}")
-            else:
-                raise HTTPException(status_code=400, detail="User ID not found for XuiOne line")
-        else:
-            raise HTTPException(status_code=500, detail="XuiOne login failed")
-    
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
-
-
-# ===== UPDATE SYSTEM ENDPOINTS =====
-
-from update_manager import update_manager
-
-@app.get("/api/admin/updates/check")
-async def check_for_updates(current_user: dict = Depends(get_current_admin_user)):
-    """Check if updates are available from GitHub"""
-    result = update_manager.check_for_updates()
-    return result
-
-@app.post("/api/admin/updates/apply")
-async def apply_update(current_user: dict = Depends(get_current_admin_user)):
-    """Apply available updates with backup"""
-    try:
-        # Create backup first
-        backup_path = update_manager.create_backup()
-        
-        # Apply update
-        result = update_manager.apply_update(backup_path)
-        
-        if result.get("success"):
-            # Restart services in background
-            import threading
-            def restart_delayed():
-                import time
-                time.sleep(2)
-                update_manager.restart_services()
-            
-            thread = threading.Thread(target=restart_delayed)
-            thread.start()
-            
-            return {
-                "message": "Update applied successfully. Services will restart in 2 seconds.",
-                "version": result.get("version"),
-                "backup_path": backup_path
-            }
-        else:
-            return {
-                "message": f"Update failed: {result.get('error')}. {'Rolled back to backup.' if result.get('rolled_back') else ''}",
-                "error": result.get("error")
-            }
-            
-    except Exception as e:
-        logger.error(f"Update error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/admin/updates/backups")
-async def list_backups(current_user: dict = Depends(get_current_admin_user)):
-    """List available backups"""
-    backups = update_manager.list_backups()
-    return {"backups": backups}
-
-@app.post("/api/admin/updates/rollback/{backup_name}")
-async def rollback_to_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
-    """Rollback to a specific backup"""
-    backup_path = f"/app/backups/{backup_name}"
-    
-    if not os.path.exists(backup_path):
-        raise HTTPException(status_code=404, detail="Backup not found")
-    
-    success = update_manager.rollback(backup_path)
-    
-    if success:
-        # Restart services
-        import threading
-        def restart_delayed():
-            import time
-            time.sleep(2)
-            update_manager.restart_services()
-        
-        thread = threading.Thread(target=restart_delayed)
-        thread.start()
-        
-        return {"message": "Rollback successful. Services will restart in 2 seconds."}
-    else:
-        raise HTTPException(status_code=500, detail="Rollback failed")
-
-@app.delete("/api/admin/imported-users/{user_id}")
-async def delete_imported_user(user_id: str, current_user: dict = Depends(get_current_admin_user)):
-    """Delete an imported user from the billing panel only (does NOT delete from XtreamUI)"""
-    user = await imported_users_collection.find_one({"_id": str_to_objectid(user_id)})
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Delete from billing panel database only
-    await imported_users_collection.delete_one({"_id": str_to_objectid(user_id)})
-    
-    return {"message": f"User '{user.get('username')}' removed from billing panel"}
-
-@app.get("/api/products/{product_id}/channels")
-async def get_product_channels(product_id: str):
-    """Get LIVE channel list for a product (public endpoint) - excludes VOD and Series"""
-    product = await products_collection.find_one({"_id": str_to_objectid(product_id)})
-    
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Get bouquet IDs from product
-    bouquet_ids = product.get("bouquets", [])
-    panel_index = product.get("panel_index", 0)
-    
-    # Get settings
-    settings = await get_settings()
-    
-    # Get bouquets for the specific panel
-    panel_bouquets_key = f"bouquets_panel_{panel_index}"
-    panel_bouquets = settings.get(panel_bouquets_key, [])
-    
-    # Fallback to legacy bouquets if panel-specific not found
-    if not panel_bouquets:
-        panel_bouquets = settings.get("bouquets", [])
-    
-    # Get LIVE channel bouquets only (exclude VOD and Series)
-    live_channels = []
-    for bouquet_id in bouquet_ids:
-        # Match by converting both to int for comparison
-        bouquet = next((b for b in panel_bouquets if int(b.get("id")) == int(bouquet_id)), None)
-        if bouquet:
-            bouquet_name = bouquet.get("name", "")
-            # Filter out VOD and Series - check both type field and name
-            is_vod_or_series = (
-                'movie' in bouquet_name.lower() or
-                'series' in bouquet_name.lower() or
-                'vod' in bouquet_name.lower() or
-                '24/7' in bouquet_name.lower()
-            )
-            
-            if not is_vod_or_series:
-                live_channels.append({
-                    "id": bouquet_id,
-                    "name": bouquet_name,
-                    "category": bouquet.get("category", "General")
-                })
-    
-    return {
-        "product_name": product.get("name"),
-        "channels": live_channels,
-        "total_packages": len(live_channels),
-        "note": "Live TV channels only (excludes movies and series)"
-    }
-
-@app.get("/api/bouquets/{bouquet_id}/channels")
-async def get_bouquet_channels(bouquet_id: int, panel_index: int = 0):
-    """Get individual channels within a bouquet (public endpoint)"""
-    # Note: Individual channel listing requires direct database access or XtreamUI API subscription
-    # For now, return a helpful message
-    
-    # Get bouquet name from settings
-    settings = await get_settings()
-    panel_bouquets_key = f"bouquets_panel_{panel_index}"
-    panel_bouquets = settings.get(panel_bouquets_key, [])
-    
-    bouquet = next((b for b in panel_bouquets if int(b.get("id")) == int(bouquet_id)), None)
-    bouquet_name = bouquet.get("name", f"Package {bouquet_id}") if bouquet else f"Package {bouquet_id}"
-    
-    return {
-        "bouquet_id": bouquet_id,
-        "bouquet_name": bouquet_name,
-        "channels": [],
-        "total": 0,
-        "message": f"The {bouquet_name} package includes hundreds of live channels. Channel list available after subscription."
-    }
 
 @app.get("/api/admin/packages")
 async def get_packages(current_user: dict = Depends(get_current_admin_user)):
@@ -5777,11 +3728,96 @@ async def track_download(
     return {"file_url": download.get("file_url"), "file_name": download.get("name")}
 
 
-# Note: License generation is done on the separate license server (license.synapse.watch)
-# This billing panel only has license STATUS checking and ACTIVATION
-# Customers cannot generate their own licenses
+# ===== LICENSE MANAGEMENT ENDPOINTS =====
 
-# License status endpoint (keep this - needed for activation)
+class LicenseCreate(BaseModel):
+    customer_name: str = ""
+    customer_email: str = ""
+    allowed_domains: List[str] = []
+    max_domains: int = 1
+    expiry_days: Optional[int] = None
+    features: dict = {}
+    notes: str = ""
+
+@app.post("/api/admin/licenses")
+async def create_license_endpoint(
+    license_data: LicenseCreate,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Create a new license (admin only)"""
+    license_key = await license_manager.create_license(
+        customer_name=license_data.customer_name,
+        customer_email=license_data.customer_email,
+        allowed_domains=license_data.allowed_domains,
+        max_domains=license_data.max_domains,
+        expiry_days=license_data.expiry_days,
+        features=license_data.features,
+        notes=license_data.notes,
+        created_by=current_user["sub"]
+    )
+    
+    return {
+        "message": "License created successfully",
+        "license_key": license_key
+    }
+
+@app.get("/api/admin/licenses")
+async def get_all_licenses(current_user: dict = Depends(get_current_admin_user)):
+    """Get all licenses (admin only)"""
+    licenses = await license_manager.get_all_licenses()
+    return licenses
+
+@app.get("/api/admin/licenses/{license_key}")
+async def get_license_details(license_key: str, current_user: dict = Depends(get_current_admin_user)):
+    """Get license details (admin only)"""
+    license_info = await license_manager.get_license_info(license_key)
+    
+    if not license_info:
+        raise HTTPException(status_code=404, detail="License not found")
+    
+    return license_info
+
+@app.post("/api/admin/licenses/{license_key}/revoke")
+async def revoke_license_endpoint(
+    license_key: str,
+    reason: str = "",
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Revoke a license (admin only)"""
+    success = await license_manager.revoke_license(license_key, reason)
+    
+    if success:
+        return {"message": "License revoked successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="License not found")
+
+@app.post("/api/admin/licenses/{license_key}/activate")
+async def activate_license_endpoint(license_key: str, current_user: dict = Depends(get_current_admin_user)):
+    """Reactivate a suspended/revoked license"""
+    result = await licenses_collection.update_one(
+        {"license_key": license_key},
+        {"$set": {"status": "active", "updated_at": datetime.utcnow()}}
+    )
+    
+    if result.modified_count > 0:
+        return {"message": "License activated"}
+    else:
+        raise HTTPException(status_code=404, detail="License not found")
+
+@app.post("/api/admin/licenses/{license_key}/add-domain")
+async def add_domain_to_license(
+    license_key: str,
+    domain: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Add domain to license whitelist"""
+    success = await license_manager.add_domain(license_key, domain)
+    
+    if success:
+        return {"message": f"Domain {domain} added to license"}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to add domain. Check max_domains limit.")
+
 @app.get("/api/license/status")
 async def get_license_status():
     """Get current license status (public endpoint for status check)"""
@@ -5900,26 +3936,23 @@ async def upload_download_file(
 
 # ===== REFUND SYSTEM ENDPOINTS =====
 
-class RefundRequest(BaseModel):
-    order_id: str
-    amount: float
-    reason: str
-    refund_type: str = "full"
-    method: str = "credit"
-
 @app.post("/api/refund/request")
 async def request_refund_endpoint(
-    request: RefundRequest,
+    order_id: str,
+    amount: float,
+    reason: str,
+    refund_type: str = "full",
+    method: str = "credit",
     current_user: dict = Depends(get_current_user)
 ):
     """Customer requests a refund"""
     refund_id = await refund_service.request_refund(
-        order_id=request.order_id,
+        order_id=order_id,
         user_id=current_user["sub"],
-        amount=request.amount,
-        refund_type=request.refund_type,
-        method=request.method,
-        reason=request.reason
+        amount=amount,
+        refund_type=refund_type,
+        method=method,
+        reason=reason
     )
     return {"message": "Refund request submitted", "refund_id": refund_id}
 
@@ -5935,90 +3968,9 @@ async def approve_refund_endpoint(
     notes: str = "",
     current_user: dict = Depends(get_current_admin_user)
 ):
-    """Approve a refund request and cancel associated service"""
-    # Get refund details
-    refund = await refunds_collection.find_one({"_id": str_to_objectid(refund_id)})
-    
-    if not refund:
-        raise HTTPException(status_code=404, detail="Refund not found")
-    
-    # Approve the refund
+    """Approve a refund request"""
     await refund_service.approve_refund(refund_id, current_user["sub"], notes)
-    
-    # Find and cancel all services associated with this order
-    order_id = refund.get("order_id")
-    if order_id:
-        settings = await get_settings()
-        services = await services_collection.find({"order_id": order_id}).to_list(None)
-        
-        for service in services:
-            # Mark service as refunded and suspend on panel
-            if service.get("status") in ["active", "suspended"]:
-                # Suspend on the actual panel (XtreamUI or XuiOne)
-                panel_type = service.get("panel_type", "xtream")
-                panel_index = service.get("panel_index", 0)
-                
-                if panel_type == "xtream":
-                    # Suspend on XtreamUI panel
-                    xtream_panels = settings.get("xtream", {}).get("panels", [])
-                    if panel_index < len(xtream_panels):
-                        panel = xtream_panels[panel_index]
-                        xtream_service = XtreamUIService(
-                            panel_url=panel["panel_url"],
-                            admin_username=panel["admin_username"],
-                            admin_password=panel["admin_password"]
-                        )
-                        result = xtream_service.suspend_account(
-                            username=service["xtream_username"],
-                            password=service["xtream_password"],
-                            user_id=service.get("dedicatedip")  # Pass the stored XtreamUI user ID
-                        )
-                        if result.get("success"):
-                            logger.info(f"Suspended XtreamUI line {service['xtream_username']}")
-                        else:
-                            logger.warning(f"Failed to suspend XtreamUI line: {result.get('error')}")
-                
-                elif panel_type == "xuione":
-                    # Suspend on XuiOne panel using edit_line with enabled=0
-                    xuione_panels = settings.get("xuione", {}).get("panels", [])
-                    if panel_index < len(xuione_panels):
-                        panel = xuione_panels[panel_index]
-                        xuione_service = XuiOneService(
-                            panel_url=panel["panel_url"],
-                            api_access_code=panel.get("api_access_code", ""),
-                            api_key=panel.get("api_key", ""),
-                            admin_username=panel["admin_username"],
-                            admin_password=panel["admin_password"]
-                        )
-                        
-                        # Login and suspend line
-                        if xuione_service.login():
-                            line_id = service.get("dedicatedip") or service.get("xuione_line_id")
-                            if line_id:
-                                api_url = xuione_service.get_api_url()
-                                response = xuione_service.session.post(
-                                    api_url,
-                                    params={'api_key': xuione_service.api_key, 'action': 'edit_line'},
-                                    data={'id': line_id, 'enabled': '0'},  # Disable the line
-                                    timeout=30
-                                )
-                                if response.status_code == 200:
-                                    logger.info(f"Suspended XuiOne line {service['xtream_username']}")
-                                else:
-                                    logger.warning(f"Failed to suspend XuiOne line")
-                
-                # Mark service as refunded in database
-                await services_collection.update_one(
-                    {"_id": service["_id"]},
-                    {"$set": {
-                        "status": "refunded",
-                        "refunded_at": datetime.utcnow(),
-                        "refund_reason": notes or "Customer request"
-                    }}
-                )
-                logger.info(f"Marked service {service.get('xtream_username')} as refunded")
-    
-    return {"message": "Refund approved, service(s) suspended on panel"}
+    return {"message": "Refund approved and processed"}
 
 @app.post("/api/admin/refunds/{refund_id}/reject")
 async def reject_refund_endpoint(
