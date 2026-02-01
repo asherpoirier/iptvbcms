@@ -296,15 +296,10 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     if ! grep -q "dropbox" "$INSTALL_DIR/backend/requirements_clean.txt"; then
         echo "dropbox==12.0.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
-    if ! grep -q "google-api-python-client" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "google-auth==2.36.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
-        echo "google-auth-oauthlib==1.2.1" >> "$INSTALL_DIR/backend/requirements_clean.txt"
-        echo "google-auth-httplib2==0.2.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
-        echo "google-api-python-client==2.155.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
-    fi
     if ! grep -q "webdavclient3" "$INSTALL_DIR/backend/requirements_clean.txt"; then
         echo "webdavclient3==3.14.6" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
+    # Note: google-* packages are already in requirements.txt, no need to add
     
     print_info "Installing Python dependencies (this may take a few minutes)..."
     cd "$INSTALL_DIR/backend"
