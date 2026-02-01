@@ -177,6 +177,16 @@ class UpdateManager:
                             src = os.path.join(root, file)
                             dst = os.path.join(target_dir, file)
                             shutil.copy2(src, dst)
+                
+                # Rebuild frontend for production
+                logger.info("Rebuilding frontend...")
+                cmd = f"cd {self.app_dir}/frontend && yarn build"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    logger.warning(f"Frontend build had warnings: {result.stderr}")
+                else:
+                    logger.info("✓ Frontend rebuilt successfully")
             
             # Update version file
             version_data = {
@@ -190,11 +200,15 @@ class UpdateManager:
             
             shutil.rmtree(temp_dir)
             
+            # Restart services immediately after update
+            logger.info("Restarting services after update...")
+            self.restart_services()
+            
             logger.info("✓ Update applied successfully (safe overlay mode)")
             return {
                 "success": True,
                 "version": version_data,
-                "message": "Update applied successfully. Restart required."
+                "message": "Update applied and services restarted successfully."
             }
             
         except Exception as e:

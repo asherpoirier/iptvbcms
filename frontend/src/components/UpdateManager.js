@@ -12,9 +12,15 @@ export default function UpdateManager() {
     queryKey: ['update-check'],
     queryFn: async () => {
       const response = await api.get('/api/admin/updates/check');
+      console.log('Update check response:', response.data);
       return response.data;
     },
     refetchInterval: 300000, // Check every 5 minutes
+    cacheTime: 0, // Don't cache results
+    staleTime: 0, // Always consider stale
+    onError: (error) => {
+      console.error('Update check failed:', error);
+    }
   });
 
   // Get backups list
