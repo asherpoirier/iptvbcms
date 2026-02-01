@@ -200,15 +200,14 @@ class UpdateManager:
             
             shutil.rmtree(temp_dir)
             
-            # Restart services immediately after update
-            logger.info("Restarting services after update...")
-            self.restart_services()
-            
+            # DON'T restart here - let the API respond first
             logger.info("✓ Update applied successfully (safe overlay mode)")
+            logger.info("Services will be restarted by API endpoint after response is sent")
+            
             return {
                 "success": True,
                 "version": version_data,
-                "message": "Update applied and services restarted successfully."
+                "message": "Update applied successfully. Services restarting..."
             }
             
         except Exception as e:

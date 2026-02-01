@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users, Grid, List } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 
 export default function AdminProducts() {
@@ -11,17 +11,10 @@ export default function AdminProducts() {
   const [showResellerModal, setShowResellerModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   
-  // Load view mode from localStorage, default to 'card'
-  const [viewMode, setViewMode] = useState(() => {
-    const saved = localStorage.getItem('admin-products-view-mode');
-    return saved || 'card';
-  });
-  
-  // Save view mode to localStorage whenever it changes
-  const handleViewModeChange = (mode) => {
-    setViewMode(mode);
-    localStorage.setItem('admin-products-view-mode', mode);
-  };
+  // Filters for list view
+  const [searchQuery, setSearchQuery] = useState('');
+  const [panelFilter, setPanelFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   
   const { data: products, isLoading } = useQuery({
     queryKey: ['admin-products'],
@@ -136,22 +129,6 @@ export default function AdminProducts() {
               <ArrowLeft className="w-5 h-5" />
               Back to Dashboard
             </Link>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowResellerModal(true)}
-                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
-              >
-                <Plus className="w-5 h-5" />
-                Add Reseller Package
-              </button>
-              <button
-                onClick={handleAddNew}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-              >
-                <Plus className="w-5 h-5" />
-                Add Subscriber Product
-              </button>
-            </div>
           </div>
         </div>
       </header>
@@ -160,29 +137,37 @@ export default function AdminProducts() {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Manage Products</h1>
           
-          {/* View Toggle */}
-          <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          {/* Add New Product Buttons */}
+          <div className="flex gap-3">
             <button
-              onClick={() => handleViewModeChange('card')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                viewMode === 'card'
-                  ? 'bg-white dark:bg-gray-700 text-blue-600 shadow'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
-              }`}
+              onClick={async () => {
+                if (window.confirm('Fix display order for all products? This will reorganize products into sequential order within each panel.')) {
+                  try {
+                    await adminAPI.fixProductDisplayOrder();
+                    alert('Display order fixed! Products have been reorganized.');
+                    queryClient.invalidateQueries(['admin-products']);
+                  } catch (error) {
+                    alert('Failed to fix display order: ' + (error.response?.data?.detail || error.message));
+                  }
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm"
             >
-              <Grid className="w-4 h-4" />
-              Card View
+              Fix Order
             </button>
             <button
-              onClick={() => handleViewModeChange('list')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                viewMode === 'list'
-                  ? 'bg-white dark:bg-gray-700 text-blue-600 shadow'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
-              }`}
+              onClick={handleAddNew}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              <List className="w-4 h-4" />
-              List View
+              <Plus className="w-5 h-5" />
+              Add Subscriber Package
+            </button>
+            <button
+              onClick={() => setShowResellerModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              <Plus className="w-5 h-5" />
+              Add Reseller Package
             </button>
           </div>
         </div>
@@ -210,13 +195,96 @@ export default function AdminProducts() {
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           </div>
-        ) : viewMode === 'list' ? (
+        ) : (
           /* List View */
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+          <div className="space-y-4">
+            {/* Filters for List View */}
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <div className="grid md:grid-cols-4 gap-4">
+                {/* Search */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Search
+                  </label>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name or description..."
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  />
+                </div>
+                
+                {/* Panel Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Panel
+                  </label>
+                  <select
+                    value={panelFilter}
+                    onChange={(e) => setPanelFilter(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Panels</option>
+                    {allPanels.map((panel, idx) => (
+                      <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
+                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Type Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Product Type
+                  </label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="subscriber">Subscriber</option>
+                    <option value="reseller">Reseller</option>
+                  </select>
+                </div>
+              </div>
+              
+              {/* Active Filters Summary */}
+              {(searchQuery || panelFilter !== 'all' || typeFilter !== 'all') && (
+                <div className="mt-3 flex items-center justify-between">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {products?.filter(p => {
+                      const matchesSearch = !searchQuery || 
+                        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        p.description?.toLowerCase().includes(searchQuery.toLowerCase());
+                      const matchesPanel = panelFilter === 'all' || 
+                        `${p.panel_type || 'xtream'}-${p.panel_index ?? 0}` === panelFilter;
+                      const matchesType = typeFilter === 'all' || p.account_type === typeFilter;
+                      return matchesSearch && matchesPanel && matchesType;
+                    }).length || 0} products found
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setPanelFilter('all');
+                      setTypeFilter('all');
+                    }}
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-800">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Order</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Product</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Panel</th>
@@ -228,14 +296,62 @@ export default function AdminProducts() {
                 </thead>
                 <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                   {products
-                    ?.sort((a, b) => {
-                      // Sort by panel_index first, then by display_order
+                    ?.filter(product => {
+                      // Apply search filter
+                      const matchesSearch = !searchQuery || 
+                        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        product.description?.toLowerCase().includes(searchQuery.toLowerCase());
+                      
+                      // Apply panel filter
+                      const productPanelKey = `${product.panel_type || 'xtream'}-${product.panel_index ?? 0}`;
+                      const matchesPanel = panelFilter === 'all' || productPanelKey === panelFilter;
+                      
+                      // Apply type filter
+                      const matchesType = typeFilter === 'all' || product.account_type === typeFilter;
+                      
+                      return matchesSearch && matchesPanel && matchesType;
+                    })
+                    .sort((a, b) => {
+                      // Sort by panel type first (xtream before xuione)
+                      const typeA = a.panel_type || 'xtream';
+                      const typeB = b.panel_type || 'xtream';
+                      if (typeA !== typeB) {
+                        return typeA === 'xtream' ? -1 : 1;
+                      }
+                      // Then by panel_index
                       const panelDiff = (a.panel_index || 0) - (b.panel_index || 0);
                       if (panelDiff !== 0) return panelDiff;
+                      // Then by display_order
                       return (a.display_order || 0) - (b.display_order || 0);
                     })
-                    .map((product) => (
+                    .map((product, index, array) => (
                     <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      {/* Sort Order Column */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleReorder(product, 'up')}
+                            disabled={index === 0}
+                            className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                              index === 0 ? 'opacity-30 cursor-not-allowed' : ''
+                            }`}
+                            title="Move Up"
+                          >
+                            <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                          </button>
+                          <button
+                            onClick={() => handleReorder(product, 'down')}
+                            disabled={index === array.length - 1}
+                            className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                              index === array.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
+                            }`}
+                            title="Move Down"
+                          >
+                            <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                          </button>
+                        </div>
+                      </td>
+                      {/* Product Column */}
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div>
@@ -302,258 +418,7 @@ export default function AdminProducts() {
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : (
-          /* Card View (existing) */
-          <div className="space-y-12">
-            {Object.entries(productsByPanel).sort(([a], [b]) => {
-              // Sort by type first (xtream before xuione), then by index
-              const [typeA, idxA] = a.split('-');
-              const [typeB, idxB] = b.split('-');
-              if (typeA !== typeB) return typeA.localeCompare(typeB);
-              return Number(idxA) - Number(idxB);
-            }).map(([panelKey, panelProducts]) => {
-              // Parse panelKey: "xtream-0" or "xuione-0"
-              const [panelType, panelIndexStr] = panelKey.split('-');
-              const panelIndex = Number(panelIndexStr);
-              const panelColor = getPanelColor(panelIndex);
-              const panelName = getPanelName(panelIndex, panelType);
-              
-              return (
-                <div key={panelKey} className="space-y-6">
-                  {/* Panel Category Header */}
-                  <div className="flex items-center gap-4">
-                    <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
-                    <div className="text-center">
-                      <h2 className={`text-2xl font-bold text-white`}>
-                        {panelName}
-                      </h2>
-                      <p className="text-sm text-gray-400 mt-1">
-                        {panelProducts.length} {panelProducts.length === 1 ? 'product' : 'products'}
-                      </p>
-                    </div>
-                    <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
-                  </div>
-
-                  {/* Group by account type */}
-                  {(() => {
-                    const subscribers = panelProducts.filter(p => p.account_type !== 'reseller');
-                    const resellers = panelProducts.filter(p => p.account_type === 'reseller');
-                    
-                    return (
-                      <>
-                        {/* Subscriber Products */}
-                        {subscribers.length > 0 && (
-                          <div className="space-y-4">
-                            <h4 className="text-lg font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
-                              <Tv className="w-5 h-5" />
-                              Subscription Plans ({subscribers.length})
-                            </h4>
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                              {subscribers
-                                .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                .map((product, index) => (
-                                <div key={product.id} className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-lg transition relative">
-                        {/* Reorder Buttons */}
-                        <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
-                          <button
-                            onClick={() => handleReorder(product, 'up')}
-                            disabled={index === 0}
-                            className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
-                              index === 0 ? 'opacity-30 cursor-not-allowed' : ''
-                            }`}
-                            title="Move Up"
-                            data-testid={`reorder-up-${product.id}`}
-                          >
-                            <ChevronUp className="w-4 h-4 text-gray-700" />
-                          </button>
-                          <button
-                            onClick={() => handleReorder(product, 'down')}
-                            disabled={index === panelProducts.length - 1}
-                            className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
-                              index === panelProducts.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
-                            }`}
-                            title="Move Down"
-                            data-testid={`reorder-down-${product.id}`}
-                          >
-                            <ChevronDown className="w-4 h-4 text-gray-700" />
-                          </button>
-                        </div>
-
-                        <div className={`bg-gradient-to-r ${getPanelGradient(product.panel_index || 0)} p-6 text-white`}>
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex-1 pr-8">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className="text-xl font-bold">{product.name}</h3>
-                                {product.is_trial && (
-                                  <span className="px-2 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-bold rounded">
-                                    TRIAL
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs text-white opacity-75 mt-1">
-                                📡 {getPanelName(product.panel_index, product.panel_type || 'xtream')}
-                              </p>
-                            </div>
-                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                              product.active ? 'bg-green-400 text-green-900' : 'bg-gray-300 text-gray-700'
-                            }`}>
-                              {product.active ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                          <p className="text-white opacity-90 text-sm">{product.description}</p>
-                        </div>
-                <div className="p-6 dark:bg-gray-900">
-                  <div className="space-y-2 mb-4">
-                    {product.account_type === 'subscriber' && (
-                      <>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          <span className="font-semibold text-gray-900 dark:text-white">{product.max_connections}</span> connection{product.max_connections > 1 ? 's' : ''}
-                        </p>
-                      </>
-                    )}
-                    {product.account_type === 'reseller' && (
-                      <>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Reseller Credits: <span className="font-semibold text-gray-900 dark:text-white">{product.reseller_credits} credits</span>
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mb-4">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-semibold">Pricing:</p>
-                    <div className="space-y-1">
-                      {product.prices && Object.entries(product.prices).map(([term, price]) => (
-                        <div key={term} className="text-center">
-                          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">${price}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleEdit(product)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
-                    >
-                      <Edit className="w-4 h-4" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(product)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 px-4 py-2 rounded-lg hover:bg-red-200 dark:hover:bg-red-800"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-          )}
-
-          {/* Reseller Products */}
-          {resellers.length > 0 && (
-            <div className="space-y-4">
-              <h4 className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Reseller Packages ({resellers.length})
-              </h4>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {resellers
-                  .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                  .map((product, index) => {
-                  // Get panel color for this reseller product
-                  const productPanelColor = getPanelGradient(product.panel_index || 0);
-                  
-                  return (
-                    <div key={product.id} className="bg-white dark:bg-gray-900 rounded-lg shadow hover:shadow-lg transition relative">
-                      {/* Reorder buttons */}
-                      <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
-                        <button
-                          onClick={() => handleReorder(product, 'up')}
-                          disabled={index === 0}
-                          className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
-                            index === 0 ? 'opacity-30 cursor-not-allowed' : ''
-                          }`}
-                          title="Move Up"
-                        >
-                          <ChevronUp className="w-4 h-4 text-gray-700" />
-                        </button>
-                        <button
-                          onClick={() => handleReorder(product, 'down')}
-                          disabled={index === resellers.length - 1}
-                          className={`p-1 rounded bg-white shadow hover:bg-gray-100 ${
-                            index === resellers.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
-                          }`}
-                          title="Move Down"
-                        >
-                          <ChevronDown className="w-4 h-4 text-gray-700" />
-                        </button>
-                      </div>
-
-                      {/* Panel-colored gradient header */}
-                      <div className={`bg-gradient-to-r ${productPanelColor} p-4 text-white`}>
-                        <h3 className="text-xl font-bold mb-1">{product.name}</h3>
-                        <p className="text-sm opacity-90">{product.description}</p>
-                        <p className="text-xs opacity-75 mt-1">
-                          📡 {getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
-                        </p>
-                      </div>
-
-                      <div className="p-6">
-                        <div className="space-y-2 mb-4">
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            <span className="font-semibold">Reseller Credits:</span> {product.reseller_credits} credits
-                          </p>
-                        </div>
-
-                      <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mb-4">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-semibold">Pricing:</p>
-                        <div className="space-y-1">
-                          {product.prices && Object.entries(product.prices).map(([term, price]) => (
-                            <div key={term} className="flex justify-between text-sm">
-                              <span className="text-gray-600 dark:text-gray-400">Purchase (Lifetime):</span>
-                              <span className="font-bold text-purple-600 dark:text-purple-400">${price}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEdit(product)}
-                          className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
-                        >
-                          <Edit className="w-4 h-4" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Delete ${product.name}?`)) {
-                              deleteMutation.mutate(product.id);
-                            }
-                          }}
-                          className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              </div>
             </div>
-          )}
-        </>
-      );
-    })()}
-                </div>
-              );
-            })}
           </div>
         )}
       </main>

@@ -249,11 +249,6 @@ elif [ -f "$SCRIPT_DIR/backend/server.py" ]; then
     else
         print_success "Files already in place"
     fi
-elif [ -f "/app/backend/server.py" ]; then
-    print_info "Found application files in /app/"
-    cp -r /app/backend/* "$INSTALL_DIR/backend/"
-    cp -r /app/frontend/* "$INSTALL_DIR/frontend/"
-    print_success "Application files copied from /app/"
 else
     print_warning "Application files not found!"
     print_info "Please ensure the application files are in:"
@@ -293,6 +288,23 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     
     # Remove emergentintegrations (only for hosted environment)
     grep -v "emergentintegrations" "$INSTALL_DIR/backend/requirements.txt" > "$INSTALL_DIR/backend/requirements_clean.txt"
+    
+    # Add cloud backup dependencies if not present
+    if ! grep -q "gitpython" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "gitpython==3.1.43" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "dropbox" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "dropbox==12.0.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "google-api-python-client" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "google-auth==2.36.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "google-auth-oauthlib==1.2.1" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "google-auth-httplib2==0.2.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "google-api-python-client==2.155.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "webdavclient3" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "webdavclient3==3.14.6" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
     
     print_info "Installing Python dependencies (this may take a few minutes)..."
     cd "$INSTALL_DIR/backend"

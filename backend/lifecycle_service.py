@@ -86,6 +86,9 @@ class ServiceLifecycleManager:
             "expiry_date": {"$lt": now}
         }):
             try:
+                # Get user info for notification
+                user = await self.users.find_one({"_id": service["user_id"]})
+                
                 # Suspend service
                 await self.services.update_one(
                     {"_id": service["_id"]},
@@ -104,6 +107,16 @@ class ServiceLifecycleManager:
                     old_status="active",
                     new_status="suspended"
                 )
+                
+                # Send Telegram notification
+                try:
+                    from server import send_telegram_notification
+                    await send_telegram_notification(
+                        "service_expired",
+                        f"⏰ *Service Expired*\n\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\nEmail: {user.get('email', 'N/A') if user else 'N/A'}\nService: {service.get('product_name', 'Unknown')}\nExpired: {service.get('expiry_date').strftime('%Y-%m-%d %H:%M') if service.get('expiry_date') else 'N/A'}\n\nService has been automatically suspended."
+                    )
+                except Exception as notif_error:
+                    logger.error(f"Failed to send Telegram notification for expired service: {str(notif_error)}")
                 
                 suspended_count += 1
                 logger.info(f"Auto-suspended service {service['_id']} (expired)")

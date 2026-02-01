@@ -92,6 +92,7 @@ export const adminAPI = {
   updateProduct: (id, data) => api.put(`/api/admin/products/${id}`, data),
   deleteProduct: (id) => api.delete(`/api/admin/products/${id}`),
   reorderProduct: (id, direction) => api.post(`/api/admin/products/${id}/reorder?direction=${direction}`),
+  fixProductDisplayOrder: () => api.post('/api/admin/products/fix-display-order'),
   suspendService: (id) => api.post(`/api/admin/services/${id}/suspend`),
   unsuspendService: (id) => api.post(`/api/admin/services/${id}/unsuspend`),
   cancelService: (id) => api.post(`/api/admin/services/${id}/cancel`),
@@ -121,8 +122,13 @@ export const adminAPI = {
   sendScheduledEmailNow: (id) => api.post(`/api/admin/email/scheduled/${id}/send-now`),
   getTemplateVersions: (id) => api.get(`/api/admin/email/templates/${id}/versions`),
   restoreTemplateVersion: (templateId, versionId) => api.post(`/api/admin/email/templates/${templateId}/restore/${versionId}`),
-  uploadAttachment: (formData) => api.post('/api/admin/upload/attachment', formData),
+  uploadAttachment: (formData) => api.post('/api/admin/upload/attachment', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
   deleteAttachment: (filename) => api.delete(`/api/admin/upload/attachment/${filename}`),
+  uploadHeroImage: (formData) => api.post('/api/admin/upload/hero-image', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
   getBouquets: (panelIndex = 0, panelType = 'xtream') => api.get(`/api/admin/bouquets?panel_id=${panelIndex}&panel_type=${panelType}`),
   syncBouquetsFromPanel: (panelIndex = 0) => api.get(`/api/admin/bouquets/sync?panel_index=${panelIndex}`),
   syncPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync?panel_index=${panelIndex}`),

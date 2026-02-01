@@ -19,6 +19,8 @@ const loadInitialBranding = () => {
     primary_color: '#2563eb',
     secondary_color: '#7c3aed',
     accent_color: '#059669',
+    product_card_color: '#2563eb',
+    hero_background_image: '',
     hero_title: 'Premium IPTV Subscriptions',
     hero_description: 'Access thousands of channels with our reliable IPTV service. Flexible plans, instant activation, 24/7 support.',
     footer_text: 'Premium IPTV Services',

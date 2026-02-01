@@ -1340,7 +1340,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billingpanel.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://billmaster-50.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1420,7 +1420,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billingpanel.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://billmaster-50.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2009,6 +2009,15 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
         }
     )
     
+    # Get customer info for notification
+    user = await users_collection.find_one({"_id": str_to_objectid(ticket["user_id"])})
+    
+    # Send "Ticket Reply" Telegram notification
+    await send_telegram_notification(
+        "ticket_reply",
+        f"💬 *Ticket Reply*\n\nTicket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nAdmin replied:\n{reply['message'][:200]}..."
+    )
+    
     return {"message": "Ticket status updated"}
 
 
@@ -2118,6 +2127,12 @@ async def get_admin_stats(current_user: dict = Depends(get_current_admin_user)):
     active_services = await services_collection.count_documents({"status": "active"})
     pending_tickets = await tickets_collection.count_documents({"status": {"$in": ["open", "in_progress"]}})
     
+    # Ticket status breakdown
+    awaiting_reply_tickets = await tickets_collection.count_documents({"status": "open"})
+    open_tickets = await tickets_collection.count_documents({"status": "open"})
+    in_progress_tickets = await tickets_collection.count_documents({"status": "in_progress"})
+    closed_tickets = await tickets_collection.count_documents({"status": "closed"})
+    
     # Revenue stats
     revenue_pipeline = [
         {"$match": {"status": "paid"}},
@@ -2125,6 +2140,33 @@ async def get_admin_stats(current_user: dict = Depends(get_current_admin_user)):
     ]
     revenue_result = await orders_collection.aggregate(revenue_pipeline).to_list(length=1)
     total_revenue = revenue_result[0]["total_revenue"] if revenue_result else 0
+    
+    # 7-day revenue data for chart
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    revenue_by_day = []
+    for i in range(7):
+        day_start = seven_days_ago + timedelta(days=i)
+        day_end = day_start + timedelta(days=1)
+        
+        day_revenue_pipeline = [
+            {
+                "$match": {
+                    "status": "paid",
+                    "paid_at": {
+                        "$gte": day_start,
+                        "$lt": day_end
+                    }
+                }
+            },
+            {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+        ]
+        day_result = await orders_collection.aggregate(day_revenue_pipeline).to_list(length=1)
+        day_total = day_result[0]["total"] if day_result else 0
+        
+        revenue_by_day.append({
+            "date": day_start.strftime("%b %d"),
+            "revenue": round(day_total, 2)
+        })
     
     # Recent orders
     recent_orders = []
@@ -2145,6 +2187,13 @@ async def get_admin_stats(current_user: dict = Depends(get_current_admin_user)):
         "active_services": active_services,
         "pending_tickets": pending_tickets,
         "total_revenue": total_revenue,
+        "ticket_status": {
+            "awaiting_reply": awaiting_reply_tickets,
+            "open": open_tickets,
+            "in_progress": in_progress_tickets,
+            "closed": closed_tickets
+        },
+        "revenue_data": revenue_by_day,
         "recent_orders": recent_orders
     }
 
@@ -3351,17 +3400,29 @@ async def cancel_service(service_id: str, current_user: dict = Depends(get_curre
 async def get_panel_names():
     """Get panel names (public endpoint for homepage categorization)"""
     settings = await get_settings()
-    panels = settings.get("xtream", {}).get("panels", [])
     
-    # Return only names and indices, not credentials
+    # Get XtreamUI panels
+    xtream_panels = settings.get("xtream", {}).get("panels", [])
     panel_info = []
-    for i, panel in enumerate(panels):
+    for i, panel in enumerate(xtream_panels):
         panel_info.append({
             "index": i,
             "name": panel.get("name", f"Server {i + 1}")
         })
     
-    return {"panels": panel_info}
+    # Get XuiOne panels
+    xuione_panels = settings.get("xuione", {}).get("panels", [])
+    xuione_info = []
+    for i, panel in enumerate(xuione_panels):
+        xuione_info.append({
+            "index": i,
+            "name": panel.get("name", f"XuiOne Panel {i + 1}")
+        })
+    
+    return {
+        "panels": panel_info,
+        "xuione_panels": xuione_info
+    }
 
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
@@ -3521,12 +3582,14 @@ async def reorder_product(product_id: str, direction: str = Query(...), current_
     
     current_order = product.get("display_order", 0)
     panel_index = product.get("panel_index", 0)
+    panel_type = product.get("panel_type", "xtream")
     account_type = product.get("account_type", "subscriber")
     
-    # Get all products in same panel AND same account type, sorted by display_order
+    # Get all products in same panel type, panel index, AND same account type, sorted by display_order
     panel_products = []
     async for p in products_collection.find({
         "panel_index": panel_index,
+        "panel_type": panel_type,
         "account_type": account_type
     }).sort("display_order", 1):
         panel_products.append(p)
@@ -3566,6 +3629,46 @@ async def reorder_product(product_id: str, direction: str = Query(...), current_
     
     return {"message": "Product reordered successfully"}
 
+@app.post("/api/admin/products/fix-display-order")
+async def fix_display_order(current_user: dict = Depends(get_current_admin_user)):
+    """Fix and initialize display_order for all products"""
+    # Get all products grouped by panel_type, panel_index, and account_type
+    all_products = []
+    async for p in products_collection.find():
+        all_products.append(p)
+    
+    # Group products
+    from collections import defaultdict
+    groups = defaultdict(list)
+    
+    for product in all_products:
+        panel_type = product.get("panel_type", "xtream")
+        panel_index = product.get("panel_index", 0)
+        account_type = product.get("account_type", "subscriber")
+        key = f"{panel_type}-{panel_index}-{account_type}"
+        groups[key].append(product)
+    
+    # Assign sequential display_order within each group
+    updated_count = 0
+    for group_key, group_products in groups.items():
+        # Sort by current display_order (if exists) or creation date
+        group_products.sort(key=lambda p: (
+            p.get("display_order", 999),
+            p.get("created_at", datetime.min)
+        ))
+        
+        # Assign sequential order
+        for index, product in enumerate(group_products):
+            await products_collection.update_one(
+                {"_id": product["_id"]},
+                {"$set": {"display_order": index}}
+            )
+            updated_count += 1
+    
+    return {
+        "message": f"Fixed display_order for {updated_count} products across {len(groups)} groups"
+    }
+
 
 @app.get("/api/branding")
 async def get_branding():
@@ -3577,7 +3680,12 @@ async def get_branding():
         "theme": "light",
         "primary_color": "#2563eb",
         "secondary_color": "#7c3aed",
-        "accent_color": "#059669"
+        "accent_color": "#059669",
+        "product_card_color": "#2563eb",
+        "hero_background_image": "",
+        "hero_title": "Premium IPTV Subscriptions",
+        "hero_description": "Stream thousands of channels in HD quality",
+        "footer_text": "Premium IPTV Services"
     })
     return branding
 
@@ -4304,7 +4412,47 @@ async def test_email_template(
 # Dynamic upload directory (works in any installation path)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "attachments")
+HERO_IMAGES_DIR = os.path.join(BASE_DIR, "uploads", "hero")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(HERO_IMAGES_DIR, exist_ok=True)
+
+@app.post("/api/admin/upload/hero-image")
+async def upload_hero_image(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Upload hero background image"""
+    # Validate file size (max 5MB)
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+    
+    # Validate file type
+    allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, and WebP images are allowed")
+    
+    # Read file content
+    contents = await file.read()
+    file_size = len(contents)
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB")
+    
+    # Generate unique filename
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"hero_{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(HERO_IMAGES_DIR, unique_filename)
+    
+    # Save file
+    async with aiofiles.open(file_path, 'wb') as f:
+        await f.write(contents)
+    
+    # Return file info
+    return {
+        "filename": file.filename,
+        "stored_filename": unique_filename,
+        "size": file_size,
+        "url": f"{os.getenv('BACKEND_PUBLIC_URL', '')}/api/uploads/hero/{unique_filename}"
+    }
 
 @app.post("/api/admin/upload/attachment")
 async def upload_attachment(
@@ -5276,11 +5424,25 @@ async def apply_update(current_user: dict = Depends(get_current_admin_user)):
         result = update_manager.apply_update(backup_path)
         
         if result.get("success"):
-            # Services are already restarted by update_manager
-            return {
-                "message": result.get("message", "Update applied successfully"),
+            # Return success response first
+            response_data = {
+                "message": "Update applied successfully! Services will restart in 3 seconds.",
                 "version": result.get("version")
             }
+            
+            # Schedule restart after response is sent
+            import threading
+            def restart_delayed():
+                import time
+                time.sleep(3)  # Wait for response to be sent
+                logger.info("Restarting services after update...")
+                update_manager.restart_services()
+            
+            thread = threading.Thread(target=restart_delayed)
+            thread.daemon = True
+            thread.start()
+            
+            return response_data
         else:
             return {
                 "message": f"Update failed: {result.get('error')}",
@@ -5297,15 +5459,22 @@ async def delete_backup(backup_name: str, current_user: dict = Depends(get_curre
     """Delete a backup"""
     backup_path = f"{update_manager.backup_dir}/{backup_name}"
     
+    logger.info(f"Attempting to delete backup: {backup_path}")
+    logger.info(f"Backup dir: {update_manager.backup_dir}")
+    logger.info(f"Backup exists: {os.path.exists(backup_path)}")
+    
     if not os.path.exists(backup_path):
         raise HTTPException(status_code=404, detail="Backup not found")
     
     try:
+        import shutil
         shutil.rmtree(backup_path)
-        logger.info(f"Deleted backup: {backup_name}")
+        logger.info(f"✓ Deleted backup: {backup_name}")
         return {"message": f"Backup {backup_name} deleted successfully"}
     except Exception as e:
-        logger.error(f"Failed to delete backup: {e}")
+        logger.error(f"Failed to delete backup {backup_name}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to delete backup: {e}")
 
 
@@ -5339,6 +5508,165 @@ async def rollback_to_backup(backup_name: str, current_user: dict = Depends(get_
         return {"message": "Rollback successful. Services will restart in 2 seconds."}
     else:
         raise HTTPException(status_code=500, detail="Rollback failed")
+
+# ===== BACKUP MANAGEMENT ENDPOINTS =====
+from backup_manager import backup_manager
+
+@app.post("/api/admin/backups/create")
+async def create_manual_backup(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Create a manual backup"""
+    description = data.get("description", "")
+    result = backup_manager.create_manual_backup(description)
+    
+    if result.get("success"):
+        return result
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Backup creation failed"))
+
+@app.get("/api/admin/backups/list")
+async def list_all_backups(current_user: dict = Depends(get_current_admin_user)):
+    """List all backups (manual and auto)"""
+    backups = backup_manager.list_backups()
+    return {"backups": backups}
+
+@app.post("/api/admin/backups/restore/{backup_name}")
+async def restore_from_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
+    """Restore from a backup"""
+    success = backup_manager.restore_backup(backup_name)
+    
+    if success:
+        # Restart services
+        import threading
+        def restart_delayed():
+            import time
+            time.sleep(2)
+            update_manager.restart_services()
+        
+        thread = threading.Thread(target=restart_delayed)
+        thread.start()
+        
+        return {"message": "Backup restored successfully. Services will restart in 2 seconds."}
+    else:
+        raise HTTPException(status_code=500, detail="Restore failed")
+
+@app.delete("/api/admin/backups/{backup_name}")
+async def delete_backup_endpoint(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
+    """Delete a backup"""
+    success = backup_manager.delete_backup(backup_name)
+    
+    if success:
+        return {"message": "Backup deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete backup")
+
+@app.get("/api/admin/backups/settings")
+async def get_backup_settings(current_user: dict = Depends(get_current_admin_user)):
+    """Get backup settings"""
+    settings = backup_manager.load_settings()
+    
+    # Don't send sensitive credentials to frontend
+    safe_settings = {
+        "cloud_backup_enabled": settings.get("cloud_backup_enabled", False),
+        "cloud_provider": settings.get("cloud_provider", ""),
+        "auto_backup_enabled": settings.get("auto_backup_enabled", False),
+        "backup_retention_days": settings.get("backup_retention_days", 30)
+    }
+    
+    return safe_settings
+
+@app.post("/api/admin/backups/settings")
+async def update_backup_settings(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update backup settings"""
+    settings = backup_manager.load_settings()
+    
+    # Update settings
+    if "cloud_backup_enabled" in data:
+        settings["cloud_backup_enabled"] = data["cloud_backup_enabled"]
+    if "cloud_provider" in data:
+        settings["cloud_provider"] = data["cloud_provider"]
+    if "auto_backup_enabled" in data:
+        settings["auto_backup_enabled"] = data["auto_backup_enabled"]
+    if "backup_retention_days" in data:
+        settings["backup_retention_days"] = data["backup_retention_days"]
+    
+    # Store cloud credentials securely
+    if "dropbox_access_token" in data:
+        settings["dropbox_access_token"] = data["dropbox_access_token"]
+    if "google_drive_credentials" in data:
+        settings["google_drive_credentials"] = data["google_drive_credentials"]
+    if "google_drive_service_account" in data:
+        settings["google_drive_service_account"] = data["google_drive_service_account"]
+    if "google_drive_auth_type" in data:
+        settings["google_drive_auth_type"] = data["google_drive_auth_type"]
+    if "proton_drive" in data:
+        settings["proton_drive"] = data["proton_drive"]
+    
+    success = backup_manager.save_settings(settings)
+    
+    if success:
+        return {"message": "Settings saved successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to save settings")
+
+@app.post("/api/admin/backups/test-cloud")
+async def test_cloud_connection_endpoint(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Test cloud storage connection"""
+    provider = data.get("provider")
+    credentials = data.get("credentials", {})
+    
+    if not provider:
+        raise HTTPException(status_code=400, detail="Provider required")
+    
+    result = backup_manager.test_cloud_connection(provider, credentials)
+    
+    if result.get("success"):
+        return result
+    else:
+        raise HTTPException(status_code=400, detail=result.get("error", "Connection test failed"))
+
+@app.get("/api/admin/backups/{backup_name}/download")
+async def download_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
+    """Download a backup as ZIP archive"""
+    import tempfile
+    import zipfile
+    from fastapi.responses import FileResponse
+    
+    # Detect app directory
+    if os.path.exists("/opt/backend"):
+        app_dir = "/opt"
+    else:
+        app_dir = "/app"
+    
+    backup_path = f"{app_dir}/backups/{backup_name}"
+    
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    # Create temporary ZIP file
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+    temp_zip_path = temp_zip.name
+    temp_zip.close()
+    
+    try:
+        # Create ZIP archive
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(backup_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, backup_path)
+                    zipf.write(file_path, arcname)
+        
+        # Return as downloadable file
+        return FileResponse(
+            temp_zip_path,
+            media_type='application/zip',
+            filename=f"{backup_name}.zip"
+        )
+    except Exception as e:
+        # Clean up temp file on error
+        if os.path.exists(temp_zip_path):
+            os.remove(temp_zip_path)
+        raise HTTPException(status_code=500, detail=f"Failed to create download: {str(e)}")
 
 @app.delete("/api/admin/imported-users/{user_id}")
 async def delete_imported_user(user_id: str, current_user: dict = Depends(get_current_admin_user)):

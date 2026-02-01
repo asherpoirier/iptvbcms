@@ -281,9 +281,11 @@ class BrandingSettings(BaseModel):
     primary_color: str = "#2563eb"  # blue-600
     secondary_color: str = "#7c3aed"  # purple-600
     accent_color: str = "#059669"  # green-600
+    product_card_color: str = "#2563eb"  # Product card gradient color
     # Homepage content
     hero_title: str = "Premium IPTV Subscriptions"
     hero_description: str = "Access thousands of channels with our reliable IPTV service. Flexible plans, instant activation, 24/7 support."
+    hero_background_image: str = ""  # Hero section background image URL
     footer_text: str = "Premium IPTV Services"
     # Feature sections
     feature_1_title: str = "Instant Activation"
@@ -292,7 +294,7 @@ class BrandingSettings(BaseModel):
     feature_2_description: str = "Watch on multiple devices simultaneously. Perfect for families."
     feature_3_title: str = "Flexible Plans"
     feature_3_description: str = "Choose from 1, 3, 6, or 12-month plans. Save more with longer subscriptions."
-    # Background
+    # Background (deprecated - use hero_background_image instead)
     background_image_url: str = ""
 
 

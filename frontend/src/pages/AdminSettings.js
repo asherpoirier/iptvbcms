@@ -13,6 +13,7 @@ import LicenseSettings from '../components/LicenseSettings';
 import AdminPasswordChange from '../components/AdminPasswordChange';
 import RefundSettings from '../components/RefundSettings';
 import UpdateManager from '../components/UpdateManager';
+import BackupManager from '../components/BackupManager';
 import NotificationSettings from '../components/NotificationSettings';
 
 export default function AdminSettings() {
@@ -140,6 +141,14 @@ export default function AdminSettings() {
               >
                 Updates
               </button>
+              <button
+                onClick={() => setActiveTab('backups')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'backups' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Backups
+              </button>
             </nav>
           </div>
 
@@ -199,6 +208,11 @@ export default function AdminSettings() {
             {/* Updates Tab */}
             {activeTab === 'updates' && (
               <UpdateManager />
+            )}
+            
+            {/* Backups Tab */}
+            {activeTab === 'backups' && (
+              <BackupManager />
             )}
             </div>
           </div>

@@ -12,6 +12,8 @@ export default function BrandingSettings({ settings }) {
     primary_color: settings?.branding?.primary_color || '#2563eb',
     secondary_color: settings?.branding?.secondary_color || '#7c3aed',
     accent_color: settings?.branding?.accent_color || '#059669',
+    product_card_color: settings?.branding?.product_card_color || '#2563eb',
+    hero_background_image: settings?.branding?.hero_background_image || '',
     hero_title: settings?.branding?.hero_title || 'Premium IPTV Subscriptions',
     hero_description: settings?.branding?.hero_description || 'Access thousands of channels with our reliable IPTV service. Flexible plans, instant activation, 24/7 support.',
     footer_text: settings?.branding?.footer_text || 'Premium IPTV Services',
@@ -20,9 +22,10 @@ export default function BrandingSettings({ settings }) {
     feature_2_title: settings?.branding?.feature_2_title || 'Multiple Connections',
     feature_2_description: settings?.branding?.feature_2_description || 'Watch on multiple devices simultaneously. Perfect for families.',
     feature_3_title: settings?.branding?.feature_3_title || 'Flexible Plans',
-    feature_3_description: settings?.branding?.feature_3_description || 'Choose from 1, 3, 6, or 12-month plans. Save more with longer subscriptions.',
-    background_image_url: settings?.branding?.background_image_url || '',
+    feature_3_description: settings?.branding?.feature_3_description || 'Choose from 1, 3, 6, or 12-month plans. Save more with longer subscriptions.'
   });
+  
+  const [heroImageFile, setHeroImageFile] = useState(null);
 
   const updateMutation = useMutation({
     mutationFn: (data) => {
@@ -35,14 +38,41 @@ export default function BrandingSettings({ settings }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
       queryClient.invalidateQueries(['branding']);
-      alert('Branding settings saved! Please refresh the page to see changes.');
-      window.location.reload();
+      
+      // Clear branding from localStorage to force fresh fetch
+      localStorage.removeItem('app-branding');
+      
+      alert('Branding settings saved! Page will refresh to apply changes.');
+      
+      // Delay reload slightly to ensure cache is cleared
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
     },
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    updateMutation.mutate(formData);
+    
+    let updatedFormData = { ...formData };
+    
+    // Upload hero image if selected
+    if (heroImageFile) {
+      try {
+        const imageFormData = new FormData();
+        imageFormData.append('file', heroImageFile);
+        
+        const uploadResponse = await adminAPI.uploadHeroImage(imageFormData);
+        updatedFormData.hero_background_image = uploadResponse.data.url;
+      } catch (error) {
+        console.error('Hero image upload error:', error);
+        const errorMsg = error.response?.data?.detail || error.message || JSON.stringify(error);
+        alert('Failed to upload hero image: ' + errorMsg);
+        return;
+      }
+    }
+    
+    updateMutation.mutate(updatedFormData);
   };
 
   const presetThemes = {
@@ -164,19 +194,6 @@ export default function BrandingSettings({ settings }) {
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Text in footer section</p>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Background Image URL
-          </label>
-          <input
-            type="url"
-            value={formData.background_image_url}
-            onChange={(e) => setFormData({ ...formData, background_image_url: e.target.value })}
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            placeholder="https://yoursite.com/background.jpg"
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Hero section background image (optional)</p>
-        </div>
       </div>
 
       {/* Feature Sections */}
@@ -344,6 +361,69 @@ export default function BrandingSettings({ settings }) {
             />
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Success states, highlights</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Product Card Color
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={formData.product_card_color}
+              onChange={(e) => setFormData({ ...formData, product_card_color: e.target.value })}
+              className="w-16 h-12 border border-gray-300 rounded cursor-pointer"
+            />
+            <input
+              type="text"
+              value={formData.product_card_color}
+              onChange={(e) => setFormData({ ...formData, product_card_color: e.target.value })}
+              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-mono"
+              placeholder="#2563eb"
+            />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Color for product card gradients on homepage</p>
+        </div>
+      </div>
+
+      {/* Hero Section */}
+      <div>
+        <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-blue-600" />
+          Hero Section
+        </h4>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Hero Background Image
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setHeroImageFile(e.target.files[0])}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Recommended: 1920x600px (16:9 aspect ratio) • Max 5MB • JPG, PNG, WebP
+            </p>
+            {formData.hero_background_image && (
+              <div className="mt-2">
+                <img 
+                  src={formData.hero_background_image} 
+                  alt="Hero preview" 
+                  className="w-full h-32 object-cover rounded-lg border border-gray-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, hero_background_image: '' })}
+                  className="text-xs text-red-600 hover:text-red-700 mt-1"
+                >
+                  Remove image
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -153,9 +153,9 @@ class RefundService:
         logger.info(f"Refund rejected: {refund_id}")
     
     async def get_pending_refunds(self):
-        """Get all pending refund requests"""
+        """Get all refund requests (sorted newest to oldest)"""
         refunds = []
-        async for refund in self.refunds.find({"status": "pending"}).sort("requested_at", 1):
+        async for refund in self.refunds.find({}).sort("requested_at", -1):
             refund["id"] = str(refund["_id"])
             del refund["_id"]
             

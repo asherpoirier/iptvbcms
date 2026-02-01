@@ -24,12 +24,13 @@ export default function UpdateManager() {
   });
 
   // Get backups list
-  const { data: backupsData } = useQuery({
+  const { data: backupsData, refetch: refetchBackups } = useQuery({
     queryKey: ['backups-list'],
     queryFn: async () => {
       const response = await api.get('/api/admin/updates/backups');
       return response.data;
     },
+    staleTime: 0, // Always refetch
   });
 
   // Apply update mutation
@@ -72,6 +73,7 @@ export default function UpdateManager() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['backups-list']);
+      refetchBackups(); // Manually refetch to update UI immediately
       alert('Backup deleted successfully');
     },
     onError: (error) => {
