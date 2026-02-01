@@ -49,21 +49,35 @@ class UpdateManager:
     
     def check_for_updates(self):
         """Check if updates are available"""
-        current_version, current_commit = self.get_current_version()
-        latest_commit = self.get_latest_version()
-        
-        if not latest_commit:
+        try:
+            current_version, current_commit = self.get_current_version()
+            latest_commit = self.get_latest_version()
+            
+            logger.info(f"Current commit: {current_commit}")
+            logger.info(f"Latest commit: {latest_commit}")
+            
+            if not latest_commit:
+                return {
+                    "update_available": False,
+                    "error": "Failed to check GitHub - ensure git is installed and repository is accessible",
+                    "current_commit": current_commit,
+                    "latest_commit": None
+                }
+            
+            update_available = current_commit != latest_commit if current_commit else True
+            
+            return {
+                "update_available": update_available,
+                "current_commit": current_commit,
+                "latest_commit": latest_commit,
+                "current_version": current_version
+            }
+        except Exception as e:
+            logger.error(f"Update check error: {e}")
             return {
                 "update_available": False,
-                "error": "Failed to check GitHub"
+                "error": str(e)
             }
-        
-        return {
-            "update_available": current_commit != latest_commit,
-            "current_commit": current_commit,
-            "latest_commit": latest_commit,
-            "current_version": current_version
-        }
     
     def create_backup(self):
         """Create backup of current installation"""
