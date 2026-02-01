@@ -1,6 +1,6 @@
 """
-Auto-Update System for IPTV Billing Panel
-Pulls updates from GitHub and applies them safely with backup/rollback
+Auto-Update System for IPTV Billing Panel - SAFE VERSION
+Pulls updates from GitHub using overlay method (no file deletion)
 """
 import os
 import subprocess
@@ -15,9 +15,17 @@ logger = logging.getLogger(__name__)
 class UpdateManager:
     def __init__(self):
         self.repo_url = "https://github.com/asherpoirier/iptvbcms.git"
-        self.app_dir = "/opt"
-        self.backup_dir = "/opt/backups"
-        self.version_file = "/opt/VERSION.json"
+        
+        # Detect if running in production (/opt) or development (/app)
+        if os.path.exists("/opt/backend"):
+            self.app_dir = "/opt"
+        else:
+            self.app_dir = "/app"
+        
+        self.backup_dir = f"{self.app_dir}/backups"
+        self.version_file = f"{self.app_dir}/VERSION.json"
+        
+        logger.info(f"UpdateManager initialized with app_dir: {self.app_dir}")
         
     def get_current_version(self):
         """Get current installed version"""
@@ -59,7 +67,7 @@ class UpdateManager:
             if not latest_commit:
                 return {
                     "update_available": False,
-                    "error": "Failed to check GitHub - ensure git is installed and repository is accessible",
+                    "error": "Failed to check GitHub",
                     "current_commit": current_commit,
                     "latest_commit": None
                 }
@@ -85,22 +93,26 @@ class UpdateManager:
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             backup_path = f"{self.backup_dir}/backup_{timestamp}"
             
-            # Create backup directory
             os.makedirs(self.backup_dir, exist_ok=True)
             
             logger.info(f"Creating backup at {backup_path}")
-            logger.info(f"App dir: {self.app_dir}")
-            logger.info(f"Backend exists: {os.path.exists(f'{self.app_dir}/backend')}")
-            logger.info(f"Frontend exists: {os.path.exists(f'{self.app_dir}/frontend')}")
+            logger.info(f"Backing up from: {self.app_dir}")
             
-            # Backup critical directories if they exist
+            # Only backup if directories exist
             if os.path.exists(f"{self.app_dir}/backend"):
-                shutil.copytree(f"{self.app_dir}/backend", f"{backup_path}/backend", ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                shutil.copytree(
+                    f"{self.app_dir}/backend", 
+                    f"{backup_path}/backend", 
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.venv')
+                )
             
             if os.path.exists(f"{self.app_dir}/frontend"):
-                shutil.copytree(f"{self.app_dir}/frontend", f"{backup_path}/frontend", ignore=shutil.ignore_patterns('node_modules', 'build'))
+                shutil.copytree(
+                    f"{self.app_dir}/frontend", 
+                    f"{backup_path}/frontend", 
+                    ignore=shutil.ignore_patterns('node_modules', 'build')
+                )
             
-            # Copy version file if exists
             if os.path.exists(self.version_file):
                 shutil.copy(self.version_file, f"{backup_path}/VERSION.json")
             
@@ -112,73 +124,58 @@ class UpdateManager:
             raise Exception(f"Failed to create backup: {e}")
     
     def apply_update(self, backup_path=None):
-        """Pull and apply updates from GitHub"""
+        """SAFE UPDATE: Overlay files without deleting infrastructure"""
         try:
-            logger.info("Starting update process...")
+            logger.info("Starting SAFE update process...")
             
-            # Clone or pull latest code to temp directory
             temp_dir = "/tmp/iptvbcms_update"
             
-            # Remove old temp if exists
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
             
-            # Clone repository
-            logger.info(f"Cloning repository from {self.repo_url}")
+            logger.info(f"Cloning from {self.repo_url}")
             cmd = f"git clone --depth 1 {self.repo_url} {temp_dir}"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
             
             if result.returncode != 0:
                 raise Exception(f"Git clone failed: {result.stderr}")
             
-            # Get commit hash
             cmd = f"cd {temp_dir} && git rev-parse HEAD"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             new_commit = result.stdout.strip()
             
-            logger.info(f"Downloaded version: {new_commit}")
+            logger.info(f"Downloaded commit: {new_commit}")
             
-            # Copy files from temp to app directory
-            logger.info("Copying backend files...")
+            # SAFE OVERLAY METHOD - Never delete .venv, node_modules, .env
+            logger.info("Overlaying backend files...")
             if os.path.exists(f"{temp_dir}/backend"):
-                # Remove old backend files (except venv and data)
-                for item in os.listdir(f"{self.app_dir}/backend"):
-                    if item not in ['.env', '__pycache__', '.venv', 'data']:
-                        item_path = f"{self.app_dir}/backend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                # Copy new files
-                for item in os.listdir(f"{temp_dir}/backend"):
-                    if item not in ['.env', '__pycache__']:
-                        src = f"{temp_dir}/backend/{item}"
-                        dst = f"{self.app_dir}/backend/{item}"
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dst)
-                        else:
+                for root, dirs, files in os.walk(f"{temp_dir}/backend"):
+                    # Skip git directories
+                    dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__']]
+                    
+                    rel_path = os.path.relpath(root, f"{temp_dir}/backend")
+                    target_dir = f"{self.app_dir}/backend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/backend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    for file in files:
+                        if file not in ['.env']:
+                            src = os.path.join(root, file)
+                            dst = os.path.join(target_dir, file)
                             shutil.copy2(src, dst)
             
-            logger.info("Copying frontend files...")
+            logger.info("Overlaying frontend files...")
             if os.path.exists(f"{temp_dir}/frontend"):
-                # Remove old frontend files (except node_modules and .env)
-                for item in os.listdir(f"{self.app_dir}/frontend"):
-                    if item not in ['node_modules', '.env', 'build']:
-                        item_path = f"{self.app_dir}/frontend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                # Copy new files
-                for item in os.listdir(f"{temp_dir}/frontend"):
-                    if item not in ['node_modules', 'build', '.env']:
-                        src = f"{temp_dir}/frontend/{item}"
-                        dst = f"{self.app_dir}/frontend/{item}"
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dst)
-                        else:
+                for root, dirs, files in os.walk(f"{temp_dir}/frontend"):
+                    dirs[:] = [d for d in dirs if d not in ['node_modules', 'build', '.git', '__pycache__']]
+                    
+                    rel_path = os.path.relpath(root, f"{temp_dir}/frontend")
+                    target_dir = f"{self.app_dir}/frontend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/frontend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    for file in files:
+                        if file not in ['.env']:
+                            src = os.path.join(root, file)
+                            dst = os.path.join(target_dir, file)
                             shutil.copy2(src, dst)
             
             # Update version file
@@ -191,10 +188,9 @@ class UpdateManager:
             with open(self.version_file, 'w') as f:
                 json.dump(version_data, f, indent=2)
             
-            # Cleanup temp directory
             shutil.rmtree(temp_dir)
             
-            logger.info("✓ Update applied successfully")
+            logger.info("✓ Update applied successfully (safe overlay mode)")
             return {
                 "success": True,
                 "version": version_data,
@@ -204,7 +200,6 @@ class UpdateManager:
         except Exception as e:
             logger.error(f"Update failed: {e}")
             
-            # Rollback if backup exists
             if backup_path and os.path.exists(backup_path):
                 logger.info(f"Rolling back to backup: {backup_path}")
                 self.rollback(backup_path)
@@ -221,49 +216,33 @@ class UpdateManager:
             }
     
     def rollback(self, backup_path):
-        """Restore from backup"""
+        """Restore from backup - SAFE: overlay only"""
         try:
             logger.info(f"Restoring from backup: {backup_path}")
             
-            # Restore backend
+            # SAFE: Just copy backup files over existing (don't delete anything)
             if os.path.exists(f"{backup_path}/backend"):
-                # Remove current backend files
-                for item in os.listdir(f"{self.app_dir}/backend"):
-                    if item not in ['.env', '__pycache__', '.venv']:
-                        item_path = f"{self.app_dir}/backend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                # Copy backup files
-                for item in os.listdir(f"{backup_path}/backend"):
-                    src = f"{backup_path}/backend/{item}"
-                    dst = f"{self.app_dir}/backend/{item}"
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dst)
-                    else:
+                for root, dirs, files in os.walk(f"{backup_path}/backend"):
+                    rel_path = os.path.relpath(root, f"{backup_path}/backend")
+                    target_dir = f"{self.app_dir}/backend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/backend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    for file in files:
+                        src = os.path.join(root, file)
+                        dst = os.path.join(target_dir, file)
                         shutil.copy2(src, dst)
             
-            # Restore frontend
             if os.path.exists(f"{backup_path}/frontend"):
-                for item in os.listdir(f"{self.app_dir}/frontend"):
-                    if item not in ['node_modules', '.env', 'build']:
-                        item_path = f"{self.app_dir}/frontend/{item}"
-                        if os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                        else:
-                            os.remove(item_path)
-                
-                for item in os.listdir(f"{backup_path}/frontend"):
-                    src = f"{backup_path}/frontend/{item}"
-                    dst = f"{self.app_dir}/frontend/{item}"
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dst)
-                    else:
+                for root, dirs, files in os.walk(f"{backup_path}/frontend"):
+                    rel_path = os.path.relpath(root, f"{backup_path}/frontend")
+                    target_dir = f"{self.app_dir}/frontend/{rel_path}" if rel_path != '.' else f"{self.app_dir}/frontend"
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    for file in files:
+                        src = os.path.join(root, file)
+                        dst = os.path.join(target_dir, file)
                         shutil.copy2(src, dst)
             
-            # Restore version file
             if os.path.exists(f"{backup_path}/VERSION.json"):
                 shutil.copy(f"{backup_path}/VERSION.json", self.version_file)
             
