@@ -64,6 +64,21 @@ export default function UpdateManager() {
     },
   });
 
+  // Delete backup mutation
+  const deleteBackupMutation = useMutation({
+    mutationFn: async (backupName) => {
+      const response = await api.delete(`/api/admin/updates/backups/${backupName}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['backups-list']);
+      alert('Backup deleted successfully');
+    },
+    onError: (error) => {
+      alert('Delete failed: ' + (error.response?.data?.detail || error.message));
+    },
+  });
+
   const handleApplyUpdate = () => {
     if (window.confirm('Apply update now? A backup will be created automatically.\n\nThe system will restart and this page will reload.')) {
       applyUpdateMutation.mutate();
@@ -73,6 +88,12 @@ export default function UpdateManager() {
   const handleRollback = (backupName) => {
     if (window.confirm(`Rollback to backup: ${backupName}?\n\nThe system will restart and this page will reload.`)) {
       rollbackMutation.mutate(backupName);
+    }
+  };
+
+  const handleDeleteBackup = (backupName) => {
+    if (window.confirm(`Delete backup: ${backupName}?\n\nThis cannot be undone.`)) {
+      deleteBackupMutation.mutate(backupName);
     }
   };
 
@@ -171,13 +192,22 @@ export default function UpdateManager() {
                     {new Date(backup.created).toLocaleString()} · {backup.size_mb?.toFixed(2)} MB
                   </p>
                 </div>
-                <button
-                  onClick={() => handleRollback(backup.name)}
-                  disabled={rollbackMutation.isLoading}
-                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Restore
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleRollback(backup.name)}
+                    disabled={rollbackMutation.isLoading}
+                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    onClick={() => handleDeleteBackup(backup.name)}
+                    disabled={deleteBackupMutation.isLoading}
+                    className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>

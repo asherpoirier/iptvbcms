@@ -15,6 +15,7 @@ import string
 import secrets
 import asyncio
 import re
+import shutil
 from bson import ObjectId
 from dotenv import load_dotenv
 
@@ -5275,30 +5276,38 @@ async def apply_update(current_user: dict = Depends(get_current_admin_user)):
         result = update_manager.apply_update(backup_path)
         
         if result.get("success"):
-            # Restart services in background
-            import threading
-            def restart_delayed():
-                import time
-                time.sleep(2)
-                update_manager.restart_services()
-            
-            thread = threading.Thread(target=restart_delayed)
-            thread.start()
-            
+            # Services are already restarted by update_manager
             return {
-                "message": "Update applied successfully. Services will restart in 2 seconds.",
-                "version": result.get("version"),
-                "backup_path": backup_path
+                "message": result.get("message", "Update applied successfully"),
+                "version": result.get("version")
             }
         else:
             return {
-                "message": f"Update failed: {result.get('error')}. {'Rolled back to backup.' if result.get('rolled_back') else ''}",
+                "message": f"Update failed: {result.get('error')}",
                 "error": result.get("error")
             }
             
     except Exception as e:
         logger.error(f"Update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/admin/updates/backups/{backup_name}")
+async def delete_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
+    """Delete a backup"""
+    backup_path = f"{update_manager.backup_dir}/{backup_name}"
+    
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    try:
+        shutil.rmtree(backup_path)
+        logger.info(f"Deleted backup: {backup_name}")
+        return {"message": f"Backup {backup_name} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Failed to delete backup: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete backup: {e}")
+
 
 @app.get("/api/admin/updates/backups")
 async def list_backups(current_user: dict = Depends(get_current_admin_user)):
