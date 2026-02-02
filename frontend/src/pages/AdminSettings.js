@@ -11,9 +11,11 @@ import EmailSettings from '../components/EmailSettings';
 import CreditReferralSettings from '../components/CreditReferralSettings';
 import LicenseSettings from '../components/LicenseSettings';
 import AdminPasswordChange from '../components/AdminPasswordChange';
+import TwoFactorSetup from '../components/TwoFactorSetup';
 import RefundSettings from '../components/RefundSettings';
 import UpdateManager from '../components/UpdateManager';
 import BackupManager from '../components/BackupManager';
+import RecaptchaSettings from '../components/RecaptchaSettings';
 import NotificationSettings from '../components/NotificationSettings';
 
 export default function AdminSettings() {
@@ -126,6 +128,22 @@ export default function AdminSettings() {
                 My Account
               </button>
               <button
+                onClick={() => setActiveTab('2fa')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === '2fa' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Two-Factor Auth
+              </button>
+              <button
+                onClick={() => setActiveTab('recaptcha')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'recaptcha' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                reCAPTCHA
+              </button>
+              <button
                 onClick={() => setActiveTab('license')}
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
                   activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -198,6 +216,16 @@ export default function AdminSettings() {
             {/* My Account Tab */}
             {activeTab === 'account' && (
               <AdminPasswordChange />
+            )}
+            
+            {/* Two-Factor Auth Tab */}
+            {activeTab === '2fa' && (
+              <TwoFactorSetup />
+            )}
+            
+            {/* reCAPTCHA Tab */}
+            {activeTab === 'recaptcha' && (
+              <RecaptchaSettings settings={settings} />
             )}
 
             {/* License Tab */}

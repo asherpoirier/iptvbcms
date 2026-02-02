@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { authAPI } from '../api/api';
 import { useAuthStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
-import { LogIn, Server, AlertCircle } from 'lucide-react';
+import { LogIn, Server, AlertCircle, Shield } from 'lucide-react';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import Header from '../components/Header';
 import PrimaryButton from '../components/PrimaryButton';
+import api from '../api/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -15,6 +17,18 @@ export default function LoginPage() {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const { executeRecaptcha } = useGoogleReCaptcha();
+
+  // Fetch reCAPTCHA configuration
+  const { data: recaptchaConfig } = useQuery({
+    queryKey: ['recaptcha-config'],
+    queryFn: async () => {
+      const response = await api.get('/api/recaptcha/sitekey');
+      return response.data;
+    },
+  });
 
   // Check URL parameters for messages
   React.useEffect(() => {
@@ -31,22 +45,52 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: (data) => authAPI.login(data),
     onSuccess: (response) => {
-      setAuth(response.data.user, response.data.access_token);
-      if (response.data.user.role === 'admin') {
-        navigate('/admin');
+      if (response.data.requires_2fa) {
+        // Show 2FA input
+        setRequires2FA(true);
+        setError('');
       } else {
-        navigate('/dashboard');
+        // Normal login success
+        setAuth(response.data.user, response.data.access_token);
+        if (response.data.user.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       }
     },
     onError: (error) => {
       setError(error.response?.data?.detail || 'Login failed');
+      // No need to reset reCAPTCHA v3 (it's invisible and auto-resets)
     },
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    loginMutation.mutate(formData);
+    
+    let recaptchaToken = '';
+    
+    // Execute reCAPTCHA v3 (invisible)
+    if (recaptchaConfig?.enabled && executeRecaptcha) {
+      try {
+        recaptchaToken = await executeRecaptcha('login');
+      } catch (err) {
+        setError('reCAPTCHA verification failed. Please refresh and try again.');
+        return;
+      }
+    }
+    
+    const loginData = {
+      ...formData,
+      recaptcha_token: recaptchaToken,
+    };
+    
+    if (requires2FA) {
+      loginData.totp_code = totpCode;
+    }
+    
+    loginMutation.mutate(loginData);
   };
 
   return (
@@ -122,14 +166,44 @@ export default function LoginPage() {
                 />
               </div>
 
+              {/* 2FA Code Input (if required) */}
+              {requires2FA && (
+                <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Two-Factor Authentication</h3>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Enter the 6-digit code from Google Authenticator
+                  </p>
+                  <input
+                    type="text"
+                    maxLength="6"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="000000"
+                    className="w-full text-center text-3xl font-mono tracking-widest px-4 py-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    autoFocus
+                  />
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={loginMutation.isPending}
                 className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
               >
-                {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
+                {loginMutation.isPending ? 'Signing in...' : requires2FA ? 'Verify & Sign In' : 'Sign In'}
               </button>
             </form>
+
+            {recaptchaConfig?.enabled && (
+              <p className="mt-4 text-xs text-gray-500 text-center">
+                Protected by reCAPTCHA v3. Google{' '}
+                <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a> and{' '}
+                <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" className="underline">Terms</a> apply.
+              </p>
+            )}
 
             <div className="mt-6 text-center">
               <p className="text-gray-600 dark:text-gray-400">

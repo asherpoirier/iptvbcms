@@ -299,6 +299,18 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     if ! grep -q "webdavclient3" "$INSTALL_DIR/backend/requirements_clean.txt"; then
         echo "webdavclient3==3.14.6" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
+    
+    # Add 2FA dependencies if not present
+    if ! grep -q "pyotp" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "pyotp==2.9.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "qrcode" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "qrcode==7.4.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "Pillow" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "Pillow==10.2.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    
     # Note: google-* packages are already in requirements.txt, no need to add
     
     print_info "Installing Python dependencies (this may take a few minutes)..."

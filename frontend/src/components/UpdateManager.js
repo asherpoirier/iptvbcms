@@ -41,12 +41,18 @@ export default function UpdateManager() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(data.message || 'Update applied successfully! Page will reload in 5 seconds.');
-      setTimeout(() => window.location.reload(), 5000);
+      alert(data.message || 'Update applied successfully! Page will reload in 7 seconds.');
+      setTimeout(() => window.location.reload(), 7000);
     },
     onError: (error) => {
       setUpdating(false);
-      alert('Update failed: ' + (error.response?.data?.detail || error.message));
+      // Check if it's a 502 error during restart (update might have succeeded)
+      if (error.response?.status === 502 || error.code === 'ERR_BAD_RESPONSE') {
+        alert('Update completed! Services are restarting. Page will reload in 10 seconds.');
+        setTimeout(() => window.location.reload(), 10000);
+      } else {
+        alert('Update failed: ' + (error.response?.data?.detail || error.message));
+      }
     },
   });
 

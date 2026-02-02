@@ -55,6 +55,8 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    recaptcha_token: Optional[str] = None
+    totp_code: Optional[str] = None  # For 2FA verification
 
 class User(BaseModel):
     id: Optional[str] = None
@@ -313,6 +315,13 @@ class CreditSettings(BaseModel):
     minimum_balance: float = 0.0
     maximum_balance: float = 10000.0
 
+class RecaptchaSettings(BaseModel):
+    enabled: bool = False
+    site_key: str = "6Ld3k10sAAAAAARRcgB5g_oMaPnZAf-QYTaGPOgm"
+    secret_key: str = "6Ld3k10sAAAAADqYygjrbMeostUHLzZkHSzbRTld"
+    customer_score_threshold: float = 0.5
+    admin_score_threshold: float = 0.7
+
 
 class Settings(BaseModel):
     id: Optional[str] = None
@@ -326,6 +335,7 @@ class Settings(BaseModel):
     branding: BrandingSettings = Field(default_factory=BrandingSettings)
     referral: ReferralSettings = Field(default_factory=ReferralSettings)
     credit: CreditSettings = Field(default_factory=CreditSettings)
+    recaptcha: RecaptchaSettings = Field(default_factory=RecaptchaSettings)
     refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"
     company_email: str = ""

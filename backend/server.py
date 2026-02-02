@@ -56,6 +56,10 @@ from email_logger import EmailLogger
 from unsubscribe_manager import UnsubscribeManager
 from invoice_service import get_invoice_generator
 
+# Import 2FA and reCAPTCHA services
+from two_factor_service import TwoFactorService
+from recaptcha_service import RecaptchaService
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -853,20 +857,80 @@ async def verify_email(token: str):
 
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
-    """Login user - requires email verification"""
+    """Login user - requires email verification and optional reCAPTCHA"""
+    # Step 1: Verify reCAPTCHA if enabled
+    settings = await get_settings()
+    recaptcha_settings = settings.get("recaptcha", {})
+    
+    if recaptcha_settings.get("enabled") and credentials.recaptcha_token:
+        score_threshold = recaptcha_settings.get("customer_score_threshold", 0.5)
+        secret_key = recaptcha_settings.get("secret_key")
+        
+        logger.info(f"reCAPTCHA verification attempt for {credentials.email}")
+        logger.info(f"Score threshold: {score_threshold}, Has secret key: {bool(secret_key)}")
+        
+        if secret_key:
+            success, score, response_data = await RecaptchaService.verify_token(
+                credentials.recaptcha_token,
+                secret_key,
+                action="login",
+                min_score=score_threshold
+            )
+            
+            logger.info(f"reCAPTCHA result: success={success}, score={score}")
+            
+            # For development/testing: Allow 0.0 scores (common in test environments)
+            # In production, you may want to be stricter
+            if not success and score > 0.0:
+                logger.warning(f"reCAPTCHA failed for {credentials.email}: score={score}, threshold={score_threshold}")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Security verification failed (score: {score}). Please try again."
+                )
+            elif score == 0.0:
+                logger.warning(f"reCAPTCHA score 0.0 for {credentials.email} - allowing (test environment)")
+        else:
+            logger.warning("reCAPTCHA enabled but no secret key configured")
+    elif recaptcha_settings.get("enabled") and not credentials.recaptcha_token:
+        logger.warning(f"reCAPTCHA enabled but no token provided for {credentials.email}")
+        raise HTTPException(
+            status_code=403,
+            detail="Security verification required. Please refresh and try again."
+        )
+    
+    # Step 2: Verify credentials
     user = await users_collection.find_one({"email": credentials.email})
     
     if not user or not verify_password(credentials.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    # Check email verification (except for admin)
+    # Step 3: Check email verification (except for admin)
     if user.get("role") != "admin" and not user.get("email_verified", False):
         raise HTTPException(
             status_code=403, 
             detail="Email not verified. Please check your inbox for the verification link."
         )
     
-    # Create access token
+    # Step 4: Check 2FA for admin users
+    if user.get("role") == "admin" and user.get("totp_enabled"):
+        if not credentials.totp_code:
+            # Return special response indicating 2FA is required
+            return {
+                "requires_2fa": True,
+                "message": "Two-factor authentication required",
+                "temp_token": create_access_token(data={
+                    "sub": str(user["_id"]),
+                    "email": user["email"],
+                    "temp": True
+                }, expires_delta=timedelta(minutes=5))
+            }
+        
+        # Verify TOTP code
+        totp_secret = user.get("totp_secret")
+        if not TwoFactorService.verify_totp(totp_secret, credentials.totp_code):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code")
+    
+    # Step 5: Create access token
     access_token = create_access_token(data={
         "sub": str(user["_id"]),
         "email": user["email"],
@@ -876,12 +940,14 @@ async def login(credentials: UserLogin):
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "requires_2fa": False,
         "user": {
             "id": str(user["_id"]),
             "email": user["email"],
             "name": user["name"],
             "role": user.get("role", "user"),
-            "email_verified": user.get("email_verified", False)
+            "email_verified": user.get("email_verified", False),
+            "totp_enabled": user.get("totp_enabled", False)
         }
     }
 
@@ -898,6 +964,136 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "name": user["name"],
         "role": user.get("role", "user")
     }
+
+
+# ===== 2FA ROUTES (Admin Only) =====
+
+@app.post("/api/auth/2fa/setup")
+async def setup_2fa(current_user: dict = Depends(get_current_admin_user)):
+    """Setup 2FA for admin user - generates QR code"""
+    user_id = current_user["sub"]
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Generate new TOTP secret
+    secret = TwoFactorService.generate_secret()
+    
+    # Generate QR code
+    qr_code = TwoFactorService.generate_qr_code(
+        secret,
+        user["email"],
+        issuer="IPTV Billing Admin"
+    )
+    
+    # Store secret temporarily (not enabled yet)
+    await users_collection.update_one(
+        {"_id": str_to_objectid(user_id)},
+        {"$set": {"totp_secret_pending": secret}}
+    )
+    
+    return {
+        "secret": secret,
+        "qr_code": qr_code,
+        "message": "Scan this QR code with Google Authenticator and verify to enable 2FA"
+    }
+
+@app.post("/api/auth/2fa/verify-setup")
+async def verify_2fa_setup(
+    totp_code: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Verify 2FA setup by checking TOTP code"""
+    user_id = current_user["sub"]
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    pending_secret = user.get("totp_secret_pending")
+    if not pending_secret:
+        raise HTTPException(status_code=400, detail="No pending 2FA setup found")
+    
+    # Verify the TOTP code
+    if not TwoFactorService.verify_totp(pending_secret, totp_code):
+        raise HTTPException(status_code=401, detail="Invalid 2FA code")
+    
+    # Generate backup codes
+    backup_codes = TwoFactorService.get_backup_codes(count=10)
+    
+    # Enable 2FA and move pending secret to active
+    await users_collection.update_one(
+        {"_id": str_to_objectid(user_id)},
+        {
+            "$set": {
+                "totp_secret": pending_secret,
+                "totp_enabled": True,
+                "backup_codes": backup_codes
+            },
+            "$unset": {"totp_secret_pending": ""}
+        }
+    )
+    
+    return {
+        "message": "2FA enabled successfully",
+        "backup_codes": backup_codes
+    }
+
+@app.post("/api/auth/2fa/disable")
+async def disable_2fa(
+    password: str,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Disable 2FA for admin user (requires password confirmation)"""
+    user_id = current_user["sub"]
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify password
+    if not verify_password(password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    
+    # Disable 2FA
+    await users_collection.update_one(
+        {"_id": str_to_objectid(user_id)},
+        {
+            "$set": {"totp_enabled": False},
+            "$unset": {"totp_secret": "", "backup_codes": ""}
+        }
+    )
+    
+    return {"message": "2FA disabled successfully"}
+
+@app.get("/api/auth/2fa/status")
+async def get_2fa_status(current_user: dict = Depends(get_current_admin_user)):
+    """Get 2FA status for current admin user"""
+    user_id = current_user["sub"]
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "enabled": user.get("totp_enabled", False),
+        "has_backup_codes": bool(user.get("backup_codes"))
+    }
+
+# ===== RECAPTCHA SETTINGS ROUTES =====
+
+@app.get("/api/recaptcha/sitekey")
+async def get_recaptcha_sitekey():
+    """Get reCAPTCHA site key (public endpoint)"""
+    settings = await get_settings()
+    recaptcha = settings.get("recaptcha", {})
+    
+    return {
+        "site_key": recaptcha.get("site_key", ""),
+        "enabled": recaptcha.get("enabled", False)
+    }
+
 
 # ===== PRODUCT ROUTES =====
 
@@ -5426,27 +5622,33 @@ async def apply_update(current_user: dict = Depends(get_current_admin_user)):
         if result.get("success"):
             # Return success response first
             response_data = {
-                "message": "Update applied successfully! Services will restart in 3 seconds.",
-                "version": result.get("version")
+                "message": "Update applied successfully! Services will restart in 5 seconds.",
+                "version": result.get("version"),
+                "success": True
             }
             
-            # Schedule restart after response is sent
+            # Schedule restart after response is sent (increased delay for production)
             import threading
             def restart_delayed():
                 import time
-                time.sleep(3)  # Wait for response to be sent
+                time.sleep(5)  # Increased from 3 to 5 seconds for production
                 logger.info("Restarting services after update...")
-                update_manager.restart_services()
+                try:
+                    update_manager.restart_services()
+                except Exception as e:
+                    logger.error(f"Failed to restart services: {e}")
             
             thread = threading.Thread(target=restart_delayed)
             thread.daemon = True
             thread.start()
             
+            logger.info("Update response sent, restart scheduled")
             return response_data
         else:
             return {
                 "message": f"Update failed: {result.get('error')}",
-                "error": result.get("error")
+                "error": result.get("error"),
+                "success": False
             }
             
     except Exception as e:

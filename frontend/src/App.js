@@ -1,8 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 import { useAuthStore } from './store/store';
 import { useBrandingStore } from './store/branding';
+import api from './api/api';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -104,19 +106,44 @@ function LicenseCheck({ children }) {
 
 function App() {
   const { fetchBranding } = useBrandingStore();
+  const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('6Ld3k10sAAAAAARRcgB5g_oMaPnZAf-QYTaGPOgm');
+  const [isReady, setIsReady] = useState(false);
 
   React.useEffect(() => {
     const loadBranding = async () => {
       await fetchBranding();
     };
     loadBranding();
+    
+    // Fetch reCAPTCHA site key
+    const fetchRecaptchaKey = async () => {
+      try {
+        const response = await api.get('/api/recaptcha/sitekey');
+        if (response.data.site_key) {
+          setRecaptchaSiteKey(response.data.site_key);
+        }
+      } catch (err) {
+        console.log('Using default reCAPTCHA key');
+      }
+      setIsReady(true);
+    };
+    fetchRecaptchaKey();
   }, [fetchBranding]);
+
+  if (!isReady) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LicenseCheck>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
+      <GoogleReCaptchaProvider reCaptchaKey={recaptchaSiteKey}>
+        <LicenseCheck>
+          <Router>
+            <div className="min-h-screen bg-gray-50">
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<HomePage />} />
@@ -308,6 +335,7 @@ function App() {
         </div>
       </Router>
       </LicenseCheck>
+      </GoogleReCaptchaProvider>
     </QueryClientProvider>
   );
 }
