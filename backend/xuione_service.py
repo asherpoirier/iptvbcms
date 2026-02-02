@@ -543,6 +543,123 @@ class XuiOneService:
             logger.error(traceback.format_exc())
             return {"success": False, "error": str(e), "users": []}
 
+    def extend_line(self, username: str, package_id: int) -> Dict[str, Any]:
+        """Extend a line's subscription using the edit_line API"""
+        try:
+            if not self.api_key:
+                return {"success": False, "error": "API key required for extension"}
+            
+            # Login first
+            if not self.logged_in:
+                if not self.login():
+                    return {"success": False, "error": "Failed to login to panel"}
+            
+            logger.info(f"XuiOne: Extending line {username} with package {package_id}")
+            
+            # First, we need to get the line ID by looking up the username
+            line_id = self._get_line_id_by_username(username)
+            
+            if not line_id:
+                return {"success": False, "error": f"Could not find line ID for username '{username}'. User may not exist on panel."}
+            
+            logger.info(f"XuiOne: Found line ID {line_id} for username {username}")
+            
+            api_url = self.get_api_url()
+            
+            # Use edit_line action with the line ID
+            request_data = {
+                'id': str(line_id),
+                'package': str(package_id),
+                'trial': '0',
+                'reseller_notes': 'Extended via Billing Panel',
+                'is_isplock': '0'
+            }
+            
+            logger.info(f"XuiOne: Calling edit_line with data: {request_data}")
+            
+            response = self.session.post(
+                api_url,
+                params={
+                    'api_key': self.api_key,
+                    'action': 'edit_line'
+                },
+                data=request_data,
+                auth=self.http_auth,
+                timeout=30
+            )
+            
+            logger.info(f"XuiOne edit_line response: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    logger.info(f"XuiOne edit_line result: {result}")
+                    
+                    if result.get('status') == 'STATUS_SUCCESS':
+                        logger.info(f"✓ XuiOne line extended successfully")
+                        return {"success": True, "result": result}
+                    else:
+                        error_msg = result.get('message', result.get('status', 'Unknown error'))
+                        logger.error(f"XuiOne edit_line failed: {error_msg}")
+                        return {"success": False, "error": error_msg}
+                except ValueError:
+                    logger.error("XuiOne: Invalid JSON response from edit_line")
+                    return {"success": False, "error": "Invalid API response"}
+            else:
+                logger.error(f"XuiOne edit_line HTTP error: {response.status_code}")
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"XuiOne extend_line error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": str(e)}
+    
+    def _get_line_id_by_username(self, username: str) -> Optional[str]:
+        """Look up a line's ID by its username"""
+        try:
+            # First try using the API if available
+            if self.api_key:
+                api_url = self.get_api_url()
+                
+                # Try get_line action
+                response = self.session.get(
+                    api_url,
+                    params={
+                        'api_key': self.api_key,
+                        'action': 'get_line',
+                        'username': username
+                    },
+                    auth=self.http_auth,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        if result.get('status') == 'STATUS_SUCCESS':
+                            data = result.get('data', {})
+                            line_id = data.get('id')
+                            if line_id:
+                                return str(line_id)
+                    except ValueError:
+                        pass
+            
+            # Fallback: Get all users and find the matching one
+            users_result = self.get_users()
+            if users_result.get('success'):
+                for user in users_result.get('users', []):
+                    if user.get('username') == username:
+                        user_id = user.get('user_id') or user.get('id')
+                        if user_id:
+                            return str(user_id)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting line ID for {username}: {e}")
+            return None
+
 
 # Singleton instance management
 _xuione_service = None

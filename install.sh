@@ -345,6 +345,12 @@ if [ -f "$INSTALL_DIR/frontend/package.json" ]; then
     print_info "Building frontend..."
     yarn build
     print_success "Frontend built"
+    
+    # Fix permissions for Nginx to serve build files
+    print_info "Setting frontend build permissions for Nginx..."
+    chmod -R 755 "$INSTALL_DIR/frontend/build"
+    chown -R www-data:www-data "$INSTALL_DIR/frontend/build" 2>/dev/null || chown -R nginx:nginx "$INSTALL_DIR/frontend/build" 2>/dev/null
+    print_success "Frontend permissions configured"
 fi
 
 # Configure Supervisor

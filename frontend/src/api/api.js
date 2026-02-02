@@ -137,6 +137,11 @@ export const adminAPI = {
   suspendImportedUser: (id) => api.post(`/api/admin/imported-users/${id}/suspend`),
   activateImportedUser: (id) => api.post(`/api/admin/imported-users/${id}/activate`),
   deleteImportedUser: (id) => api.delete(`/api/admin/imported-users/${id}`),
+  createImportedUser: (data) => api.post('/api/admin/imported-users/create', data),
+  extendImportedUser: (id, data) => api.post(`/api/admin/imported-users/${id}/extend`, data),
+  syncAllUsers: () => api.post('/api/admin/sync-all-users'),
+  // Customer creation
+  createCustomer: (data) => api.post('/api/admin/customers/create', data),
 
   // XuiOne Panel endpoints
   testXuiOne: () => api.post('/api/admin/xuione/test'),

@@ -1,10 +1,36 @@
-/* Force hide Emergent badge */
+/* Aggressively hide all Emergent badges and branding */
 #emergent-badge,
 a[href*="emergent.sh"],
+a[href*="emergent"],
 [id*="emergent"],
-[class*="emergent-badge"] {
+[class*="emergent"],
+[class*="badge"],
+div[class*="product-of"],
+p[class*="product-of"],
+span[class*="product-of"],
+*[data-emergent],
+*[data-badge] {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Hide any text containing emergent */
+body *:not(script):not(style) {
+  font-size: inherit;
+}
+
+/* Additional aggressive hiding */
+a[href*="emergent"]::before,
+a[href*="emergent"]::after,
+*[class*="emergent"]::before,
+*[class*="emergent"]::after {
+  content: '' !important;
+  display: none !important;
 }

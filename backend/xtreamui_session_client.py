@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 from http.cookiejar import MozillaCookieJar
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -556,8 +556,28 @@ class XtreamUISessionClient:
                     logger.error(f"Error message: {error_msg}")
                 return {'success': False, 'error': 'Subreseller creation failed'}
             elif response.status_code in [200, 302]:
-                # No error found, assume success
+                # No error found, subreseller created successfully
                 logger.info("✓ Subreseller created via subreseller.php (no errors detected)")
+                
+                # Now add credits to the newly created subreseller
+                if credits > 0:
+                    logger.info(f"Adding {credits} credits to new subreseller {username}")
+                    credits_result = self.add_credits(
+                        username=username,
+                        email=email or f"{username}@subreseller.local",
+                        credits=credits
+                    )
+                    if not credits_result.get('success'):
+                        logger.warning(f"Failed to add credits: {credits_result.get('error')}")
+                        # Subreseller was created, but credits failed - return partial success
+                        return {
+                            'success': True, 
+                            'username': username, 
+                            'credits': 0,
+                            'credits_warning': f"Subreseller created but credits not added: {credits_result.get('error')}"
+                        }
+                    logger.info(f"✓ {credits} credits added successfully")
+                
                 return {'success': True, 'username': username, 'credits': credits}
             else:
                 logger.warning(f"Unexpected status: {response.status_code}")
@@ -597,3 +617,66 @@ class XtreamUISessionClient:
         # Subscribers work with the existing auth method
         # Use the old approach
         pass
+
+    def fetch_packages(self) -> List[Dict]:
+        """Fetch available packages from reseller panel"""
+        if not self.logged_in:
+            if not self.login():
+                return []
+        
+        try:
+            from bs4 import BeautifulSoup
+            
+            # Get user creation page
+            page_response = self.session.get(f"{self.panel_url}/user_reseller.php", auth=self.http_auth, timeout=30)
+            
+            if page_response.status_code != 200:
+                logger.error(f"Failed to fetch packages page: HTTP {page_response.status_code}")
+                return []
+            
+            # Parse HTML
+            soup = BeautifulSoup(page_response.text, 'html.parser')
+            package_select = soup.find('select', {'id': 'package'})
+            
+            if not package_select:
+                logger.warning("Package select element not found")
+                return []
+            
+            # Extract packages
+            packages = []
+            options = package_select.find_all('option')
+            
+            for option in options:
+                package_id = option.get('value')
+                package_name = option.text.strip()
+                
+                if package_id and package_id.isdigit():
+                    # Fetch package details
+                    api_response = self.session.get(
+                        f"{self.panel_url}/api.php?action=get_package&package_id={package_id}",
+                        auth=self.http_auth,
+                        timeout=10
+                    )
+                    
+                    if api_response.status_code == 200:
+                        try:
+                            data = api_response.json()
+                            if data.get('result') == True:
+                                packages.append({
+                                    'id': int(package_id),
+                                    'name': package_name,
+                                    'credits': data['data'].get('cost_credits', 0),
+                                    'duration': data['data'].get('official_duration', 0),
+                                    'duration_unit': data['data'].get('official_duration_in', 'months'),
+                                    'max_connections': data['data'].get('max_connections', 1),
+                                    'bouquets': data.get('bouquets', [])
+                                })
+                        except Exception as e:
+                            logger.warning(f"Error parsing package {package_id}: {e}")
+            
+            logger.info(f"Fetched {len(packages)} packages")
+            return packages
+            
+        except Exception as e:
+            logger.error(f"Error fetching packages: {e}")
+            return []

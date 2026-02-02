@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Users, Eye, Edit, Trash2, X, Mail, Calendar, ShoppingBag, Server as ServiceIcon, Search, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ArrowLeft, Users, Eye, Edit, Trash2, X, Mail, Calendar, ShoppingBag, Server as ServiceIcon, Search, ChevronLeft, ChevronRight, Plus, RefreshCw, CheckCircle } from 'lucide-react';
 
 export default function AdminCustomers() {
   const queryClient = useQueryClient();
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -79,10 +80,20 @@ export default function AdminCustomers() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Customers</h1>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Showing {paginatedCustomers.length} of {totalCustomers} customers
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Customers</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Showing {paginatedCustomers.length} of {totalCustomers} customers
+            </p>
           </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-semibold"
+            data-testid="add-customer-btn"
+          >
+            <Plus className="w-5 h-5" />
+            Add Customer
+          </button>
         </div>
 
         {/* Search Bar */}
@@ -95,6 +106,7 @@ export default function AdminCustomers() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500"
+              data-testid="customer-search-input"
             />
           </div>
         </div>
@@ -294,6 +306,17 @@ export default function AdminCustomers() {
             queryClient.invalidateQueries(['admin-customers']);
             setShowEditModal(false);
             setSelectedCustomer(null);
+          }}
+        />
+      )}
+
+      {/* Create Customer Modal */}
+      {showCreateModal && (
+        <CreateCustomerModal
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            queryClient.invalidateQueries(['admin-customers']);
+            setShowCreateModal(false);
           }}
         />
       )}
@@ -737,6 +760,215 @@ function ManualServiceModal({ customer, onClose, onSuccess }) {
               className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50"
             >
               {createMutation.isLoading ? 'Creating...' : 'Create Service'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Create Customer Modal Component
+function CreateCustomerModal({ onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: ''
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [createdCustomer, setCreatedCustomer] = useState(null);
+
+  const createMutation = useMutation({
+    mutationFn: (data) => adminAPI.createCustomer(data),
+    onSuccess: (response) => {
+      setCreatedCustomer(response.data.customer);
+    },
+    onError: (error) => {
+      alert('Failed to create customer: ' + (error.response?.data?.detail || error.message));
+    },
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    if (formData.password.length < 6) {
+      alert('Password must be at least 6 characters');
+      return;
+    }
+    
+    createMutation.mutate(formData);
+  };
+
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let password = '';
+    for (let i = 0; i < 10; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setFormData({ ...formData, password });
+  };
+
+  // If customer was created, show success view
+  if (createdCustomer) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-green-600 text-white px-6 py-4 rounded-t-lg flex justify-between items-center">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <CheckCircle className="w-6 h-6" />
+              Customer Created
+            </h3>
+            <button onClick={onSuccess} className="text-white hover:text-gray-200">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Name</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{createdCustomer.name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Email</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{createdCustomer.email}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Referral Code</p>
+                <p className="font-mono font-semibold text-gray-900 dark:text-white">{createdCustomer.referral_code}</p>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                <strong>Note:</strong> The customer&apos;s email has been pre-verified. They can login immediately using the password you set.
+              </p>
+            </div>
+
+            <button
+              onClick={onSuccess}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-md w-full">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">Add New Customer</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Full Name *
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="John Doe"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              data-testid="create-customer-name"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Email Address *
+            </label>
+            <input
+              type="email"
+              required
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="john@example.com"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              data-testid="create-customer-email"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Password *
+            </label>
+            <div className="flex gap-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={6}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Min 6 characters"
+                className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                data-testid="create-customer-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={generatePassword}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Generate random password
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <strong>What happens:</strong>
+            </p>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 mt-2 list-disc list-inside space-y-1">
+              <li>Customer account will be created immediately</li>
+              <li>Email will be pre-verified (no verification needed)</li>
+              <li>Customer can login using these credentials</li>
+              <li>You can add services to their account after creation</li>
+            </ul>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+              data-testid="create-customer-submit"
+            >
+              {createMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-5 h-5" />
+                  Create Customer
+                </>
+              )}
             </button>
           </div>
         </form>

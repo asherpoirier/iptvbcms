@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
 from typing import List, Optional
 import os
@@ -1536,7 +1536,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billmaster-50.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://iptv-panel-9.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1616,7 +1616,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://billmaster-50.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://iptv-panel-9.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2392,6 +2392,61 @@ async def get_admin_stats(current_user: dict = Depends(get_current_admin_user)):
         "revenue_data": revenue_by_day,
         "recent_orders": recent_orders
     }
+
+# Pydantic model for creating customers
+class CreateCustomerRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+@app.post("/api/admin/customers/create")
+async def create_customer(data: CreateCustomerRequest, current_user: dict = Depends(get_current_admin_user)):
+    """Create a new customer account"""
+    
+    # Check if email already exists
+    existing_user = await users_collection.find_one({"email": data.email.lower()})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Validate password
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    # Hash password
+    hashed_password = get_password_hash(data.password)
+    
+    # Generate referral code
+    import secrets
+    referral_code = secrets.token_urlsafe(6).upper()[:8]
+    
+    # Create user document
+    user_doc = {
+        "email": data.email.lower(),
+        "password": hashed_password,
+        "name": data.name,
+        "role": "user",
+        "email_verified": True,  # Admin-created accounts are pre-verified
+        "credit_balance": 0.0,
+        "referral_code": referral_code,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await users_collection.insert_one(user_doc)
+    
+    logger.info(f"Admin {current_user.get('email')} created customer account: {data.email}")
+    
+    return {
+        "success": True,
+        "message": f"Customer '{data.name}' created successfully",
+        "customer": {
+            "id": str(result.inserted_id),
+            "name": data.name,
+            "email": data.email.lower(),
+            "referral_code": referral_code
+        }
+    }
+
 
 @app.get("/api/admin/customers")
 async def get_all_customers(current_user: dict = Depends(get_current_admin_user)):
@@ -5202,6 +5257,278 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
 
 
 
+@app.post("/api/admin/sync-all-users")
+async def sync_all_users_from_all_panels(current_user: dict = Depends(get_current_admin_user)):
+    """Sync users from ALL active XtreamUI and XuiOne panels"""
+    settings = await get_settings()
+    
+    results = {
+        "success": True,
+        "panels_synced": [],
+        "total_synced": 0,
+        "total_updated": 0,
+        "total_removed": 0,
+        "errors": []
+    }
+    
+    # Sync XtreamUI panels
+    xtream_panels = settings.get("xtream", {}).get("panels", [])
+    for panel_index, panel in enumerate(xtream_panels):
+        panel_name = panel.get("name", f"XtreamUI Panel {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from XtreamUI panel: {panel_name}")
+            
+            xtream_service = get_xtream_service(panel)
+            if not xtream_service:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+            
+            synced_count = 0
+            updated_count = 0
+            
+            # Sync subscribers using get_reseller_users()
+            users_result = xtream_service.get_reseller_users()
+            if users_result.get("success"):
+                users = users_result.get("users", [])
+                for user_data in users:
+                    username = user_data.get("username", "")
+                    if not username:
+                        continue
+                    
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index,
+                        "panel_type": "xtream",
+                        "username": username,
+                        "account_type": "subscriber"
+                    })
+                    
+                    # Parse expiry date
+                    expiry_str = user_data.get("expiry", "")
+                    expiry_date = None
+                    if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
+                        date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+                        for fmt in date_formats:
+                            try:
+                                expiry_date = datetime.strptime(expiry_str.strip(), fmt)
+                                break
+                            except ValueError:
+                                continue
+                    
+                    status = "active"
+                    if expiry_date and expiry_date < datetime.utcnow():
+                        status = "expired"
+                    
+                    user_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "xtream",
+                        "panel_name": panel_name,
+                        "xtream_user_id": user_data.get("user_id", 0),
+                        "username": username,
+                        "password": user_data.get("password", ""),
+                        "expiry_date": expiry_date,
+                        "status": status,
+                        "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                        "account_type": "subscriber",
+                        "created_by_reseller": user_data.get("created_by", ""),
+                        "last_synced": datetime.utcnow()
+                    }
+                    
+                    if existing:
+                        await imported_users_collection.update_one(
+                            {"_id": existing["_id"]},
+                            {"$set": user_doc}
+                        )
+                        updated_count += 1
+                    else:
+                        user_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(user_doc)
+                        synced_count += 1
+            
+            # Sync resellers using get_subresellers()
+            resellers_result = xtream_service.get_subresellers()
+            if resellers_result.get("success"):
+                resellers = resellers_result.get("users", [])
+                for reseller_data in resellers:
+                    username = reseller_data.get("username", "")
+                    if not username:
+                        continue
+                    
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index,
+                        "panel_type": "xtream",
+                        "username": username,
+                        "account_type": "reseller"
+                    })
+                    
+                    reseller_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "xtream",
+                        "panel_name": panel_name,
+                        "xtream_user_id": reseller_data.get("user_id", 0),
+                        "username": username,
+                        "password": reseller_data.get("password", ""),
+                        "credits": float(reseller_data.get("credits", 0) or 0),
+                        "status": "active",
+                        "account_type": "reseller",
+                        "member_group": reseller_data.get("member_group", ""),
+                        "last_synced": datetime.utcnow()
+                    }
+                    
+                    if existing:
+                        await imported_users_collection.update_one(
+                            {"_id": existing["_id"]},
+                            {"$set": reseller_doc}
+                        )
+                        updated_count += 1
+                    else:
+                        reseller_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(reseller_doc)
+                        synced_count += 1
+            
+            results["panels_synced"].append({
+                "name": panel_name,
+                "type": "xtream",
+                "synced": synced_count,
+                "updated": updated_count
+            })
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+            
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
+    
+    # Sync XuiOne panels
+    xuione_panels = settings.get("xuione", {}).get("panels", [])
+    for panel_index, panel in enumerate(xuione_panels):
+        panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from XuiOne panel: {panel_name}")
+            
+            xuione_service = get_xuione_service(panel)
+            if not xuione_service:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+            
+            synced_count = 0
+            updated_count = 0
+            
+            # Sync subscribers using get_users()
+            users_result = xuione_service.get_users()
+            if users_result.get("success"):
+                users = users_result.get("users", [])
+                for user_data in users:
+                    username = user_data.get("username", "")
+                    if not username:
+                        continue
+                    
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index,
+                        "panel_type": "xuione",
+                        "username": username,
+                        "account_type": "subscriber"
+                    })
+                    
+                    # Parse expiry date
+                    expiry_str = user_data.get("expiry", "")
+                    expiry_date = None
+                    if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
+                        date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+                        for fmt in date_formats:
+                            try:
+                                expiry_date = datetime.strptime(expiry_str.strip(), fmt)
+                                break
+                            except ValueError:
+                                continue
+                    
+                    status = "active"
+                    if expiry_date and expiry_date < datetime.utcnow():
+                        status = "expired"
+                    
+                    user_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "xuione",
+                        "panel_name": panel_name,
+                        "xtream_user_id": user_data.get("user_id", 0),
+                        "username": username,
+                        "password": user_data.get("password", ""),
+                        "expiry_date": expiry_date,
+                        "status": status,
+                        "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                        "account_type": "subscriber",
+                        "last_synced": datetime.utcnow()
+                    }
+                    
+                    if existing:
+                        await imported_users_collection.update_one(
+                            {"_id": existing["_id"]},
+                            {"$set": user_doc}
+                        )
+                        updated_count += 1
+                    else:
+                        user_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(user_doc)
+                        synced_count += 1
+            
+            # Sync resellers using get_subresellers()
+            resellers_result = xuione_service.get_subresellers()
+            if resellers_result.get("success"):
+                resellers = resellers_result.get("users", [])
+                for reseller_data in resellers:
+                    username = reseller_data.get("username", "")
+                    if not username:
+                        continue
+                    
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index,
+                        "panel_type": "xuione",
+                        "username": username,
+                        "account_type": "reseller"
+                    })
+                    
+                    reseller_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "xuione",
+                        "panel_name": panel_name,
+                        "xtream_user_id": reseller_data.get("user_id", 0),
+                        "username": username,
+                        "password": "",
+                        "credits": float(reseller_data.get("credits", 0) or 0),
+                        "status": "active",
+                        "account_type": "reseller",
+                        "member_group": reseller_data.get("member_group", ""),
+                        "last_synced": datetime.utcnow()
+                    }
+                    
+                    if existing:
+                        await imported_users_collection.update_one(
+                            {"_id": existing["_id"]},
+                            {"$set": reseller_doc}
+                        )
+                        updated_count += 1
+                    else:
+                        reseller_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(reseller_doc)
+                        synced_count += 1
+            
+            results["panels_synced"].append({
+                "name": panel_name,
+                "type": "xuione",
+                "synced": synced_count,
+                "updated": updated_count
+            })
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+            
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
+    
+    logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated")
+    
+    return results
+
+
 @app.post("/api/admin/xtream/sync-users")
 async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Sync users and subresellers from XtreamUI panel to billing system (1:1 mirror)"""
@@ -5882,6 +6209,527 @@ async def delete_imported_user(user_id: str, current_user: dict = Depends(get_cu
     await imported_users_collection.delete_one({"_id": str_to_objectid(user_id)})
     
     return {"message": f"User '{user.get('username')}' removed from billing panel"}
+
+
+# Pydantic model for extending imported users
+class ExtendImportedUserRequest(BaseModel):
+    package_id: int  # Required - the package to extend by
+
+
+@app.post("/api/admin/imported-users/{user_id}/extend")
+async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, current_user: dict = Depends(get_current_admin_user)):
+    """Extend an imported user's subscription on both billing system and panel"""
+    
+    user = await imported_users_collection.find_one({"_id": str_to_objectid(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get user details
+    username = user.get("username")
+    password = user.get("password")
+    panel_type = user.get("panel_type", "xtream")
+    panel_index = user.get("panel_index", 0)
+    
+    # Get current expiry date for response
+    current_expiry = user.get("expiry_date")
+    
+    # Get settings and panel info
+    settings = await get_settings()
+    days_to_add = 0
+    panel_extend_result = None
+    
+    try:
+        if panel_type == "xtream":
+            xtream_settings = settings.get("xtream", {})
+            panels = xtream_settings.get("panels", [])
+            
+            if not panels or panel_index >= len(panels):
+                raise HTTPException(status_code=400, detail="Panel configuration not found")
+            
+            panel = panels[panel_index]
+            
+            # Use XtreamUISessionClient to get packages (same as sync endpoint)
+            from xtreamui_session_client import XtreamUISessionClient as ExtendSessionClient
+            session_client = ExtendSessionClient(
+                panel_url=panel["panel_url"],
+                username=panel["admin_username"],
+                password=panel["admin_password"]
+            )
+            
+            # Fetch packages using the same method as sync endpoint
+            packages_list = session_client.fetch_packages()
+            
+            selected_package = None
+            bouquets = [1]  # Default bouquet
+            max_connections = 1
+            
+            logger.info(f"Looking for package ID {data.package_id} in {len(packages_list)} packages")
+            
+            for pkg in packages_list:
+                logger.info(f"  Package: id={pkg.get('id')}, name={pkg.get('name')}")
+                if str(pkg.get("id")) == str(data.package_id):
+                    selected_package = pkg
+                    duration_val = pkg.get("duration", "1")
+                    duration_unit = pkg.get("duration_unit", "months")
+                    
+                    try:
+                        duration = int(duration_val)
+                        if duration_unit == "days":
+                            days_to_add = duration
+                        elif duration_unit == "years":
+                            days_to_add = duration * 365
+                        else:  # months
+                            days_to_add = duration * 30
+                    except (ValueError, TypeError):
+                        days_to_add = 30
+                    
+                    max_connections = int(pkg.get("max_connections", 1))
+                    bouquets = pkg.get("bouquets", [1])
+                    break
+            
+            if not selected_package:
+                logger.error(f"Package {data.package_id} not found in packages: {[p.get('id') for p in packages_list]}")
+                raise HTTPException(status_code=400, detail=f"Package not found. Available packages: {[p.get('id') for p in packages_list]}")
+            
+            logger.info(f"Found package: {selected_package.get('name')}, duration={days_to_add} days")
+            
+            # Call the panel's extend subscriber method
+            logger.info(f"Extending subscriber {username} on XtreamUI panel with package {data.package_id}")
+            
+            panel_extend_result = session_client.extend_subscriber(
+                username=username,
+                password=password,
+                package_id=data.package_id,
+                bouquets=bouquets,
+                max_connections=max_connections,
+                reseller_notes=f"Extended by Admin - {current_user.get('email', 'Unknown')}"
+            )
+            
+            if not panel_extend_result.get("success"):
+                logger.error(f"Panel extend failed: {panel_extend_result.get('error')}")
+                raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error', 'Unknown error')}")
+            
+            logger.info(f"✓ Panel extension successful: {panel_extend_result}")
+            
+        elif panel_type == "xuione":
+            xuione_settings = settings.get("xuione", {})
+            panels = xuione_settings.get("panels", [])
+            
+            if not panels or panel_index >= len(panels):
+                raise HTTPException(status_code=400, detail="Panel configuration not found")
+            
+            panel = panels[panel_index]
+            
+            # Initialize XuiOne service
+            xuione_service = XuiOneService(
+                panel_url=panel["panel_url"],
+                api_access_code=panel.get("api_access_code", ""),
+                api_key=panel.get("api_key", ""),
+                admin_username=panel["admin_username"],
+                admin_password=panel["admin_password"],
+                ssl_verify=panel.get("ssl_verify", False)
+            )
+            
+            # Get package details
+            packages_result = xuione_service.get_packages()
+            selected_package = None
+            
+            if packages_result.get("success"):
+                for pkg in packages_result.get("packages", []):
+                    if str(pkg.get("id")) == str(data.package_id):
+                        selected_package = pkg
+                        duration_val = pkg.get("duration", "1")
+                        duration_unit = pkg.get("duration_unit", "months")
+                        
+                        try:
+                            duration = int(duration_val)
+                            if duration_unit == "days":
+                                days_to_add = duration
+                            elif duration_unit == "years":
+                                days_to_add = duration * 365
+                            else:  # months
+                                days_to_add = duration * 30
+                        except (ValueError, TypeError):
+                            days_to_add = 30
+                        break
+            
+            if not selected_package:
+                raise HTTPException(status_code=400, detail="Package not found")
+            
+            # XuiOne extension via service method
+            logger.info(f"Extending XuiOne line {username} with package {data.package_id}")
+            
+            panel_extend_result = xuione_service.extend_line(username, data.package_id)
+            
+            if not panel_extend_result.get("success"):
+                error_msg = panel_extend_result.get("error", "Unknown error")
+                logger.error(f"XuiOne extend failed: {error_msg}")
+                raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {error_msg}")
+            
+            logger.info(f"✓ XuiOne extension successful")
+        
+        else:
+            raise HTTPException(status_code=400, detail="Invalid panel type")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error extending user on panel: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {str(e)}")
+    
+    # Calculate new expiry for billing database
+    if current_expiry is None:
+        current_expiry = datetime.utcnow()
+    elif isinstance(current_expiry, str):
+        current_expiry = datetime.fromisoformat(current_expiry.replace('Z', '+00:00'))
+    
+    # If current expiry is in the past, start from now
+    if current_expiry < datetime.utcnow():
+        current_expiry = datetime.utcnow()
+    
+    new_expiry = current_expiry + timedelta(days=days_to_add)
+    
+    # Update the user in billing database
+    await imported_users_collection.update_one(
+        {"_id": str_to_objectid(user_id)},
+        {
+            "$set": {
+                "expiry_date": new_expiry,
+                "status": "active",  # Reactivate if was expired
+                "last_synced": datetime.utcnow()
+            }
+        }
+    )
+    
+    logger.info(f"Admin {current_user.get('email')} extended user {username} by {days_to_add} days")
+    
+    return {
+        "success": True,
+        "message": f"Subscription extended by {days_to_add} days on both billing system and panel",
+        "previous_expiry": user.get("expiry_date").isoformat() if user.get("expiry_date") else None,
+        "new_expiry": new_expiry.isoformat(),
+        "days_added": days_to_add,
+        "panel_extended": True
+    }
+
+
+# Pydantic model for creating imported users
+class CreateImportedUserRequest(BaseModel):
+    panel_type: str = "xtream"  # 'xtream' or 'xuione'
+    panel_index: int = 0
+    account_type: str = "subscriber"  # 'subscriber' or 'reseller'
+    username: Optional[str] = None  # Auto-generate if not provided
+    password: Optional[str] = None  # Auto-generate if not provided
+    # For subscribers
+    package_id: Optional[int] = None
+    duration_months: Optional[int] = 1
+    max_connections: Optional[int] = 1
+    # For resellers
+    credits: Optional[float] = 0.0
+    member_group_id: Optional[int] = 2
+
+
+@app.post("/api/admin/imported-users/create")
+async def create_imported_user(data: CreateImportedUserRequest, current_user: dict = Depends(get_current_admin_user)):
+    """Create a new user directly on the panel and add to imported_users collection"""
+    
+    settings = await get_settings()
+    
+    # Generate credentials if not provided
+    username = data.username or generate_username()
+    password = data.password or generate_password()
+    
+    panel_type = data.panel_type
+    panel_index = data.panel_index
+    
+    if panel_type == "xtream":
+        # XtreamUI panel
+        xtream_settings = settings.get("xtream", {})
+        panels = xtream_settings.get("panels", [])
+        
+        if not panels or panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid XtreamUI panel index")
+        
+        panel = panels[panel_index]
+        panel_name = panel.get("name", f"XtreamUI Panel {panel_index + 1}")
+        
+        # Initialize XtreamUI service
+        xtream_service = XtreamUIService(
+            panel_url=panel["panel_url"],
+            admin_username=panel["admin_username"],
+            admin_password=panel["admin_password"],
+            ssl_verify=panel.get("ssl_verify", False)
+        )
+        
+        if data.account_type == "subscriber":
+            if not data.package_id:
+                raise HTTPException(status_code=400, detail="package_id is required for subscriber creation")
+            
+            # Fetch package details to get duration and max_connections
+            package_duration = 1  # Default 1 month
+            package_max_connections = 1  # Default 1 connection
+            
+            try:
+                # Get packages from panel to find the selected one
+                packages_result = xtream_service.get_packages()
+                if packages_result.get("success"):
+                    for pkg in packages_result.get("packages", []):
+                        if str(pkg.get("id")) == str(data.package_id):
+                            # Parse duration from package
+                            duration_val = pkg.get("duration", "1")
+                            duration_unit = pkg.get("duration_unit", "months")
+                            try:
+                                package_duration = int(duration_val)
+                                # Convert to months if needed
+                                if duration_unit == "days":
+                                    package_duration = max(1, package_duration // 30)
+                                elif duration_unit == "years":
+                                    package_duration = package_duration * 12
+                            except (ValueError, TypeError):
+                                package_duration = 1
+                            
+                            # Get max connections
+                            try:
+                                package_max_connections = int(pkg.get("max_connections", "1"))
+                            except (ValueError, TypeError):
+                                package_max_connections = 1
+                            break
+            except Exception as e:
+                logger.warning(f"Could not fetch package details: {e}")
+            
+            # Get bouquets from a product or use all
+            bouquets = [1]  # Default bouquet
+            
+            # Create subscriber using form method
+            result = xtream_service.create_subscriber_via_form(
+                username=username,
+                password=password,
+                package_id=data.package_id,
+                bouquets=bouquets,
+                customer_name=f"Manual - {current_user.get('email', 'Admin')}"
+            )
+            
+            if not result.get("success"):
+                raise HTTPException(status_code=500, detail=result.get("error", "Failed to create subscriber on panel"))
+            
+            # Calculate expiry date using package duration
+            expiry_date = datetime.utcnow() + timedelta(days=package_duration * 30)
+            
+            # Insert into imported_users collection
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "xtream",
+                "panel_name": panel_name,
+                "xtream_user_id": int(result.get("user_id", 0)),
+                "username": username,
+                "password": password,
+                "expiry_date": expiry_date,
+                "status": "active",
+                "max_connections": package_max_connections,
+                "account_type": "subscriber",
+                "created_by_reseller": None,
+                "last_synced": datetime.utcnow(),
+                "created_at": datetime.utcnow()
+            }
+            
+            await imported_users_collection.insert_one(user_doc)
+            
+            return {
+                "success": True,
+                "message": f"Subscriber '{username}' created successfully on {panel_name}",
+                "user": {
+                    "username": username,
+                    "password": password,
+                    "panel_name": panel_name,
+                    "expiry_date": expiry_date.isoformat(),
+                    "account_type": "subscriber",
+                    "max_connections": package_max_connections,
+                    "duration_months": package_duration
+                }
+            }
+        
+        else:  # reseller
+            # Create reseller
+            result = xtream_service.create_reseller(
+                username=username,
+                password=password,
+                credits=data.credits or 0.0,
+                email="",
+                member_group_id=data.member_group_id or 2
+            )
+            
+            if not result.get("success"):
+                raise HTTPException(status_code=500, detail=result.get("error", "Failed to create reseller on panel"))
+            
+            # Insert into imported_users collection
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "xtream",
+                "panel_name": panel_name,
+                "xtream_user_id": int(result.get("user_id", 0)),
+                "username": username,
+                "password": password,
+                "expiry_date": None,  # Resellers don't expire
+                "status": "active",
+                "credits": data.credits,
+                "account_type": "reseller",
+                "member_group": f"Group {data.member_group_id}",
+                "last_synced": datetime.utcnow(),
+                "created_at": datetime.utcnow()
+            }
+            
+            await imported_users_collection.insert_one(user_doc)
+            
+            return {
+                "success": True,
+                "message": f"Reseller '{username}' created successfully on {panel_name}",
+                "user": {
+                    "username": username,
+                    "password": password,
+                    "panel_name": panel_name,
+                    "credits": data.credits,
+                    "account_type": "reseller"
+                }
+            }
+    
+    elif panel_type == "xuione":
+        # XuiOne panel
+        xuione_settings = settings.get("xuione", {})
+        panels = xuione_settings.get("panels", [])
+        
+        if not panels or panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid XuiOne panel index")
+        
+        panel = panels[panel_index]
+        panel_name = panel.get("name", f"XuiOne Panel {panel_index + 1}")
+        
+        # Initialize XuiOne service
+        xuione_service = XuiOneService(
+            panel_url=panel["panel_url"],
+            api_access_code=panel.get("api_access_code", ""),
+            api_key=panel.get("api_key", ""),
+            admin_username=panel["admin_username"],
+            admin_password=panel["admin_password"],
+            ssl_verify=panel.get("ssl_verify", False)
+        )
+        
+        if data.account_type == "subscriber":
+            if not data.package_id:
+                raise HTTPException(status_code=400, detail="package_id is required for subscriber creation")
+            
+            if not xuione_service.api_key:
+                raise HTTPException(status_code=400, detail="XuiOne API key is required for creating subscribers")
+            
+            # Login first
+            if not xuione_service.logged_in:
+                if not xuione_service.login():
+                    raise HTTPException(status_code=500, detail="Failed to login to XuiOne panel")
+            
+            # Fetch package details to get duration and max_connections
+            package_duration = 1  # Default 1 month
+            package_max_connections = 1  # Default 1 connection
+            
+            try:
+                # Get packages from panel to find the selected one
+                packages_result = xuione_service.get_packages()
+                if packages_result.get("success"):
+                    for pkg in packages_result.get("packages", []):
+                        if str(pkg.get("id")) == str(data.package_id):
+                            # Parse duration from package
+                            duration_val = pkg.get("duration", "1")
+                            duration_unit = pkg.get("duration_unit", "months")
+                            try:
+                                package_duration = int(duration_val)
+                                # Convert to months if needed
+                                if duration_unit == "days":
+                                    package_duration = max(1, package_duration // 30)
+                                elif duration_unit == "years":
+                                    package_duration = package_duration * 12
+                            except (ValueError, TypeError):
+                                package_duration = 1
+                            
+                            # Get max connections
+                            try:
+                                package_max_connections = int(pkg.get("max_connections", "1"))
+                            except (ValueError, TypeError):
+                                package_max_connections = 1
+                            break
+            except Exception as e:
+                logger.warning(f"Could not fetch XuiOne package details: {e}")
+            
+            # Calculate expiry date using package duration
+            expiry_date = datetime.utcnow() + timedelta(days=package_duration * 30)
+            
+            # Use XuiOne API to create line
+            api_url = xuione_service.get_api_url()
+            
+            request_data = {
+                'username': username,
+                'password': password,
+                'package': str(data.package_id),
+                'trial': '0',
+                'reseller_notes': f'Manual Creation - {current_user.get("email", "Admin")}',
+                'is_isplock': '0'
+            }
+            
+            response = xuione_service.session.post(
+                api_url,
+                params={
+                    'api_key': xuione_service.api_key,
+                    'action': 'create_line'
+                },
+                data=request_data,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"XuiOne API error: HTTP {response.status_code}")
+            
+            try:
+                result = response.json()
+                if result.get('status') != 'STATUS_SUCCESS':
+                    raise HTTPException(status_code=500, detail=result.get("message", "Failed to create line"))
+            except ValueError:
+                raise HTTPException(status_code=500, detail="Invalid response from XuiOne API")
+            
+            # Insert into imported_users collection
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "xuione",
+                "panel_name": panel_name,
+                "xtream_user_id": result.get("data", {}).get("id", 0),
+                "username": username,
+                "password": password,
+                "expiry_date": expiry_date,
+                "status": "active",
+                "max_connections": package_max_connections,
+                "account_type": "subscriber",
+                "last_synced": datetime.utcnow(),
+                "created_at": datetime.utcnow()
+            }
+            
+            await imported_users_collection.insert_one(user_doc)
+            
+            return {
+                "success": True,
+                "message": f"Subscriber '{username}' created successfully on {panel_name}",
+                "user": {
+                    "username": username,
+                    "password": password,
+                    "panel_name": panel_name,
+                    "expiry_date": expiry_date.isoformat(),
+                    "account_type": "subscriber",
+                    "max_connections": package_max_connections,
+                    "duration_months": package_duration
+                }
+            }
+        
+        else:  # reseller for XuiOne - might not be supported via API
+            raise HTTPException(status_code=400, detail="Reseller creation is not currently supported for XuiOne panels via API")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream' or 'xuione'")
 
 @app.get("/api/products/{product_id}/channels")
 async def get_product_channels(product_id: str):
