@@ -307,9 +307,7 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     if ! grep -q "qrcode" "$INSTALL_DIR/backend/requirements_clean.txt"; then
         echo "qrcode==7.4.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
-    if ! grep -q "Pillow" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "Pillow==10.2.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
-    fi
+    # Note: Pillow is already in requirements.txt, no need to add
     
     # Note: google-* packages are already in requirements.txt, no need to add
     
