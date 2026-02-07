@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/store';
 import { 
   Home, ShoppingCart, Users, Server, MessageSquare, FileText, 
   BarChart3, Settings, LogOut, DollarSign, TrendingUp, Plus, 
-  UserPlus, Menu, X, Package, Mail, Download, Tag, RefreshCw, ChevronDown, ChevronRight
+  UserPlus, Menu, X, Package, Mail, Download, Tag, RefreshCw, ChevronDown, ChevronRight, BookOpen
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -92,6 +92,28 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await adminAPI.downloadUserGuide();
+                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', 'IPTV_Billing_Admin_User_Guide.pdf');
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                  } catch (err) {
+                    alert('Failed to download user guide');
+                  }
+                }}
+                className="flex items-center gap-2 text-gray-600 hover:text-blue-600 transition-colors text-sm"
+                title="Download Admin User Guide"
+              >
+                <BookOpen className="w-5 h-5" />
+                <span className="hidden md:inline">User Guide</span>
+              </button>
               <span className="text-gray-700 dark:text-gray-200">Admin: {user?.name}</span>
               <button
                 onClick={handleLogout}

@@ -1536,7 +1536,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://iptv-panel-9.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://reseller-mgmt-pro.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1616,7 +1616,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://iptv-panel-9.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://reseller-mgmt-pro.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -4434,6 +4434,8 @@ class MassEmailRequest(BaseModel):
 @app.post("/api/admin/email/test")
 async def send_test_email(request: TestEmailRequest, current_user: dict = Depends(get_current_admin_user)):
     """Send a test email to verify SMTP settings"""
+    settings = await get_settings()
+    smtp_settings = settings.get("smtp", {})
     email_service = await get_configured_email_service()
     
     if not email_service or not email_service.enabled:
@@ -4453,16 +4455,22 @@ async def send_test_email(request: TestEmailRequest, current_user: dict = Depend
     <p>Sent at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
     """
     
-    success = await email_service.send_email(
-        request.email,
-        "Test Email - SMTP Configuration Verified ✓",
-        email_service._wrap_email(test_content, "Test Email")
-    )
-    
-    if success:
-        return {"message": f"Test email sent successfully to {request.email}"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to send test email. Please check your SMTP settings and logs.")
+    try:
+        success = await email_service.send_email(
+            request.email,
+            "Test Email - SMTP Configuration Verified",
+            email_service._wrap_email(test_content, "Test Email")
+        )
+        
+        if success:
+            return {"message": f"Test email sent successfully to {request.email}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send test email. Please check your SMTP settings and server logs for details.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Test email error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
 
 @app.post("/api/admin/email/mass")
 async def send_mass_email(request: MassEmailRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_admin_user)):
@@ -7464,6 +7472,22 @@ async def reject_refund_endpoint(
         return {"message": f"Connection successful to {panel.get('name', 'panel')}", "details": result}
     else:
         return {"message": "Connection failed", "error": result.get("error")}
+
+
+# ============ USER GUIDE PDF ============
+@app.get("/api/admin/user-guide")
+async def download_user_guide(current_user=Depends(get_current_admin_user)):
+    """Download the admin user guide PDF"""
+    import os
+    pdf_path = os.path.join(os.path.dirname(__file__), "static", "IPTV_Billing_Admin_User_Guide.pdf")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="User guide not found")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="IPTV_Billing_Admin_User_Guide.pdf"
+    )
+
 
 if __name__ == "__main__":
     import uvicorn

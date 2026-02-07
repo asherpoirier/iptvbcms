@@ -191,16 +191,18 @@ class EmailService:
                     start_tls=False
                 )
             else:
-                # Use STARTTLS for port 587 and others
-                await aiosmtplib.send(
-                    message,
+                # Use STARTTLS for port 587 and others (Gmail, etc.)
+                # Use explicit client for better compatibility
+                smtp_client = aiosmtplib.SMTP(
                     hostname=self.smtp_host,
                     port=self.smtp_port,
-                    username=self.smtp_username,
-                    password=self.smtp_password,
-                    start_tls=True,
-                    use_tls=False
+                    use_tls=False,
+                    start_tls=False
                 )
+                async with smtp_client:
+                    await smtp_client.starttls()
+                    await smtp_client.login(self.smtp_username, self.smtp_password)
+                    await smtp_client.send_message(message)
             
             logger.info(f"Email sent successfully to {to_email}: {subject}")
             

@@ -181,6 +181,8 @@ export const adminAPI = {
   createLicense: (data) => api.post('/api/admin/licenses', data),
   revokeLicense: (key, reason) => api.post(`/api/admin/licenses/${key}/revoke`, { reason }),
   activateLicense: (key) => api.post(`/api/admin/licenses/${key}/activate`),
+  // User Guide
+  downloadUserGuide: () => api.get('/api/admin/user-guide', { responseType: 'blob' }),
 };
 
 export default api;
