@@ -5524,7 +5524,39 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             logger.error(f"Error syncing from {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
     
-    logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated")
+    # Clean up users from removed panels
+    # Get list of active panel names
+    active_xtream_panel_names = [p.get("name") for p in xtream_panels]
+    active_xuione_panel_names = [p.get("name") for p in xuione_panels]
+    
+    # Remove users from XtreamUI panels that no longer exist
+    removed_xtream = await imported_users_collection.delete_many({
+        "panel_type": "xtream",
+        "panel_name": {"$nin": active_xtream_panel_names}
+    })
+    
+    # Remove users from XuiOne panels that no longer exist
+    removed_xuione = await imported_users_collection.delete_many({
+        "panel_type": "xuione",
+        "panel_name": {"$nin": active_xuione_panel_names}
+    })
+    
+    # Also remove users with null panel_type whose panel_name doesn't exist in any active panel
+    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names
+    removed_orphans = await imported_users_collection.delete_many({
+        "$or": [
+            {"panel_type": None, "panel_name": {"$nin": all_active_panel_names}},
+            {"panel_type": {"$exists": False}, "panel_name": {"$nin": all_active_panel_names}}
+        ]
+    })
+    
+    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_orphans.deleted_count
+    results["total_removed"] = total_removed
+    
+    if total_removed > 0:
+        logger.info(f"Removed {total_removed} users from deleted panels (XtreamUI: {removed_xtream.deleted_count}, XuiOne: {removed_xuione.deleted_count}, Orphans: {removed_orphans.deleted_count})")
+    
+    logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated, {results['total_removed']} removed")
     
     return results
 

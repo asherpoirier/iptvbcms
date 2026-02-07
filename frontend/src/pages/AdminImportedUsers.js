@@ -274,6 +274,7 @@ export default function AdminImportedUsers() {
                   <>
                     <p className="font-semibold text-green-800 dark:text-green-200">
                       Sync Complete: {syncResult.total_synced} new users, {syncResult.total_updated} updated
+                      {syncResult.total_removed > 0 && `, ${syncResult.total_removed} removed (from deleted panels)`}
                     </p>
                     {syncResult.panels_synced?.length > 0 && (
                       <p className="text-sm text-green-600 dark:text-green-300 mt-1">
