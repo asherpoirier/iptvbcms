@@ -183,6 +183,11 @@ export const adminAPI = {
   activateLicense: (key) => api.post(`/api/admin/licenses/${key}/activate`),
   // User Guide
   downloadUserGuide: () => api.get('/api/admin/user-guide', { responseType: 'blob' }),
+  // 1-Stream
+  testOneStream: () => api.post('/api/admin/onestream/test'),
+  syncOneStreamPackages: (panelIndex = 0) => api.get(`/api/admin/onestream/packages?panel_index=${panelIndex}`),
+  syncOneStreamBouquets: (panelIndex = 0) => api.get(`/api/admin/onestream/bouquets?panel_index=${panelIndex}`),
+  syncOneStreamUsers: (panelIndex = 0) => api.post(`/api/admin/onestream/sync-users?panel_index=${panelIndex}`),
 };
 
 export default api;

@@ -38,8 +38,9 @@ export default function AdminImportedUsers() {
 
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
+  const onestreamPanels = settings?.onestream?.panels || [];
   
-  // Combine both panel types for filter dropdown
+  // Combine all panel types for filter dropdown
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ 
       ...panel, 
@@ -54,6 +55,13 @@ export default function AdminImportedUsers() {
       index: index,
       value: `xuione-${index}`,
       label: `${panel.name} (XuiOne)`
+    })),
+    ...onestreamPanels.map((panel, index) => ({ 
+      ...panel, 
+      type: 'onestream', 
+      index: index,
+      value: `onestream-${index}`,
+      label: `${panel.name} (1-Stream)`
     }))
   ];
   
@@ -229,7 +237,7 @@ export default function AdminImportedUsers() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Imported Users</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Users and resellers synced from XtreamUI and XuiOne panels
+              Users and resellers synced from XtreamUI, XuiOne, and 1-Stream panels
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -796,6 +804,8 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
   const getPanelList = () => {
     if (formData.panel_type === 'xtream') {
       return settings?.xtream?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (XtreamUI)` })) || [];
+    } else if (formData.panel_type === 'onestream') {
+      return settings?.onestream?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (1-Stream)` })) || [];
     } else {
       return settings?.xuione?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (XuiOne)` })) || [];
     }
@@ -823,7 +833,19 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
     enabled: formData.panel_type === 'xuione' && formData.account_type === 'subscriber',
   });
 
-  const packages = formData.panel_type === 'xtream' ? (xtreamPackages?.packages || []) : (xuionePackages?.packages || []);
+  // Fetch packages for 1-Stream
+  const { data: onestreamPackages } = useQuery({
+    queryKey: ['onestream-packages', formData.panel_index],
+    queryFn: async () => {
+      const response = await adminAPI.syncOneStreamPackages(formData.panel_index);
+      return response.data;
+    },
+    enabled: formData.panel_type === 'onestream' && formData.account_type === 'subscriber',
+  });
+
+  const packages = formData.panel_type === 'xtream' ? (xtreamPackages?.packages || []) 
+    : formData.panel_type === 'onestream' ? (onestreamPackages?.packages || [])
+    : (xuionePackages?.packages || []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -960,6 +982,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
             >
               <option value="xtream">XtreamUI</option>
               <option value="xuione">XuiOne</option>
+              <option value="onestream">1-Stream</option>
             </select>
           </div>
 
@@ -996,7 +1019,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
               data-testid="account-type-select"
             >
               <option value="subscriber">Subscriber</option>
-              {formData.panel_type === 'xtream' && <option value="reseller">Reseller</option>}
+              {(formData.panel_type === 'xtream' || formData.panel_type === 'onestream') && <option value="reseller">Reseller</option>}
             </select>
             {formData.panel_type === 'xuione' && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -1174,6 +1197,9 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
       if (panelType === 'xtream') {
         const response = await adminAPI.syncPackagesFromPanel(user.panel_index || 0);
         return response.data?.packages || [];
+      } else if (panelType === 'onestream') {
+        const response = await adminAPI.syncOneStreamPackages(user.panel_index || 0);
+        return response.data?.packages || [];
       } else {
         const response = await adminAPI.syncXuiOnePackages(user.panel_index || 0);
         return response.data?.packages || [];
@@ -1345,7 +1371,7 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
 
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
             <p className="text-sm text-green-800 dark:text-green-200">
-              <strong>Note:</strong> This will extend the subscription on both the billing system and the {user.panel_type === 'xtream' ? 'XtreamUI' : 'XuiOne'} panel.
+              <strong>Note:</strong> This will extend the subscription on both the billing system and the {user.panel_type === 'xtream' ? 'XtreamUI' : user.panel_type === 'onestream' ? '1-Stream' : 'XuiOne'} panel.
             </p>
           </div>
 

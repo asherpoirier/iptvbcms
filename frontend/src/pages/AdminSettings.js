@@ -17,6 +17,7 @@ import UpdateManager from '../components/UpdateManager';
 import BackupManager from '../components/BackupManager';
 import RecaptchaSettings from '../components/RecaptchaSettings';
 import NotificationSettings from '../components/NotificationSettings';
+import OneStreamPanelManagement from '../components/OneStreamPanelManagement';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('panels');
@@ -70,6 +71,17 @@ export default function AdminSettings() {
                 }`}
               >
                 XuiOne Panels
+              </button>
+              <button
+                onClick={() => setActiveTab('onestream')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                  activeTab === 'onestream' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                1-Stream Panels
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  activeTab === 'onestream' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                }`}>Soon</span>
               </button>
               <button
                 onClick={() => setActiveTab('branding')}
@@ -181,6 +193,11 @@ export default function AdminSettings() {
             {/* XuiOne Panels Tab */}
             {activeTab === 'xuione' && (
               <XuiOnePanelManagement settings={settings} />
+            )}
+
+            {/* 1-Stream Panels Tab */}
+            {activeTab === 'onestream' && (
+              <OneStreamPanelManagement settings={settings} />
             )}
 
             {/* Branding Tab */}

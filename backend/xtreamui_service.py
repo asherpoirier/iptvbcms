@@ -77,7 +77,8 @@ class XtreamUIService:
         return self._make_request('/api.php?action=user', 'POST', data)
     
     def create_subscriber_via_form(self, username: str, password: str, package_id: int, 
-                                   bouquets: list, customer_name: str = None) -> Dict[str, Any]:
+                                   bouquets: list, customer_name: str = None,
+                                   is_trial: bool = False, exp_date: int = None) -> Dict[str, Any]:
         """
         Create subscriber via reseller form POST (associates with reseller & deducts credits)
         This is the correct method for reseller-owned accounts
@@ -96,20 +97,54 @@ class XtreamUIService:
             # Build reseller notes with customer name
             reseller_notes = f"IPTV Billing System: {customer_name}" if customer_name else "IPTV Billing System"
             
+            # Get reseller member_id by fetching the form page
+            member_id = '0'
+            try:
+                from bs4 import BeautifulSoup
+                page_url = f"{self.panel_url}/user_reseller.php?trial" if is_trial else f"{self.panel_url}/user_reseller.php"
+                page_resp = self.session.get(page_url, timeout=15)
+                if page_resp.status_code == 200:
+                    soup = BeautifulSoup(page_resp.text, 'html.parser')
+                    member_select = soup.find('select', {'name': 'member_id'})
+                    if member_select:
+                        options = member_select.find_all('option')
+                        # Find the option matching the logged-in reseller username
+                        for opt in options:
+                            if opt.text.strip().lower() == self.admin_username.lower():
+                                member_id = opt.get('value', '0')
+                                logger.info(f"Matched member_id {member_id} for reseller '{self.admin_username}'")
+                                break
+                        if member_id == '0' and options:
+                            # Fallback: use first option if no match found
+                            member_id = options[0].get('value', '0')
+                            logger.warning(f"Could not match reseller '{self.admin_username}', using first member_id: {member_id}")
+            except Exception as e:
+                logger.warning(f"Could not auto-detect member_id: {e}")
+            
             # Submit form to create user
             form_data = {
-                'submit_user': '1',
                 'username': username,
                 'password': password,
                 'package': str(package_id),
-                'member_id': '0',  # 0 = owned by reseller themselves
+                'member_id': member_id,
                 'reseller_notes': reseller_notes,
                 'bouquets_selected': json.dumps(bouquets),
-                # Don't include is_mag or is_e2 at all - they default to disabled
             }
             
+            # Trial form has a hidden 'trial' field and submit value is 'Purchase'
+            if is_trial:
+                form_data['trial'] = '1'
+                form_data['submit_user'] = 'Purchase'
+            else:
+                form_data['submit_user'] = '1'
+            
+            logger.info(f"Creating user via form: url={'?trial' if is_trial else ''}, package={package_id}, is_trial={is_trial}, member_id={member_id}")
+            
+            # Trial users use a different form URL
+            form_url = f"{self.panel_url}/user_reseller.php?trial" if is_trial else f"{self.panel_url}/user_reseller.php"
+            
             response = self.session.post(
-                f"{self.panel_url}/user_reseller.php",
+                form_url,
                 data=form_data,
                 allow_redirects=False,
                 timeout=30
@@ -139,6 +174,69 @@ class XtreamUIService:
             logger.error(f"Form POST error: {e}")
             return {'success': False, 'error': str(e)}
     
+
+    def create_subscriber_via_api(self, username: str, password: str, package_id: int,
+                                  bouquets: list, max_connections: int = 1,
+                                  is_trial: bool = False, exp_date: int = None,
+                                  reseller_notes: str = "") -> Dict[str, Any]:
+        """Create subscriber via XtreamUI API (supports trial packages properly)"""
+        try:
+            user_data = {
+                'username': username,
+                'password': password,
+                'max_connections': str(max_connections),
+                'is_trial': '1' if is_trial else '0',
+                'bouquet': json.dumps(bouquets) if bouquets else '[]',
+                'reseller_notes': reseller_notes,
+            }
+            
+            if package_id:
+                user_data['package_id'] = str(package_id)
+            
+            if exp_date:
+                user_data['exp_date'] = str(exp_date)
+            
+            post_data = {
+                'username': self.admin_username,
+                'password': self.admin_password,
+                'user_data': json.dumps(user_data)
+            }
+            
+            logger.info(f"Creating user via API: package={package_id}, is_trial={is_trial}, exp_date={exp_date}")
+            
+            response = self.session.post(
+                f"{self.panel_url}/api.php?action=user&sub=create",
+                data=post_data,
+                timeout=30
+            )
+            
+            logger.info(f"API create response: {response.status_code} - {response.text[:300]}")
+            
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    if result.get('success') or result.get('result'):
+                        return {
+                            'success': True,
+                            'user_id': result.get('user_id', result.get('id', 'unknown')),
+                            'username': username,
+                            'message': 'User created via API'
+                        }
+                    else:
+                        return {'success': False, 'error': result.get('error', result.get('message', 'API returned failure'))}
+                except json.JSONDecodeError:
+                    # Some XtreamUI versions return plain text
+                    if 'success' in response.text.lower() or response.text.strip() == '1':
+                        return {'success': True, 'username': username, 'message': 'User created via API'}
+                    return {'success': False, 'error': f'Unexpected API response: {response.text[:200]}'}
+            
+            return {'success': False, 'error': f'API returned HTTP {response.status_code}'}
+            
+        except Exception as e:
+            logger.error(f"API create error: {e}")
+            return {'success': False, 'error': str(e)}
+
+
     def _get_session_client(self):
         """Get or create persistent session client (WHMCS pattern)"""
         if self._session_client is None:

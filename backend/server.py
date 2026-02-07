@@ -51,6 +51,7 @@ from auth import (
 )
 from xtreamui_service import get_xtream_service, XtreamUIService
 from xtream_session_client import XtreamUISessionClient
+from onestream_service import OneStreamService, get_onestream_service
 from email_service import get_email_service
 from email_logger import EmailLogger
 from unsubscribe_manager import UnsubscribeManager
@@ -1835,7 +1836,7 @@ async def blockonomics_webhook(request: Request, background_tasks: BackgroundTas
     return {"status": "received"}
 
 @app.post("/api/orders")
-async def create_order(order_data: OrderCreate, current_user: dict = Depends(get_current_user)):
+async def create_order(order_data: OrderCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """Create new order with coupon and credit support"""
     user_id = current_user["sub"]
     
@@ -1941,8 +1942,12 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
             {"$set": {"status": "paid", "paid_at": datetime.utcnow()}}
         )
         
-        # TODO: Auto-provision service
-        logger.info(f"Order {order_id} fully paid with credits - auto-provisioning")
+        # Re-fetch the updated order for provisioning
+        paid_order = await orders_collection.find_one({"_id": str_to_objectid(order_id)}, {"_id": 0})
+        if paid_order:
+            paid_order["id"] = order_id
+            background_tasks.add_task(provision_order_services, order_id, paid_order, user)
+        logger.info(f"Order {order_id} fully paid with credits - auto-provisioning triggered")
     
     return {
         "order_id": order_id,
@@ -2791,7 +2796,23 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
         
         # Calculate expiry date
         term_months = item["term_months"]
-        expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
+        # For trial products, use actual trial duration instead of term_months
+        if product.get("is_trial") and product.get("trial_duration"):
+            trial_duration = int(product.get("trial_duration", 1))
+            trial_unit = (product.get("trial_duration_unit") or "days").lower()
+            if trial_unit in ("hours", "hour"):
+                expiry_date = datetime.utcnow() + timedelta(hours=trial_duration)
+            elif trial_unit in ("days", "day"):
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
+            elif trial_unit in ("months", "month"):
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration * 30)
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
+            logger.info(f"Trial product: duration={trial_duration} {trial_unit}, expiry={expiry_date}")
+        else:
+            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
         expiry_timestamp = int(expiry_date.timestamp())
         
         # Check if item has action_type and renewal_service_id from cart
@@ -2872,14 +2893,23 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         logger.warning(f"XtreamUI extend failed: {extend_result.get('error')}")
                     
                     # Calculate new expiry in our database
-                    extend_days = term_months * 30  # Calculate from term
+                    if product.get("is_trial") and product.get("trial_duration"):
+                        trial_dur = int(product.get("trial_duration", 1))
+                        trial_u = (product.get("trial_duration_unit") or "days").lower()
+                        if trial_u in ("hours", "hour"):
+                            extend_td = timedelta(hours=trial_dur)
+                        elif trial_u in ("days", "day"):
+                            extend_td = timedelta(days=trial_dur)
+                        else:
+                            extend_td = timedelta(days=trial_dur * 30)
+                    else:
+                        extend_td = timedelta(days=term_months * 30)
+                    
                     current_expiry = existing_subscriber.get("expiry_date", datetime.utcnow())
                     if current_expiry < datetime.utcnow():
-                        # Expired, start from now
-                        new_expiry = datetime.utcnow() + timedelta(days=extend_days)
+                        new_expiry = datetime.utcnow() + extend_td
                     else:
-                        # Active, extend from current expiry
-                        new_expiry = current_expiry + timedelta(days=extend_days)
+                        new_expiry = current_expiry + extend_td
                     
                     # Update existing service expiry in our database
                     await services_collection.update_one(
@@ -2918,7 +2948,9 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         password=password,
                         package_id=package_id,
                         bouquets=product["bouquets"],
-                        customer_name=user["name"]
+                        customer_name=user["name"],
+                        is_trial=product.get("is_trial", False),
+                        exp_date=expiry_timestamp if product.get("is_trial") else None
                     )
                     
                     if result["success"]:
@@ -3239,7 +3271,23 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
         
         # Calculate expiry date
         term_months = item["term_months"]
-        expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
+        # For trial products, use actual trial duration instead of term_months
+        if product.get("is_trial") and product.get("trial_duration"):
+            trial_duration = int(product.get("trial_duration", 1))
+            trial_unit = (product.get("trial_duration_unit") or "days").lower()
+            if trial_unit in ("hours", "hour"):
+                expiry_date = datetime.utcnow() + timedelta(hours=trial_duration)
+            elif trial_unit in ("days", "day"):
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
+            elif trial_unit in ("months", "month"):
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration * 30)
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
+            logger.info(f"Trial product (XuiOne): duration={trial_duration} {trial_unit}, expiry={expiry_date}")
+        else:
+            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
         expiry_date_str = expiry_date.strftime("%Y-%m-%d")
         
         # Create service record
@@ -4421,6 +4469,154 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
         "panel_name": panel_name
     }
 
+
+# ===== 1-STREAM PANEL ENDPOINTS =====
+
+@app.post("/api/admin/onestream/test")
+async def test_onestream_connection(current_user: dict = Depends(get_current_admin_user)):
+    """Test connection to 1-Stream panel"""
+    settings = await get_settings()
+    panels = settings.get("onestream", {}).get("panels", [])
+    if not panels:
+        raise HTTPException(status_code=400, detail="No 1-Stream panels configured")
+    panel = panels[0]
+    service = get_onestream_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="1-Stream service not available - check panel_url, api_key and auth_user_token")
+    result = service.test_connection()
+    if result.get("success"):
+        return {"success": True, "message": f"Connected! User: {result.get('name')}, Credits: {result.get('credits')}"}
+    raise HTTPException(status_code=500, detail=result.get("error", "Connection failed"))
+
+
+@app.get("/api/admin/onestream/packages")
+async def sync_onestream_packages(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Fetch packages from 1-Stream panel"""
+    settings = await get_settings()
+    panels = settings.get("onestream", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    service = get_onestream_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="1-Stream service not available")
+    result = service.get_packages()
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch packages"))
+    return {
+        "packages": result["packages"],
+        "trial_packages": result.get("trial_packages", []),
+        "count": result["count"],
+        "trial_count": result.get("trial_count", 0),
+        "panel_name": panel.get("name", f"1-Stream Panel {panel_index + 1}")
+    }
+
+
+@app.get("/api/admin/onestream/bouquets")
+async def sync_onestream_bouquets(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Fetch bouquets from 1-Stream panel"""
+    settings = await get_settings()
+    panels = settings.get("onestream", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    service = get_onestream_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="1-Stream service not available")
+    result = service.get_bouquets()
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch bouquets"))
+    # Store bouquets in settings
+    if "onestream" not in settings:
+        settings["onestream"] = {"panels": panels}
+    settings["onestream"]["panels"][panel_index]["bouquets"] = result["bouquets"]
+    await db.settings.update_one({}, {"$set": {"onestream": settings["onestream"]}})
+    return {"bouquets": result["bouquets"], "count": len(result["bouquets"])}
+
+
+@app.post("/api/admin/onestream/sync-users")
+async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Sync users from 1-Stream panel"""
+    settings = await get_settings()
+    panels = settings.get("onestream", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    panel_name = panel.get("name", f"1-Stream Panel {panel_index + 1}")
+    service = get_onestream_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="1-Stream service not available")
+
+    synced_count = 0
+    updated_count = 0
+
+    # Sync lines (subscribers)
+    lines_result = service.get_lines()
+    if lines_result.get("success"):
+        for line in lines_result.get("users", []):
+            username = line.get("username", "")
+            if not username:
+                continue
+            existing = await imported_users_collection.find_one({
+                "panel_index": panel_index, "panel_type": "onestream",
+                "username": username, "account_type": "subscriber"
+            })
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "onestream",
+                "panel_name": panel_name,
+                "onestream_line_id": line.get("line_id", ""),
+                "username": username,
+                "password": line.get("password", ""),
+                "expiry_date": line.get("expiry_date"),
+                "status": line.get("status", "active"),
+                "max_connections": line.get("max_connections", 1),
+                "account_type": "subscriber",
+                "owner": line.get("owner", ""),
+                "last_synced": datetime.utcnow()
+            }
+            if existing:
+                await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": user_doc})
+                updated_count += 1
+            else:
+                user_doc["created_at"] = datetime.utcnow()
+                await imported_users_collection.insert_one(user_doc)
+                synced_count += 1
+
+    # Sync sub-resellers
+    resellers_result = service.get_subresellers()
+    if resellers_result.get("success"):
+        for reseller in resellers_result.get("users", []):
+            username = reseller.get("username", "")
+            if not username:
+                continue
+            existing = await imported_users_collection.find_one({
+                "panel_index": panel_index, "panel_type": "onestream",
+                "username": username, "account_type": "reseller"
+            })
+            reseller_doc = {
+                "panel_index": panel_index,
+                "panel_type": "onestream",
+                "panel_name": panel_name,
+                "onestream_user_id": reseller.get("user_id", 0),
+                "username": username,
+                "password": "",
+                "credits": float(reseller.get("credits", 0) or 0),
+                "status": "active",
+                "account_type": "reseller",
+                "last_synced": datetime.utcnow()
+            }
+            if existing:
+                await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": reseller_doc})
+                updated_count += 1
+            else:
+                reseller_doc["created_at"] = datetime.utcnow()
+                await imported_users_collection.insert_one(reseller_doc)
+                synced_count += 1
+
+    return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
+
+
 # ===== EMAIL MANAGEMENT ENDPOINTS =====
 
 class TestEmailRequest(BaseModel):
@@ -5237,6 +5433,14 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
             bouquets = panel.get("bouquets", [])
             if bouquets:
                 return bouquets
+    elif panel_type == 'onestream':
+        # Get 1-Stream panel bouquets
+        os_panels = settings.get("onestream", {}).get("panels", [])
+        if panel_id < len(os_panels):
+            panel = os_panels[panel_id]
+            bouquets = panel.get("bouquets", [])
+            if bouquets:
+                return bouquets
     else:
         # Get XtreamUI panel bouquets (existing logic)
         xtream_panels = settings.get("xtream", {}).get("panels", [])
@@ -5532,10 +5736,95 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             logger.error(f"Error syncing from {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
     
+    # Sync 1-Stream panels
+    onestream_panels = settings.get("onestream", {}).get("panels", [])
+    for panel_index, panel in enumerate(onestream_panels):
+        panel_name = panel.get("name", f"1-Stream Panel {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from 1-Stream panel: {panel_name}")
+            os_service = get_onestream_service(panel)
+            if not os_service:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+            synced_count = 0
+            updated_count = 0
+
+            # Sync lines (subscribers)
+            lines_result = os_service.get_lines()
+            if lines_result.get("success"):
+                for line in lines_result.get("users", []):
+                    username = line.get("username", "")
+                    if not username:
+                        continue
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index, "panel_type": "onestream",
+                        "username": username, "account_type": "subscriber"
+                    })
+                    user_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "onestream",
+                        "panel_name": panel_name,
+                        "onestream_line_id": line.get("line_id", ""),
+                        "username": username,
+                        "password": line.get("password", ""),
+                        "expiry_date": line.get("expiry_date"),
+                        "status": line.get("status", "active"),
+                        "max_connections": line.get("max_connections", 1),
+                        "account_type": "subscriber",
+                        "owner": line.get("owner", ""),
+                        "last_synced": datetime.utcnow()
+                    }
+                    if existing:
+                        await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": user_doc})
+                        updated_count += 1
+                    else:
+                        user_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(user_doc)
+                        synced_count += 1
+
+            # Sync sub-resellers
+            resellers_result = os_service.get_subresellers()
+            if resellers_result.get("success"):
+                for reseller in resellers_result.get("users", []):
+                    uname = reseller.get("username", "")
+                    if not uname:
+                        continue
+                    existing = await imported_users_collection.find_one({
+                        "panel_index": panel_index, "panel_type": "onestream",
+                        "username": uname, "account_type": "reseller"
+                    })
+                    reseller_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "onestream",
+                        "panel_name": panel_name,
+                        "onestream_user_id": reseller.get("user_id", 0),
+                        "username": uname,
+                        "password": "",
+                        "credits": float(reseller.get("credits", 0) or 0),
+                        "status": "active",
+                        "account_type": "reseller",
+                        "last_synced": datetime.utcnow()
+                    }
+                    if existing:
+                        await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": reseller_doc})
+                        updated_count += 1
+                    else:
+                        reseller_doc["created_at"] = datetime.utcnow()
+                        await imported_users_collection.insert_one(reseller_doc)
+                        synced_count += 1
+
+            results["panels_synced"].append({"name": panel_name, "type": "onestream", "synced": synced_count, "updated": updated_count})
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
+    
     # Clean up users from removed panels
     # Get list of active panel names
     active_xtream_panel_names = [p.get("name") for p in xtream_panels]
     active_xuione_panel_names = [p.get("name") for p in xuione_panels]
+    active_onestream_panel_names = [p.get("name") for p in onestream_panels]
     
     # Remove users from XtreamUI panels that no longer exist
     removed_xtream = await imported_users_collection.delete_many({
@@ -5548,9 +5837,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         "panel_type": "xuione",
         "panel_name": {"$nin": active_xuione_panel_names}
     })
+
+    # Remove users from 1-Stream panels that no longer exist
+    removed_onestream = await imported_users_collection.delete_many({
+        "panel_type": "onestream",
+        "panel_name": {"$nin": active_onestream_panel_names}
+    })
     
     # Also remove users with null panel_type whose panel_name doesn't exist in any active panel
-    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names
+    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names
     removed_orphans = await imported_users_collection.delete_many({
         "$or": [
             {"panel_type": None, "panel_name": {"$nin": all_active_panel_names}},
@@ -5558,11 +5853,11 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         ]
     })
     
-    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_orphans.deleted_count
+    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_onestream.deleted_count + removed_orphans.deleted_count
     results["total_removed"] = total_removed
     
     if total_removed > 0:
-        logger.info(f"Removed {total_removed} users from deleted panels (XtreamUI: {removed_xtream.deleted_count}, XuiOne: {removed_xuione.deleted_count}, Orphans: {removed_orphans.deleted_count})")
+        logger.info(f"Removed {total_removed} users from deleted panels")
     
     logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated, {results['total_removed']} removed")
     
@@ -5873,6 +6168,28 @@ async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_c
         else:
             raise HTTPException(status_code=500, detail="XuiOne login failed")
     
+    elif panel_type == "onestream":
+        panels = settings.get("onestream", {}).get("panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        os_service = get_onestream_service(panels[panel_index])
+        if not os_service:
+            raise HTTPException(status_code=500, detail="1-Stream service not available")
+        line_id = user.get("onestream_line_id", "")
+        if not line_id:
+            find_r = os_service.find_line(user["username"], user.get("password", ""))
+            line_id = find_r.get("line_id", "") if find_r.get("success") else ""
+        if not line_id:
+            raise HTTPException(status_code=400, detail="Could not find line_id on 1-Stream")
+        result = os_service.disable_line(line_id)
+        if result.get("success"):
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+            )
+            return {"message": "User suspended successfully on 1-Stream panel"}
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to suspend"))
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
@@ -5962,6 +6279,28 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
         else:
             raise HTTPException(status_code=500, detail="XuiOne login failed")
     
+    elif panel_type == "onestream":
+        panels = settings.get("onestream", {}).get("panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        os_service = get_onestream_service(panels[panel_index])
+        if not os_service:
+            raise HTTPException(status_code=500, detail="1-Stream service not available")
+        line_id = user.get("onestream_line_id", "")
+        if not line_id:
+            find_r = os_service.find_line(user["username"], user.get("password", ""))
+            line_id = find_r.get("line_id", "") if find_r.get("success") else ""
+        if not line_id:
+            raise HTTPException(status_code=400, detail="Could not find line_id on 1-Stream")
+        result = os_service.enable_line(line_id)
+        if result.get("success"):
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
+            )
+            return {"message": "User activated successfully on 1-Stream panel"}
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to activate"))
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
@@ -6409,6 +6748,46 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
             
             logger.info(f"✓ XuiOne extension successful")
         
+        elif panel_type == "onestream":
+            onestream_settings = settings.get("onestream", {})
+            panels = onestream_settings.get("panels", [])
+            if not panels or panel_index >= len(panels):
+                raise HTTPException(status_code=400, detail="Panel configuration not found")
+            panel = panels[panel_index]
+            os_service = get_onestream_service(panel)
+            if not os_service:
+                raise HTTPException(status_code=500, detail="1-Stream service not available")
+
+            # Get packages to find the selected one
+            pkg_result = os_service.get_packages()
+            selected_package = None
+            if pkg_result.get("success"):
+                for pkg in pkg_result.get("packages", []) + pkg_result.get("trial_packages", []):
+                    if str(pkg.get("id")) == str(data.package_id):
+                        selected_package = pkg
+                        duration_hours = pkg.get("duration_hours", 0)
+                        if duration_hours >= 24:
+                            days_to_add = duration_hours // 24
+                        else:
+                            days_to_add = max(1, duration_hours // 24)
+                        break
+            if not selected_package:
+                raise HTTPException(status_code=400, detail="Package not found")
+
+            # Find line_id for this user
+            line_id = user.get("onestream_line_id", "")
+            if not line_id:
+                find_result = os_service.find_line(username, password)
+                if find_result.get("success"):
+                    line_id = find_result.get("line_id", "")
+            if not line_id:
+                raise HTTPException(status_code=400, detail="Could not find line_id for this user on 1-Stream panel")
+
+            panel_extend_result = os_service.renew_line(line_id, data.package_id)
+            if not panel_extend_result.get("success"):
+                raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error')}")
+            logger.info(f"✓ 1-Stream extension successful")
+
         else:
             raise HTTPException(status_code=400, detail="Invalid panel type")
         
@@ -6456,7 +6835,7 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
 
 # Pydantic model for creating imported users
 class CreateImportedUserRequest(BaseModel):
-    panel_type: str = "xtream"  # 'xtream' or 'xuione'
+    panel_type: str = "xtream"  # 'xtream', 'xuione', or 'onestream'
     panel_index: int = 0
     account_type: str = "subscriber"  # 'subscriber' or 'reseller'
     username: Optional[str] = None  # Auto-generate if not provided
@@ -6768,8 +7147,90 @@ async def create_imported_user(data: CreateImportedUserRequest, current_user: di
         else:  # reseller for XuiOne - might not be supported via API
             raise HTTPException(status_code=400, detail="Reseller creation is not currently supported for XuiOne panels via API")
     
+    elif panel_type == "onestream":
+        os_panels = settings.get("onestream", {}).get("panels", [])
+        if not os_panels or panel_index >= len(os_panels):
+            raise HTTPException(status_code=400, detail="Invalid 1-Stream panel index")
+        panel = os_panels[panel_index]
+        panel_name = panel.get("name", f"1-Stream Panel {panel_index + 1}")
+        os_service = get_onestream_service(panel)
+        if not os_service:
+            raise HTTPException(status_code=500, detail="1-Stream service not available")
+
+        if data.account_type == "subscriber":
+            if not data.package_id:
+                raise HTTPException(status_code=400, detail="package_id is required for subscriber creation")
+
+            # Get package details
+            pkg_result = os_service.get_packages()
+            package_duration_hours = 720  # default 30 days
+            package_max_connections = 1
+            if pkg_result.get("success"):
+                for pkg in pkg_result.get("packages", []) + pkg_result.get("trial_packages", []):
+                    if str(pkg.get("id")) == str(data.package_id):
+                        package_duration_hours = pkg.get("duration_hours", 720)
+                        package_max_connections = pkg.get("max_connections", 1)
+                        break
+
+            result = os_service.create_line(
+                username=username, password=password,
+                package_id=data.package_id,
+                reseller_notes=f"Manual - {current_user.get('email', 'Admin')}",
+                max_connections=data.max_connections or package_max_connections
+            )
+            if not result.get("success"):
+                raise HTTPException(status_code=500, detail=result.get("error", "Failed to create line on 1-Stream"))
+
+            expiry_date = datetime.utcnow() + timedelta(hours=package_duration_hours)
+            if result.get("expire_at"):
+                try:
+                    expiry_date = datetime.fromisoformat(result["expire_at"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+
+            user_doc = {
+                "panel_index": panel_index, "panel_type": "onestream", "panel_name": panel_name,
+                "onestream_line_id": result.get("line_id", ""),
+                "username": username, "password": password,
+                "expiry_date": expiry_date, "status": "active",
+                "max_connections": package_max_connections, "account_type": "subscriber",
+                "last_synced": datetime.utcnow(), "created_at": datetime.utcnow()
+            }
+            await imported_users_collection.insert_one(user_doc)
+            return {
+                "success": True,
+                "message": f"Subscriber '{username}' created on {panel_name}",
+                "user": {"username": username, "password": password, "panel_name": panel_name,
+                         "expiry_date": expiry_date.isoformat(), "account_type": "subscriber",
+                         "max_connections": package_max_connections}
+            }
+
+        else:  # reseller
+            result = os_service.create_subreseller(
+                name=username, email=f"{username}@billing.local",
+                password=password, credits=data.credits or 0,
+                notes=f"Manual - {current_user.get('email', 'Admin')}"
+            )
+            if not result.get("success"):
+                raise HTTPException(status_code=500, detail=result.get("error", "Failed to create reseller on 1-Stream"))
+
+            user_doc = {
+                "panel_index": panel_index, "panel_type": "onestream", "panel_name": panel_name,
+                "onestream_user_id": result.get("user_id", 0),
+                "username": username, "password": password,
+                "expiry_date": None, "status": "active", "credits": data.credits,
+                "account_type": "reseller", "last_synced": datetime.utcnow(), "created_at": datetime.utcnow()
+            }
+            await imported_users_collection.insert_one(user_doc)
+            return {
+                "success": True,
+                "message": f"Reseller '{username}' created on {panel_name}",
+                "user": {"username": username, "password": password, "panel_name": panel_name,
+                         "credits": data.credits, "account_type": "reseller"}
+            }
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream' or 'xuione'")
+        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream', 'xuione', or 'onestream'")
 
 @app.get("/api/products/{product_id}/channels")
 async def get_product_channels(product_id: str):

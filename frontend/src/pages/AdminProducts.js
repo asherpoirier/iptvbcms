@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users, LinkIcon, Check } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 
 export default function AdminProducts() {
@@ -10,6 +10,7 @@ export default function AdminProducts() {
   const [showModal, setShowModal] = useState(false);
   const [showResellerModal, setShowResellerModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
   
   // Filters for list view
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,11 +36,13 @@ export default function AdminProducts() {
 
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
+  const onestreamPanels = settings?.onestream?.panels || [];
   
-  // Combine both panel types with a type indicator
+  // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index })),
-    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index }))
+    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index })),
+    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index }))
   ];
   
   // For components that need just XtreamUI panels (like ResellerPackageModal)
@@ -50,6 +53,9 @@ export default function AdminProducts() {
     
     if (panelType === 'xuione') {
       return xuionePanels[panelIndex]?.name || `XuiOne Panel ${panelIndex}`;
+    }
+    if (panelType === 'onestream') {
+      return onestreamPanels[panelIndex]?.name || `1-Stream Panel ${panelIndex}`;
     }
     return xtreamPanels[panelIndex]?.name || `Panel ${panelIndex}`;
   };
@@ -397,8 +403,22 @@ export default function AdminProducts() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
+                          onClick={() => {
+                            const url = `${window.location.origin}/order/${product.id}`;
+                            navigator.clipboard.writeText(url).then(() => {
+                              setCopiedId(product.id);
+                              setTimeout(() => setCopiedId(null), 2000);
+                            });
+                          }}
+                          className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mr-3"
+                          title="Copy order link"
+                        >
+                          {copiedId === product.id ? <Check className="w-4 h-4 inline text-green-600" /> : <LinkIcon className="w-4 h-4 inline" />}
+                          <span className="ml-1">{copiedId === product.id ? 'Copied!' : 'Link'}</span>
+                        </button>
+                        <button
                           onClick={() => handleEdit(product)}
-                          className="text-blue-600 hover:text-blue-900 dark:hover:text-blue-400 mr-4"
+                          className="text-blue-600 hover:text-blue-900 dark:hover:text-blue-400 mr-3"
                         >
                           Edit
                         </button>
@@ -500,6 +520,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       if (selectedPanelInfo.type === 'xuione') {
         const response = await adminAPI.syncXuiOnePackages(selectedPanelInfo.index);
         return response.data.packages || [];
+      } else if (selectedPanelInfo.type === 'onestream') {
+        const response = await adminAPI.syncOneStreamPackages(selectedPanelInfo.index);
+        return response.data.packages || [];
       } else {
         const response = await adminAPI.syncPackagesFromPanel(selectedPanelInfo.index);
         return response.data.packages || [];
@@ -508,13 +531,15 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     enabled: !isEditing && panels.length > 0 && packageType === 'regular',
   });
 
-  // Fetch trial packages from selected panel (XtreamUI or XuiOne)
+  // Fetch trial packages from selected panel (XtreamUI, XuiOne, or 1-Stream)
   const { data: trialPackagesData, isLoading: trialPackagesLoading } = useQuery({
     queryKey: [`${selectedPanelInfo.type}-trial-packages`, selectedPanelInfo.index],
     queryFn: async () => {
       if (selectedPanelInfo.type === 'xuione') {
-        // XuiOne returns trial packages in a separate field
         const response = await adminAPI.syncXuiOnePackages(selectedPanelInfo.index);
+        return response.data.trial_packages || [];
+      } else if (selectedPanelInfo.type === 'onestream') {
+        const response = await adminAPI.syncOneStreamPackages(selectedPanelInfo.index);
         return response.data.trial_packages || [];
       } else {
         const response = await adminAPI.syncTrialPackagesFromPanel(selectedPanelInfo.index);
