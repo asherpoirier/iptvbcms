@@ -68,11 +68,15 @@ export default function HomePage() {
   const getPanelName = (panelIndex, panelType = 'xtream') => {
     const panels = panelData?.panels || [];
     const xuionePanels = panelData?.xuione_panels || [];
+    const onestreamPanels = panelData?.onestream_panels || [];
     
     let panel;
     if (panelType === 'xuione') {
       panel = xuionePanels.find(p => p.index === Number(panelIndex));
       return panel?.name || `Panel ${Number(panelIndex) + 1}`;
+    } else if (panelType === 'onestream') {
+      panel = onestreamPanels.find(p => p.index === Number(panelIndex));
+      return panel?.name || `1-Stream ${Number(panelIndex) + 1}`;
     } else {
       panel = panels.find(p => p.index === Number(panelIndex));
       return panel?.name || `Server ${Number(panelIndex) + 1}`;
@@ -168,7 +172,7 @@ export default function HomePage() {
               {user ? (
                 <>
                   <Link 
-                    to="/cart" 
+                    to="/checkout" 
                     className="relative flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white"
                   >
                     <ShoppingCart className="w-5 h-5" />

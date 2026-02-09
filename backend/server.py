@@ -766,12 +766,22 @@ async def register(user_data: UserCreate):
     
     email_service = await get_configured_email_service()
     if email_service and email_service.enabled:
-        await email_service.send_email_verification(
-            customer_email=user_data.email,
-            customer_name=user_data.name,
-            verification_link=verification_link,
-            customer_id=user_id
-        )
+        try:
+            logger.info(f"Sending verification email to {user_data.email}")
+            result = await email_service.send_email_verification(
+                customer_email=user_data.email,
+                customer_name=user_data.name,
+                verification_link=verification_link,
+                customer_id=user_id
+            )
+            if result:
+                logger.info(f"Verification email sent successfully to {user_data.email}")
+            else:
+                logger.error(f"Verification email failed to send to {user_data.email} (returned False)")
+        except Exception as e:
+            logger.error(f"Error sending verification email to {user_data.email}: {str(e)}")
+    else:
+        logger.warning(f"SMTP not configured - verification email NOT sent to {user_data.email}")
     
     # Send Telegram notification
     await send_telegram_notification(
@@ -1270,9 +1280,65 @@ async def paypal_cancel(order_id: str):
 
 @app.post("/api/webhooks/paypal")
 async def paypal_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Handle PayPal webhooks"""
-    data = await request.json()
-    logger.info(f"PayPal webhook received: {data.get('event_type')}")
+    """Handle PayPal webhooks - safety net for payment confirmation"""
+    try:
+        data = await request.json()
+        event_type = data.get("event_type", "")
+        logger.info(f"PayPal webhook received: {event_type}")
+        
+        # Handle payment completion events
+        if event_type in ["PAYMENT.CAPTURE.COMPLETED", "CHECKOUT.ORDER.APPROVED", "PAYMENT.SALE.COMPLETED"]:
+            resource = data.get("resource", {})
+            
+            # Try to find our order from the PayPal custom_id, reference_id, or invoice_id
+            custom_id = resource.get("custom_id", "") or resource.get("invoice_id", "")
+            paypal_id = resource.get("id", "")
+            
+            # Check purchase_units for reference_id/custom_id
+            if not custom_id:
+                purchase_units = resource.get("purchase_units", [])
+                if purchase_units:
+                    custom_id = purchase_units[0].get("custom_id", "") or purchase_units[0].get("reference_id", "")
+            
+            # Also check supplementary_data for order reference
+            if not custom_id:
+                supplementary = resource.get("supplementary_data", {})
+                related = supplementary.get("related_ids", {})
+                custom_id = related.get("order_id", "")
+            
+            # Try to find order by payment_id
+            order = None
+            if custom_id:
+                order = await orders_collection.find_one({"_id": str_to_objectid(custom_id)})
+            if not order and paypal_id:
+                order = await orders_collection.find_one({"payment_id": paypal_id})
+            
+            if order and order.get("status") != "paid":
+                order_id = str(order["_id"])
+                logger.info(f"PayPal webhook: Marking order {order_id} as paid")
+                
+                await orders_collection.update_one(
+                    {"_id": order["_id"]},
+                    {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "paypal", "payment_id": paypal_id}}
+                )
+                await invoices_collection.update_one(
+                    {"order_id": order_id},
+                    {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+                )
+                
+                user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                if user:
+                    background_tasks.add_task(provision_order_services, order_id, order, user)
+                    logger.info(f"PayPal webhook: Order {order_id} paid and provisioning triggered")
+            elif order and order.get("status") == "paid":
+                logger.info(f"PayPal webhook: Order already paid, skipping")
+            else:
+                logger.warning(f"PayPal webhook: Could not find order for custom_id={custom_id}, paypal_id={paypal_id}")
+        
+        return {"status": "received"}
+    except Exception as e:
+        logger.error(f"PayPal webhook error: {str(e)}")
+        return {"status": "error"}
 
 
 # ===== STRIPE/CRYPTO ROUTES =====
@@ -1433,14 +1499,59 @@ async def check_stripe_payment_status(session_id: str, background_tasks: Backgro
 
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Handle Stripe webhooks"""
-    body = await request.body()
-    signature = request.headers.get("Stripe-Signature", "")
-    
-    settings = await get_settings()
-    stripe_settings = settings.get("stripe", {})
-    
-    base_url = str(request.base_url).rstrip('/')
+    """Handle Stripe webhooks - safety net for payment confirmation"""
+    try:
+        body = await request.body()
+        signature = request.headers.get("Stripe-Signature", "")
+        
+        settings = await get_settings()
+        stripe_settings = settings.get("stripe", {})
+        
+        # Parse the event data
+        import json
+        event = json.loads(body)
+        event_type = event.get("type", "")
+        logger.info(f"Stripe webhook received: {event_type}")
+        
+        if event_type in ["checkout.session.completed", "payment_intent.succeeded"]:
+            session = event.get("data", {}).get("object", {})
+            session_id = session.get("id", "")
+            payment_status = session.get("payment_status", "")
+            
+            # Find the order by session_id in payment_transactions
+            tx = await db.payment_transactions.find_one({"session_id": session_id})
+            
+            if tx and payment_status == "paid":
+                order_id = tx.get("order_id")
+                order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
+                
+                if order and order.get("status") != "paid":
+                    logger.info(f"Stripe webhook: Marking order {order_id} as paid")
+                    
+                    await orders_collection.update_one(
+                        {"_id": str_to_objectid(order_id)},
+                        {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "stripe", "payment_id": session_id}}
+                    )
+                    await invoices_collection.update_one(
+                        {"order_id": order_id},
+                        {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+                    )
+                    await db.payment_transactions.update_one(
+                        {"session_id": session_id},
+                        {"$set": {"payment_status": "paid"}}
+                    )
+                    
+                    user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                    if user:
+                        background_tasks.add_task(provision_order_services, order_id, order, user)
+                        logger.info(f"Stripe webhook: Order {order_id} paid and provisioning triggered")
+                elif order and order.get("status") == "paid":
+                    logger.info(f"Stripe webhook: Order {order_id} already paid, skipping")
+        
+        return {"status": "received"}
+    except Exception as e:
+        logger.error(f"Stripe webhook error: {str(e)}")
+        return {"status": "error"}
 
 
 # ===== SQUARE ROUTES =====
@@ -1911,13 +2022,23 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
             order_id=order_id
         )
     
-    # Create invoice
+    # Create invoice with custom numbering
+    settings = await get_settings()
+    inv_settings = settings.get("invoice", {})
+    inv_prefix = inv_settings.get("invoice_prefix", "INV")
+    inv_next = inv_settings.get("next_number", 1001)
+    inv_padding = inv_settings.get("number_padding", 4)
+    invoice_number = f"{inv_prefix}-{str(inv_next).zfill(inv_padding)}"
+    
+    # Increment the next invoice number in settings
+    await settings_collection.update_one({}, {"$set": {"invoice.next_number": inv_next + 1}}, upsert=True)
+    
     invoice_dict = {
         "order_id": order_id,
         "user_id": user_id,
-        "invoice_number": f"INV-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999)}",
+        "invoice_number": invoice_number,
         "total": final_total,
-        "status": "unpaid" if final_total > 0 else "paid",  # If fully paid with credits
+        "status": "unpaid" if final_total > 0 else "paid",
         "due_date": datetime.utcnow() + timedelta(days=7),
         "paid_date": datetime.utcnow() if final_total == 0 else None,
         "pdf_path": None,
@@ -2064,6 +2185,7 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
         order = await orders_collection.find_one({"_id": str_to_objectid(invoice["order_id"])})
         user = await users_collection.find_one({"_id": str_to_objectid(invoice["user_id"])})
         settings = await get_settings()
+        inv_settings = settings.get("invoice", {})
         
         invoice_data = {
             "invoice_number": invoice["invoice_number"],
@@ -2075,12 +2197,15 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
             "customer_email": user["email"],
             "items": order["items"],
             "total": invoice["total"],
-            "company_name": settings.get("company_name", "IPTV Billing"),
-            "company_email": settings.get("company_email", "support@example.com")
+            "subtotal": order.get("subtotal", invoice["total"]),
+            "discount_amount": order.get("discount_amount", 0),
+            "credits_used": order.get("credits_used", 0),
+            "company_name": inv_settings.get("company_name") or settings.get("company_name", "IPTV Billing"),
+            "company_email": inv_settings.get("company_email") or settings.get("company_email", "")
         }
         
         invoice_generator = get_invoice_generator()
-        pdf_path = invoice_generator.generate_invoice(invoice_data)
+        pdf_path = invoice_generator.generate_invoice(invoice_data, inv_settings)
         
         # Update invoice with PDF path
         await invoices_collection.update_one(
@@ -2603,10 +2728,14 @@ async def get_payment_config():
         "blockonomics": {
             "enabled": settings.get("blockonomics", {}).get("enabled", False)
         },
+        "emt": {
+            "enabled": settings.get("emt", {}).get("enabled", False),
+            "instructions": settings.get("emt", {}).get("instructions", "")
+        },
         "manual": {
             "enabled": True
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "stripe", "paypal", "square", "blockonomics"])
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "stripe", "paypal", "square", "blockonomics"])
     }
 
 @app.post("/api/admin/orders/{order_id}/mark-paid")
@@ -2744,6 +2873,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
             # Route to correct panel type
             if panel_type == "xuione":
                 await provision_xuione_service(order_id, order, user, item, product, settings, email_service)
+            elif panel_type == "onestream":
+                await provision_onestream_service(order_id, order, user, item, product, settings, email_service)
             else:
                 await provision_xtream_service(order_id, order, user, item, product, settings, email_service)
                 
@@ -3624,6 +3755,297 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
         logger.error(traceback.format_exc())
 
 
+async def provision_onestream_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
+    """Provision 1-Stream service via API"""
+    try:
+        os_panels = settings.get("onestream", {}).get("panels", [])
+        panel_index = product.get("panel_index", 0)
+        
+        if not os_panels or panel_index >= len(os_panels):
+            logger.error("1-Stream panel not configured")
+            return
+        
+        panel = os_panels[panel_index]
+        panel_name = panel.get("name", f"1-Stream Panel {panel_index + 1}")
+        
+        os_service = get_onestream_service(panel)
+        if not os_service:
+            logger.error("1-Stream service not available")
+            return
+        
+        # Use customer's chosen credentials for resellers, auto-generate for subscribers
+        if item.get("account_type") == "reseller" and order.get("reseller_credentials"):
+            username = order["reseller_credentials"].get("username", generate_username())
+            password = order["reseller_credentials"].get("password", generate_password())
+            logger.info(f"Using custom reseller credentials: {username}")
+        else:
+            username = generate_username()
+            password = generate_password()
+        
+        # Calculate expiry
+        term_months = item["term_months"]
+        if product.get("is_trial") and product.get("trial_duration"):
+            trial_duration = int(product.get("trial_duration", 1))
+            trial_unit = (product.get("trial_duration_unit") or "days").lower()
+            if trial_unit in ("hours", "hour"):
+                expiry_date = datetime.utcnow() + timedelta(hours=trial_duration)
+            elif trial_unit in ("days", "day"):
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=trial_duration * 30)
+        else:
+            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
+        package_id = product.get("xtream_package_id")
+        
+        if item.get("account_type") == "subscriber":
+            # Check if extending an existing service
+            action_type = item.get("action_type", "create_new")
+            renewal_service_id = item.get("renewal_service_id")
+            existing_subscriber = None
+            
+            if renewal_service_id and action_type == "extend":
+                existing_subscriber = await services_collection.find_one({
+                    "_id": str_to_objectid(renewal_service_id),
+                    "user_id": order["user_id"],
+                    "status": "active"
+                })
+                if existing_subscriber:
+                    logger.info(f"Extending existing 1-Stream line: {existing_subscriber.get('xtream_username')}")
+            
+            if existing_subscriber:
+                # EXTEND existing line via /ext/line/{uuid}/renew
+                line_id = existing_subscriber.get("onestream_line_id", "")
+                if not line_id:
+                    # Try to find by username
+                    find_result = os_service.find_line(
+                        existing_subscriber.get("xtream_username", ""),
+                        existing_subscriber.get("xtream_password", "")
+                    )
+                    if find_result.get("success"):
+                        line_id = find_result.get("line_id", "")
+                
+                if line_id:
+                    renew_result = os_service.renew_line(line_id, package_id)
+                    if renew_result.get("success"):
+                        # Update expiry from API response
+                        new_expiry = expiry_date
+                        if renew_result.get("expire_at"):
+                            try:
+                                api_expiry = datetime.fromisoformat(renew_result["expire_at"].replace("Z", "+00:00"))
+                                if api_expiry.tzinfo:
+                                    api_expiry = api_expiry.replace(tzinfo=None)
+                                new_expiry = api_expiry
+                            except Exception:
+                                # Calculate from current expiry
+                                current_exp = existing_subscriber.get("expiry_date", datetime.utcnow())
+                                if isinstance(current_exp, str):
+                                    current_exp = datetime.fromisoformat(current_exp.replace('Z', '+00:00')).replace(tzinfo=None)
+                                if current_exp < datetime.utcnow():
+                                    current_exp = datetime.utcnow()
+                                new_expiry = current_exp + timedelta(days=term_months * 30)
+                        
+                        await services_collection.update_one(
+                            {"_id": existing_subscriber["_id"]},
+                            {"$set": {"expiry_date": new_expiry, "status": "active"}}
+                        )
+                        logger.info(f"1-Stream line extended, new expiry: {new_expiry}")
+                        
+                        if email_service:
+                            await email_service.send_service_renewed(
+                                customer_email=user["email"],
+                                customer_name=user["name"],
+                                service_name=item["product_name"],
+                                username=existing_subscriber.get("xtream_username", ""),
+                                new_expiry_date=new_expiry.strftime("%Y-%m-%d"),
+                                customer_id=order["user_id"]
+                            )
+                        return
+                    else:
+                        logger.error(f"1-Stream renew failed: {renew_result.get('error')}")
+                else:
+                    logger.error("Could not find line_id for existing 1-Stream subscriber")
+            
+            # CREATE new line (no existing subscriber or extend failed)
+            logger.info(f"Creating 1-Stream line: user={username}, package={package_id}")
+            result = os_service.create_line(
+                username=username,
+                password=password,
+                package_id=package_id,
+                reseller_notes=f"Order {order_id} - {user['name']}",
+                max_connections=product.get("max_connections", 1)
+            )
+            
+            if result.get("success"):
+                # Use expiry from API response if available
+                if result.get("expire_at"):
+                    try:
+                        api_expiry = datetime.fromisoformat(result["expire_at"].replace("Z", "+00:00"))
+                        if api_expiry.tzinfo:
+                            api_expiry = api_expiry.replace(tzinfo=None)
+                        expiry_date = api_expiry
+                    except Exception:
+                        pass
+                
+                service_dict = {
+                    "user_id": order["user_id"],
+                    "order_id": order_id,
+                    "product_id": item["product_id"],
+                    "product_name": item["product_name"],
+                    "account_type": "subscriber",
+                    "term_months": term_months,
+                    "xtream_username": username,
+                    "xtream_password": password,
+                    "status": "active",
+                    "panel_index": panel_index,
+                    "panel_name": panel_name,
+                    "panel_type": "onestream",
+                    "onestream_line_id": result.get("line_id", ""),
+                    "bouquets": product.get("bouquets", []),
+                    "max_connections": product.get("max_connections", 1),
+                    "start_date": datetime.utcnow(),
+                    "expiry_date": expiry_date,
+                    "created_at": datetime.utcnow()
+                }
+                await services_collection.insert_one(service_dict)
+                
+                # Send activation email
+                if email_service:
+                    streaming_url = panel.get("panel_url", "")
+                    await email_service.send_service_activated(
+                        customer_email=user["email"],
+                        customer_name=user["name"],
+                        service_name=item["product_name"],
+                        username=username,
+                        password=password,
+                        streaming_url=streaming_url,
+                        max_connections=product.get("max_connections", 1),
+                        expiry_date=expiry_date.strftime("%Y-%m-%d"),
+                        customer_id=order["user_id"]
+                    )
+                
+                await send_telegram_notification(
+                    "service_activated",
+                    f"✅ *Service Activated (1-Stream)*\n\nCustomer: {user.get('name')}\nEmail: {user.get('email')}\nService: {item['product_name']}\nPanel: {panel_name}\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
+                )
+                
+                logger.info(f"1-Stream subscriber provisioned: {username}")
+            else:
+                logger.error(f"Failed to create 1-Stream line: {result.get('error')}")
+                service_dict = {
+                    "user_id": order["user_id"],
+                    "order_id": order_id,
+                    "product_id": item["product_id"],
+                    "product_name": item["product_name"],
+                    "account_type": "subscriber",
+                    "term_months": term_months,
+                    "xtream_username": username,
+                    "xtream_password": password,
+                    "status": "failed",
+                    "panel_index": panel_index,
+                    "panel_name": panel_name,
+                    "panel_type": "onestream",
+                    "created_at": datetime.utcnow()
+                }
+                await services_collection.insert_one(service_dict)
+        
+        else:  # reseller
+            # Check if user already has an active reseller on this 1-Stream panel
+            existing_reseller = await services_collection.find_one({
+                "user_id": order["user_id"],
+                "account_type": "reseller",
+                "status": "active",
+                "panel_type": "onestream",
+                "panel_index": panel_index
+            })
+            
+            if existing_reseller:
+                # Add credits to existing reseller
+                reseller_name = existing_reseller.get("xtream_username", "")
+                new_credits = product.get("reseller_credits", 0)
+                logger.info(f"Adding {new_credits} credits to existing 1-Stream reseller: {reseller_name}")
+                
+                # Find the reseller's user_id on the 1-Stream panel
+                resellers = os_service.get_subresellers()
+                os_user_id = None
+                if resellers.get("success"):
+                    for r in resellers.get("users", []):
+                        if r.get("username") == reseller_name:
+                            os_user_id = r.get("user_id")
+                            break
+                
+                if os_user_id:
+                    credit_result = os_service.update_subreseller_credits(os_user_id, new_credits)
+                    if credit_result.get("success"):
+                        logger.info(f"Credits added to 1-Stream reseller {reseller_name}")
+                    else:
+                        logger.error(f"Failed to add credits: {credit_result.get('error')}")
+                else:
+                    logger.error(f"Could not find 1-Stream user_id for reseller {reseller_name}")
+                
+                # Create service record for the credit addition
+                service_dict = {
+                    "user_id": order["user_id"],
+                    "order_id": order_id,
+                    "product_id": item["product_id"],
+                    "product_name": item["product_name"],
+                    "account_type": "reseller",
+                    "term_months": term_months,
+                    "xtream_username": existing_reseller.get("xtream_username"),
+                    "xtream_password": existing_reseller.get("xtream_password"),
+                    "status": "active",
+                    "panel_index": panel_index,
+                    "panel_name": panel_name,
+                    "panel_type": "onestream",
+                    "reseller_credits": new_credits,
+                    "is_credit_addon": True,
+                    "start_date": datetime.utcnow(),
+                    "created_at": datetime.utcnow()
+                }
+                await services_collection.insert_one(service_dict)
+                logger.info(f"Credit addon service record created for {reseller_name}")
+                
+            else:
+                # Create new reseller
+                logger.info(f"Creating 1-Stream sub-reseller: {username}")
+                result = os_service.create_subreseller(
+                    name=username,
+                    email=user.get("email", f"{username}@billing.local"),
+                    password=password,
+                    credits=product.get("reseller_credits", 0),
+                    notes=f"Order {order_id} - {user['name']}"
+                )
+                
+                if result.get("success"):
+                    service_dict = {
+                        "user_id": order["user_id"],
+                        "order_id": order_id,
+                        "product_id": item["product_id"],
+                        "product_name": item["product_name"],
+                        "account_type": "reseller",
+                        "term_months": term_months,
+                        "xtream_username": username,
+                        "xtream_password": password,
+                        "status": "active",
+                        "panel_index": panel_index,
+                        "panel_name": panel_name,
+                        "panel_type": "onestream",
+                        "reseller_credits": product.get("reseller_credits", 0),
+                        "start_date": datetime.utcnow(),
+                        "created_at": datetime.utcnow()
+                    }
+                    await services_collection.insert_one(service_dict)
+                    logger.info(f"1-Stream reseller provisioned: {username}")
+                else:
+                    logger.error(f"Failed to create 1-Stream reseller: {result.get('error')}")
+    
+    except Exception as e:
+        logger.error(f"1-Stream provisioning error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+
 @app.post("/api/admin/services/{service_id}/suspend")
 async def suspend_service(service_id: str, current_user: dict = Depends(get_current_admin_user)):
     """Suspend a service"""
@@ -3718,9 +4140,19 @@ async def get_panel_names():
             "name": panel.get("name", f"XuiOne Panel {i + 1}")
         })
     
+    # Get 1-Stream panels
+    onestream_panels = settings.get("onestream", {}).get("panels", [])
+    onestream_info = []
+    for i, panel in enumerate(onestream_panels):
+        onestream_info.append({
+            "index": i,
+            "name": panel.get("name", f"1-Stream Panel {i + 1}")
+        })
+    
     return {
         "panels": panel_info,
-        "xuione_panels": xuione_info
+        "xuione_panels": xuione_info,
+        "onestream_panels": onestream_info
     }
 
     if not service:
@@ -4525,7 +4957,18 @@ async def sync_onestream_bouquets(panel_index: int = 0, current_user: dict = Dep
         raise HTTPException(status_code=500, detail="1-Stream service not available")
     result = service.get_bouquets()
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch bouquets"))
+        # Bouquets endpoint may require extra permissions - try extracting from packages instead
+        logger.warning(f"Bouquets endpoint failed: {result.get('error')}. Trying to extract from packages...")
+        pkg_result = service.get_packages()
+        if pkg_result.get("success"):
+            bouquet_ids = set()
+            for pkg in pkg_result.get("packages", []) + pkg_result.get("trial_packages", []):
+                for b_id in pkg.get("bouquets", []):
+                    bouquet_ids.add(b_id)
+            bouquets = [{"id": b_id, "name": f"Bouquet {b_id}"} for b_id in sorted(bouquet_ids)]
+            result = {"success": True, "bouquets": bouquets}
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch bouquets. Check API token permissions."))
     # Store bouquets in settings
     if "onestream" not in settings:
         settings["onestream"] = {"panels": panels}
@@ -4868,8 +5311,35 @@ async def test_email_template(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "attachments")
 HERO_IMAGES_DIR = os.path.join(BASE_DIR, "uploads", "hero")
+LOGO_DIR = os.path.join(BASE_DIR, "uploads", "logos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(HERO_IMAGES_DIR, exist_ok=True)
+os.makedirs(LOGO_DIR, exist_ok=True)
+
+@app.post("/api/admin/upload/logo")
+async def upload_logo(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Upload company logo for invoices"""
+    MAX_FILE_SIZE = 2 * 1024 * 1024
+    allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, and WebP images are allowed")
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 2MB")
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"logo_{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(LOGO_DIR, unique_filename)
+    async with aiofiles.open(file_path, 'wb') as f:
+        await f.write(contents)
+    return {
+        "filename": file.filename,
+        "url": f"{os.getenv('BACKEND_PUBLIC_URL', '')}/api/uploads/logos/{unique_filename}"
+    }
+
+app.mount("/api/uploads/logos", StaticFiles(directory=LOGO_DIR), name="logos")
 
 @app.post("/api/admin/upload/hero-image")
 async def upload_hero_image(
@@ -5441,6 +5911,18 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
             bouquets = panel.get("bouquets", [])
             if bouquets:
                 return bouquets
+            # No stored bouquets — extract from packages on the fly
+            from onestream_service import get_onestream_service
+            os_service = get_onestream_service(panel)
+            if os_service:
+                pkg_result = os_service.get_packages()
+                if pkg_result.get("success"):
+                    bouquet_ids = set()
+                    for pkg in pkg_result.get("packages", []) + pkg_result.get("trial_packages", []):
+                        for b_id in pkg.get("bouquets", []):
+                            bouquet_ids.add(b_id)
+                    return [{"id": b_id, "name": f"Bouquet {b_id}"} for b_id in sorted(bouquet_ids)]
+        return []  # Don't fall through to XtreamUI fallback
     else:
         # Get XtreamUI panel bouquets (existing logic)
         xtream_panels = settings.get("xtream", {}).get("panels", [])
@@ -6303,6 +6785,79 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
+
+
+
+class AddCreditsRequest(BaseModel):
+    credits: float
+
+@app.post("/api/admin/imported-users/{user_id}/add-credits")
+async def add_credits_to_imported_user(user_id: str, data: AddCreditsRequest, current_user: dict = Depends(get_current_admin_user)):
+    """Add credits to a reseller on the panel"""
+    user = await imported_users_collection.find_one({"_id": str_to_objectid(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("account_type") != "reseller":
+        raise HTTPException(status_code=400, detail="Credits can only be added to resellers")
+
+    settings = await get_settings()
+    panel_type = user.get("panel_type", "xtream")
+    panel_index = user.get("panel_index", 0)
+    username = user.get("username", "")
+    credits = data.credits
+
+    if panel_type == "xtream":
+        panels = settings.get("xtream", {}).get("panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        panel = panels[panel_index]
+        from xtreamui_session_client import XtreamUISessionClient
+        client = XtreamUISessionClient(
+            panel_url=panel["panel_url"],
+            username=panel["admin_username"],
+            password=panel["admin_password"]
+        )
+        result = client.add_credits(username=username, email="", credits=credits)
+        if result.get("success"):
+            new_credits = float(user.get("credits", 0) or 0) + credits
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"credits": new_credits, "last_synced": datetime.utcnow()}}
+            )
+            return {"message": f"Added {credits} credits to {username}", "new_credits": new_credits}
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to add credits"))
+
+    elif panel_type == "onestream":
+        panels = settings.get("onestream", {}).get("panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        os_service = get_onestream_service(panels[panel_index])
+        if not os_service:
+            raise HTTPException(status_code=500, detail="1-Stream service not available")
+        # Find the 1-Stream user_id
+        os_user_id = user.get("onestream_user_id")
+        if not os_user_id:
+            resellers = os_service.get_subresellers()
+            if resellers.get("success"):
+                for r in resellers.get("users", []):
+                    if r.get("username") == username:
+                        os_user_id = r.get("user_id")
+                        break
+        if not os_user_id:
+            raise HTTPException(status_code=400, detail="Could not find reseller on 1-Stream panel")
+        result = os_service.update_subreseller_credits(os_user_id, credits)
+        if result.get("success"):
+            new_credits = float(user.get("credits", 0) or 0) + credits
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"credits": new_credits, "onestream_user_id": os_user_id, "last_synced": datetime.utcnow()}}
+            )
+            return {"message": f"Added {credits} credits to {username}", "new_credits": new_credits}
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to add credits"))
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Credits not supported for {panel_type} panels")
+
 
 
 # ===== UPDATE SYSTEM ENDPOINTS =====
@@ -7243,39 +7798,53 @@ async def get_product_channels(product_id: str):
     # Get bouquet IDs from product
     bouquet_ids = product.get("bouquets", [])
     panel_index = product.get("panel_index", 0)
+    panel_type = product.get("panel_type", "xtream")
     
     # Get settings
     settings = await get_settings()
     
-    # Get bouquets for the specific panel
-    panel_bouquets_key = f"bouquets_panel_{panel_index}"
-    panel_bouquets = settings.get(panel_bouquets_key, [])
-    
-    # Fallback to legacy bouquets if panel-specific not found
-    if not panel_bouquets:
-        panel_bouquets = settings.get("bouquets", [])
+    # Get bouquets based on panel type
+    panel_bouquets = []
+    if panel_type == "onestream":
+        os_panels = settings.get("onestream", {}).get("panels", [])
+        if panel_index < len(os_panels):
+            panel_bouquets = os_panels[panel_index].get("bouquets", [])
+    elif panel_type == "xuione":
+        xuione_panels = settings.get("xuione", {}).get("panels", [])
+        if panel_index < len(xuione_panels):
+            panel_bouquets = xuione_panels[panel_index].get("bouquets", [])
+    else:
+        # XtreamUI - check panel-specific then legacy
+        panel_bouquets_key = f"bouquets_panel_{panel_index}"
+        panel_bouquets = settings.get(panel_bouquets_key, [])
+        if not panel_bouquets:
+            panel_bouquets = settings.get("bouquets", [])
     
     # Get LIVE channel bouquets only (exclude VOD and Series)
     live_channels = []
     for bouquet_id in bouquet_ids:
-        # Match by converting both to int for comparison
-        bouquet = next((b for b in panel_bouquets if int(b.get("id")) == int(bouquet_id)), None)
+        bouquet = next((b for b in panel_bouquets if int(b.get("id", 0)) == int(bouquet_id)), None)
         if bouquet:
             bouquet_name = bouquet.get("name", "")
-            # Filter out VOD and Series - check both type field and name
             is_vod_or_series = (
                 'movie' in bouquet_name.lower() or
                 'series' in bouquet_name.lower() or
                 'vod' in bouquet_name.lower() or
                 '24/7' in bouquet_name.lower()
             )
-            
             if not is_vod_or_series:
                 live_channels.append({
                     "id": bouquet_id,
-                    "name": bouquet_name,
+                    "name": bouquet_name or f"Channel Package {bouquet_id}",
                     "category": bouquet.get("category", "General")
                 })
+        else:
+            # Bouquet not found in stored data - show with ID
+            live_channels.append({
+                "id": bouquet_id,
+                "name": f"Channel Package {bouquet_id}",
+                "category": "General"
+            })
     
     return {
         "product_name": product.get("name"),

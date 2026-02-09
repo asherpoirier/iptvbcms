@@ -7,7 +7,7 @@ export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
   
   // Default payment method order
-  const defaultOrder = ['manual', 'stripe', 'paypal', 'square', 'blockonomics'];
+  const defaultOrder = ['manual', 'emt', 'stripe', 'paypal', 'square', 'blockonomics'];
   
   const [formData, setFormData] = useState({
     paypal_enabled: settings?.paypal?.enabled || false,
@@ -27,7 +27,9 @@ export default function PaymentGatewaySettings({ settings }) {
     blockonomics_enabled: settings?.blockonomics?.enabled || false,
     blockonomics_api_key: settings?.blockonomics?.api_key || '',
     blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
-    payment_method_order: settings?.payment_method_order || defaultOrder,
+    emt_enabled: settings?.emt?.enabled || false,
+    emt_instructions: settings?.emt?.instructions || '',
+    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); return o; })(),
   });
 
   React.useEffect(() => {
@@ -50,7 +52,9 @@ export default function PaymentGatewaySettings({ settings }) {
         blockonomics_enabled: settings?.blockonomics?.enabled || false,
         blockonomics_api_key: settings?.blockonomics?.api_key || '',
         blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
-        payment_method_order: settings?.payment_method_order || defaultOrder,
+        emt_enabled: settings?.emt?.enabled || false,
+        emt_instructions: settings?.emt?.instructions || '',
+        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); return o; })(),
       });
     }
   }, [settings]);
@@ -84,6 +88,10 @@ export default function PaymentGatewaySettings({ settings }) {
           api_key: data.blockonomics_api_key,
           confirmations_required: data.blockonomics_confirmations
         },
+        emt: {
+          enabled: data.emt_enabled,
+          instructions: data.emt_instructions
+        },
         payment_method_order: data.payment_method_order
       };
       return adminAPI.updateSettings(settingsUpdate);
@@ -114,6 +122,7 @@ export default function PaymentGatewaySettings({ settings }) {
 
   const paymentMethodLabels = {
     manual: { name: 'Manual Payment', icon: DollarSign, color: 'text-green-600' },
+    emt: { name: 'Interac e-Transfer', icon: DollarSign, color: 'text-emerald-600' },
     stripe: { name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
     paypal: { name: 'PayPal', icon: CreditCard, color: 'text-blue-600' },
     square: { name: 'Square', icon: CreditCard, color: 'text-indigo-600' },
@@ -471,6 +480,45 @@ export default function PaymentGatewaySettings({ settings }) {
                   </code>
                 </li>
               </ol>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Interac e-Transfer (EMT) */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-6 h-6 text-emerald-600" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Interac e-Transfer (EMT)</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept payments via Interac e-Transfer</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.emt_enabled}
+              onChange={(e) => setFormData({ ...formData, emt_enabled: e.target.checked })}
+              className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-emerald-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+
+        {formData.emt_enabled && (
+          <div className="space-y-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                EMT Instructions *
+              </label>
+              <textarea
+                rows={6}
+                value={formData.emt_instructions}
+                onChange={(e) => setFormData({ ...formData, emt_instructions: e.target.value })}
+                placeholder={"Send an Interac e-Transfer to: payments@yourdomain.com\nAmount: (shown at checkout)\nMessage/Memo: Your Order ID\n\nAuto-deposit is enabled. No security question needed.\nYour order will be processed once payment is received."}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                These instructions will be shown to customers who select EMT at checkout. Include your e-Transfer email, any security question, and how to reference their order.
+              </p>
             </div>
           </div>
         )}

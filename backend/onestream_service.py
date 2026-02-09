@@ -15,10 +15,14 @@ logger = logging.getLogger(__name__)
 class OneStreamService:
     """1-Stream Panel API Service"""
 
-    def __init__(self, panel_url: str, api_key: str, auth_user_token: str, name: str = "", ssl_verify: bool = False):
-        self.panel_url = panel_url.rstrip("/")
-        self.api_key = api_key
-        self.auth_user_token = auth_user_token
+    def __init__(self, panel_url: str, api_key: str, auth_user_token: str, 
+                 admin_username: str = "", admin_password: str = "",
+                 name: str = "", ssl_verify: bool = False):
+        self.panel_url = panel_url.strip().rstrip("/")
+        self.api_key = api_key.strip()
+        self.auth_user_token = auth_user_token.strip()
+        self.admin_username = admin_username.strip()
+        self.admin_password = admin_password.strip()
         self.name = name
         self.ssl_verify = ssl_verify
         self.session = requests.Session()
@@ -29,6 +33,9 @@ class OneStreamService:
             "X-Api-Key": self.api_key,
             "X-Auth-User": self.auth_user_token,
         })
+        # Set HTTP Basic Auth if credentials provided
+        if admin_username and admin_password:
+            self.session.auth = (admin_username, admin_password)
 
     def _url(self, path: str) -> str:
         return f"{self.panel_url}{path}"
@@ -47,7 +54,11 @@ class OneStreamService:
                 body = e.response.json()
             except Exception:
                 pass
-            error_msg = body.get("error", str(e))
+            status_code = e.response.status_code if e.response is not None else 0
+            if status_code == 403:
+                error_msg = f"Permission denied for {path}. Check API token permissions."
+            else:
+                error_msg = body.get("error", body.get("message", f"HTTP {status_code}"))
             logger.error(f"1-Stream API error ({method} {path}): {error_msg}")
             return {"error": error_msg}
         except Exception as e:
@@ -143,6 +154,9 @@ class OneStreamService:
                 if expiry_str:
                     try:
                         expiry_date = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+                        # Make naive for consistent comparison
+                        if expiry_date.tzinfo is not None:
+                            expiry_date = expiry_date.replace(tzinfo=None)
                     except Exception:
                         pass
 
@@ -173,7 +187,7 @@ class OneStreamService:
 
     # ---- Sub-resellers ----
     def get_subresellers(self) -> Dict[str, Any]:
-        data = self._request("GET", "/ext/user/find")
+        data = self._request("GET", "/ext/users")
         if isinstance(data, dict) and "error" in data:
             return {"success": False, "error": data["error"], "users": []}
         users = []
@@ -184,7 +198,10 @@ class OneStreamService:
                     "username": u.get("name", ""),
                     "email": u.get("email", ""),
                     "credits": u.get("credits", 0),
+                    "is_enabled": u.get("is_enabled", True),
                     "notes": u.get("notes", ""),
+                    "owner": u.get("owner_name", ""),
+                    "role": u.get("role", "reseller"),
                 })
         return {"success": True, "users": users}
 
@@ -272,6 +289,13 @@ class OneStreamService:
             body["notes"] = notes
         result = self._request("POST", "/ext/user/create", json_data=body)
         if "error" in result:
+            # Include validation details if available
+            details = result.get("details", {})
+            if details:
+                detail_msgs = []
+                for field, msgs in details.items():
+                    detail_msgs.extend(msgs if isinstance(msgs, list) else [msgs])
+                return {"success": False, "error": "; ".join(detail_msgs)}
             return {"success": False, "error": result["error"]}
         return {"success": True, "user_id": result.get("id", 0)}
 
@@ -297,6 +321,8 @@ def get_onestream_service(panel_config: Dict[str, Any]) -> Optional[OneStreamSer
         panel_url=panel_url,
         api_key=api_key,
         auth_user_token=auth_user_token,
+        admin_username=panel_config.get("admin_username", ""),
+        admin_password=panel_config.get("admin_password", ""),
         name=panel_config.get("name", ""),
         ssl_verify=panel_config.get("ssl_verify", False),
     )

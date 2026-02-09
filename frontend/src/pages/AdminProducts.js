@@ -234,7 +234,7 @@ export default function AdminProducts() {
                     <option value="all">All Panels</option>
                     {allPanels.map((panel, idx) => (
                       <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
-                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
+                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : panel.type === 'onestream' ? '1-Stream' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
                       </option>
                     ))}
                   </select>
@@ -460,7 +460,10 @@ export default function AdminProducts() {
 
 function ProductFormModal({ product, onClose, onSuccess }) {
   const isEditing = !!product;
-  const [selectedPanelInfo, setSelectedPanelInfo] = useState({ type: 'xtream', index: product?.panel_index || 0 });
+  const [selectedPanelInfo, setSelectedPanelInfo] = useState({ 
+    type: product?.panel_type || 'xtream', 
+    index: product?.panel_index || 0 
+  });
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [packageType, setPackageType] = useState(product?.is_trial ? 'trial' : 'regular'); // 'regular' or 'trial'
   const [formData, setFormData] = useState({
@@ -494,14 +497,29 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
+  const onestreamPanels = settings?.onestream?.panels || [];
   
-  // Combine both panel types with a type indicator
+  // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index, label: `${panel.name} (XtreamUI)` })),
-    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index, label: `${panel.name} (XuiOne)` }))
+    ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index, label: `${panel.name} (XuiOne)` })),
+    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index, label: `${panel.name} (1-Stream)` }))
   ];
   
   const panels = allPanels;
+
+  // For new products, sync selectedPanelInfo to the first available panel
+  React.useEffect(() => {
+    if (!isEditing && panels.length > 0) {
+      const first = panels[0];
+      const currentKey = `${selectedPanelInfo.type}-${selectedPanelInfo.index}`;
+      const firstKey = `${first.type}-${first.originalIndex}`;
+      if (currentKey !== firstKey) {
+        setSelectedPanelInfo({ type: first.type, index: first.originalIndex });
+        setFormData(prev => ({ ...prev, panel_type: first.type, panel_index: first.originalIndex }));
+      }
+    }
+  }, [panels.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch available bouquets for selected panel
   const { data: availableBouquets } = useQuery({
@@ -673,9 +691,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             {/* Panel Selection - Show for new products or when editing if multiple panels */}
             {panels.length > 1 && (
               <div className="md:col-span-2">
-                <div className={`border rounded-lg p-4 mb-4 ${isEditing ? 'bg-gray-50 border-gray-300' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600'}`}>
-                  <label className={`block text-sm font-semibold mb-3 ${isEditing ? 'text-gray-700' : 'text-blue-900 dark:text-blue-200'}`}>
-                    {isEditing ? 'Product Panel' : 'Select Panel (XtreamUI or XuiOne) *'}
+                <div className={`border rounded-lg p-4 mb-4 ${isEditing ? 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600'}`}>
+                  <label className={`block text-sm font-semibold mb-3 ${isEditing ? 'text-gray-700 dark:text-gray-300' : 'text-blue-900 dark:text-blue-200'}`}>
+                    {isEditing ? 'Product Panel' : 'Select Panel *'}
                   </label>
                   <select
                     value={`${selectedPanelInfo.type}-${selectedPanelInfo.index}`}
@@ -716,7 +734,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     <Package className="w-5 h-5 text-green-600" />
                     Select Package * {panels.length > 1 && `(from ${panels.find(p => p.type === selectedPanelInfo.type && p.originalIndex === selectedPanelInfo.index)?.label || 'selected panel'})`}
                   </h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                     <strong>Required:</strong> Choose a package to set pricing, duration, connections, and bouquets.
                   </p>
                   
@@ -756,7 +774,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     <div className="text-center py-6">
                       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600 mx-auto"></div>
                       <p className="text-sm text-gray-600 mt-3">
-                        Loading {packageType} packages from XtreamUI panel...
+                        Loading {packageType} packages from panel...
                       </p>
                     </div>
                   ) : currentPackages && currentPackages.length > 0 ? (
@@ -766,7 +784,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                       onChange={(e) => handlePackageSelect(e.target.value)}
                       className="w-full px-4 py-3 border-2 border-green-400 dark:border-green-600 rounded-lg focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium"
                     >
-                      <option value="">-- Select a {packageType} package from XtreamUI --</option>
+                      <option value="">-- Select a {packageType} package --</option>
                       {currentPackages.map((pkg) => (
                         <option key={pkg.id} value={pkg.id}>
                           {pkg.name} | ${pkg.credits} | {pkg.duration} {pkg.duration_unit} | {pkg.max_connections} connection(s)
@@ -774,34 +792,34 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                       ))}
                     </select>
                   ) : (
-                    <div className="bg-red-50 border border-red-300 rounded-lg p-4">
-                      <p className="text-sm text-red-800 font-semibold mb-2">⚠ No {packageType} packages found!</p>
-                      <p className="text-sm text-red-700">
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg p-4">
+                      <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-2">⚠ No {packageType} packages found!</p>
+                      <p className="text-sm text-red-700 dark:text-red-400">
                         No {packageType} packages available from this panel. {packageType === 'trial' ? 'Try selecting "Regular Packages" instead.' : 'Please sync packages from the panel.'}
                       </p>
                     </div>
                   )}
                   
                   {selectedPackage && (
-                    <div className="mt-4 p-4 bg-white rounded-lg border-2 border-green-400 dark:border-green-600 shadow-sm">
-                      <p className="text-sm font-semibold text-green-900 mb-3">
+                    <div className="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-green-400 dark:border-green-600 dark:border-green-600 shadow-sm">
+                      <p className="text-sm font-semibold text-green-900 dark:text-green-200 mb-3">
                         ✓ Selected Package: {selectedPackage.name}
                       </p>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div className="bg-green-50 p-3 rounded">
-                          <span className="text-gray-600 block mb-1">Price:</span>
-                          <span className="font-bold text-green-700 text-lg">${selectedPackage.credits}</span>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
+                          <span className="text-gray-600 dark:text-gray-400 block mb-1">Price:</span>
+                          <span className="font-bold text-green-700 dark:text-green-300 text-lg">${selectedPackage.credits}</span>
                         </div>
-                        <div className="bg-blue-50 p-3 rounded">
-                          <span className="text-gray-600 block mb-1">Duration:</span>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded">
+                          <span className="text-gray-600 dark:text-gray-400 block mb-1">Duration:</span>
                           <span className="font-bold text-blue-700 dark:text-blue-300 text-lg">{selectedPackage.duration} {selectedPackage.duration_unit}</span>
                         </div>
-                        <div className="bg-purple-50 p-3 rounded">
-                          <span className="text-gray-600 block mb-1">Connections:</span>
+                        <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded">
+                          <span className="text-gray-600 dark:text-gray-400 block mb-1">Connections:</span>
                           <span className="font-bold text-purple-700 text-lg">{selectedPackage.max_connections}</span>
                         </div>
-                        <div className="bg-orange-50 p-3 rounded">
-                          <span className="text-gray-600 block mb-1">Bouquets:</span>
+                        <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded">
+                          <span className="text-gray-600 dark:text-gray-400 block mb-1">Bouquets:</span>
                           <span className="font-bold text-orange-700 text-lg">{selectedPackage.bouquets?.length || 0}</span>
                         </div>
                       </div>
@@ -809,7 +827,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                   )}
                   
                   {!selectedPackage && packagesData && packagesData.length > 0 && (
-                    <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-600 rounded-lg p-3">
+                    <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 dark:border-yellow-600 rounded-lg p-3">
                       <p className="text-sm text-yellow-800 dark:text-yellow-200">
                         ⚠ Please select a package to continue
                       </p>
@@ -824,11 +842,11 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             <>
             {/* Basic Information */}
             <div className="md:col-span-2">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Basic Information</h3>
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Product Name *
               </label>
               <input
@@ -836,13 +854,13 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 placeholder="IPTV Subscriber - 1 Month"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Description *
               </label>
               <textarea
@@ -850,7 +868,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 rows={3}
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 placeholder="Monthly IPTV subscription with full channel access"
               />
             </div>
@@ -875,13 +893,13 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             <input type="hidden" name="account_type" value="subscriber" />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Active
               </label>
               <select
                 value={formData.active}
                 onChange={(e) => setFormData({ ...formData, active: e.target.value === 'true' })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
               >
                 <option value="true">Yes</option>
                 <option value="false">No</option>
@@ -891,18 +909,18 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             {/* Subscriber Settings (always shown for regular products) */}
             <>
               <div className="md:col-span-2">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Subscriber Settings</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 mt-4">Subscriber Settings</h3>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Bouquets (Channel Packages) *
                   </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border border-gray-300 rounded-lg bg-gray-50">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800">
                     {availableBouquets?.map((bouquet) => (
                       <label
                         key={bouquet.id}
-                        className="flex items-center gap-2 p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-400 cursor-pointer transition"
+                        className="flex items-center gap-2 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-blue-400 cursor-pointer transition"
                       >
                         <input
                           type="checkbox"
@@ -911,7 +929,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                         />
                         <div className="flex-1">
-                          <span className="font-medium text-gray-900">{bouquet.name}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{bouquet.name}</span>
                           <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">ID: {bouquet.id}</span>
                         </div>
                       </label>
@@ -923,7 +941,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Max Connections
                   </label>
                   <input
@@ -933,7 +951,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     value={formData.max_connections}
                     onChange={(e) => setFormData({ ...formData, max_connections: e.target.value })}
                     disabled={selectedPackage !== null}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                   />
                   {selectedPackage && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -945,20 +963,20 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
             {/* Pricing */}
             <div className="md:col-span-2">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Pricing</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 mt-4">Pricing</h3>
               {selectedPackage && (
-                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Package duration: <strong>{selectedPackage.duration} {selectedPackage.duration_unit}</strong>
                 </p>
               )}
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Price {selectedPackage ? `(${selectedPackage.duration} ${selectedPackage.duration_unit})` : ''}
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-500">$</span>
+                <span className="absolute left-3 top-3 text-gray-500 dark:text-gray-400">$</span>
                 <input
                   type="number"
                   min="0"
@@ -976,19 +994,19 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                       setFormData({ ...formData, price_1: e.target.value });
                     }
                   }}
-                  className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-8 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                   placeholder={selectedPackage ? selectedPackage.credits : "15.00"}
                 />
               </div>
               {selectedPackage && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Package cost from XtreamUI: ${selectedPackage.credits} | Set your selling price above
+                  Package cost: ${selectedPackage.credits} | Set your selling price above
                 </p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Trial Days
               </label>
               <input
@@ -996,7 +1014,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 min="0"
                 value={formData.trial_days}
                 onChange={(e) => setFormData({ ...formData, trial_days: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 placeholder="0"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Free trial period in days (0 = no trial)</p>
@@ -1007,7 +1025,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -1094,7 +1112,7 @@ function ResellerPackageModal({ onClose, onSuccess, panels, xtreamPanels, xuione
       <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{isEditing ? 'Edit Reseller Package' : 'Add Reseller Package'}</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -1147,7 +1165,7 @@ function ResellerPackageModal({ onClose, onSuccess, panels, xtreamPanels, xuione
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Panel (XtreamUI or XuiOne) *
+                Panel *
               </label>
               <select
                 value={`${formData.panel_type}-${formData.panel_index}`}

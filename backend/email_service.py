@@ -553,6 +553,7 @@ class EmailService:
     ):
         """Send email verification using template"""
         if self.db is None:
+            logger.error("send_email_verification: db is None, cannot send")
             return False
         
         template = await self.db.email_templates.find_one({

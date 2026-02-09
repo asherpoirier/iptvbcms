@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ordersAPI, servicesAPI } from '../api/api';
 import { useCartStore, useAuthStore } from '../store/store';
-import { ArrowLeft, ShoppingCart, Trash2, AlertCircle, CreditCard, Bitcoin, Copy, CheckCircle, Loader2, RefreshCw, Plus } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Trash2, AlertCircle, CreditCard, Bitcoin, Copy, CheckCircle, Loader2, RefreshCw, Plus, DollarSign } from 'lucide-react';
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import SquarePaymentForm from '../components/SquarePaymentForm';
 import CheckoutCouponCredits from '../components/CheckoutCouponCredits';
@@ -75,10 +75,12 @@ export default function CheckoutPage() {
       const orderId = response.data.order_id;
       setCurrentOrderId(orderId);
       
-      if (paymentMethod === 'manual') {
+      if (paymentMethod === 'manual' || paymentMethod === 'emt') {
         clearCart();
         navigate('/orders');
-        alert('Order placed successfully! Please wait for admin to confirm payment.');
+        alert(paymentMethod === 'emt' 
+          ? 'Order placed! Please send your Interac e-Transfer now. Include your Order ID in the message.'
+          : 'Order placed successfully! Please wait for admin to confirm payment.');
       }
       // For PayPal, buttons will handle the flow
     },
@@ -400,11 +402,19 @@ export default function CheckoutPage() {
             <ShoppingCart className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Your cart is empty</h3>
             <p className="text-gray-600 mb-6">Add some products to get started</p>
-            <Link to="/" className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
+            <Link to="/products" className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
               Browse Products
             </Link>
           </div>
         </main>
+      </div>
+    );
+  }
+
+  if (settingsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
@@ -629,7 +639,7 @@ export default function CheckoutPage() {
                 
                 <div className="space-y-3 mb-6">
                   {/* Render payment methods in order from settings */}
-                  {(settings?.payment_method_order || ['manual', 'stripe', 'paypal', 'square', 'blockonomics']).map((method) => {
+                  {(settings?.payment_method_order || ['manual', 'emt', 'stripe', 'paypal', 'square', 'blockonomics']).map((method) => {
                     // Manual Payment
                     if (method === 'manual') {
                       return (
@@ -743,12 +753,35 @@ export default function CheckoutPage() {
                         </label>
                       );
                     }
+
+                    // Interac e-Transfer (EMT)
+                    if (method === 'emt' && settings?.emt?.enabled) {
+                      return (
+                        <label key="emt" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-emerald-500 transition bg-white dark:bg-gray-800">
+                          <input
+                            type="radio"
+                            name="payment"
+                            value="emt"
+                            checked={paymentMethod === 'emt'}
+                            onChange={(e) => setPaymentMethod(e.target.value)}
+                            className="w-4 h-4 text-emerald-600"
+                          />
+                          <div className="ml-3 flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-emerald-600" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Interac e-Transfer</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay via EMT (Canadian banks)</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
                     
                     return null;
                   })}
                 </div>
 
-                {/* Payment Button/PayPal/Stripe/Square */}
+                {/* Payment Button/PayPal/Stripe/Square/EMT */}
                 {paymentMethod === 'manual' ? (
                   <div>
                     <button
@@ -760,6 +793,33 @@ export default function CheckoutPage() {
                     </button>
                     <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
                       Your order will be pending until payment is confirmed by admin
+                    </p>
+                  </div>
+                ) : paymentMethod === 'emt' ? (
+                  <div>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-5 mb-4">
+                      <h4 className="font-semibold text-emerald-900 dark:text-emerald-200 mb-3 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
+                        Interac e-Transfer Instructions
+                      </h4>
+                      <div className="text-sm text-emerald-800 dark:text-emerald-300 whitespace-pre-line">
+                        {settings?.emt?.instructions || 'Please contact support for e-Transfer payment details.'}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
+                        <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+                          Amount: <span className="font-bold">${getTotal().toFixed(2)} CAD</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleCheckout}
+                      disabled={createOrderMutation.isPending}
+                      className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {createOrderMutation.isPending ? 'Processing...' : 'Place Order (EMT)'}
+                    </button>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
+                      Send your e-Transfer after placing the order. Include your Order ID in the message.
                     </p>
                   </div>
                 ) : paymentMethod === 'paypal' && settings?.paypal?.client_id ? (

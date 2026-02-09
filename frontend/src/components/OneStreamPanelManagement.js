@@ -13,6 +13,14 @@ export default function OneStreamPanelManagement({ settings }) {
   const [syncingBouquets, setSyncingBouquets] = useState(null);
   const [syncingUsers, setSyncingUsers] = useState(null);
 
+  // Sync local panels state when settings prop updates (e.g. after save + refetch)
+  React.useEffect(() => {
+    const serverPanels = settings?.onestream?.panels || [];
+    if (serverPanels.length > 0) {
+      setPanels(serverPanels);
+    }
+  }, [settings?.onestream?.panels]);
+
   const updateMutation = useMutation({
     mutationFn: (data) => {
       const settingsUpdate = { ...settings, onestream: { panels: data } };
@@ -21,6 +29,9 @@ export default function OneStreamPanelManagement({ settings }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
       alert('1-Stream panels saved successfully!');
+    },
+    onError: (error) => {
+      alert('Failed to save: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -31,7 +42,13 @@ export default function OneStreamPanelManagement({ settings }) {
       setTestingPanelId(null);
     },
     onError: (error) => {
-      alert('Connection failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail || 'Unknown error';
+      if (status === 401) {
+        alert('Session expired. Please refresh the page and log in again.');
+      } else {
+        alert('Connection failed: ' + detail);
+      }
       setTestingPanelId(null);
     },
   });
@@ -211,13 +228,15 @@ function PanelModal({ panel, onClose, onSave }) {
     panel_url: panel?.panel_url || '',
     api_key: panel?.api_key || '',
     auth_user_token: panel?.auth_user_token || '',
+    admin_username: panel?.admin_username || '',
+    admin_password: panel?.admin_password || '',
     ssl_verify: panel?.ssl_verify || false,
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.name || !formData.panel_url || !formData.api_key || !formData.auth_user_token) {
-      alert('All fields are required');
+      alert('Panel Name, URL, API Key and Auth Token are required');
       return;
     }
     onSave(formData);
@@ -281,6 +300,26 @@ function PanelModal({ panel, onClose, onSave }) {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Generated from user profile page. Needs permissions: showUserProfile, indexPackages, createLinesWithPackage, destroyLines, statusLineToggle, indexLines
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Admin Username</label>
+            <input
+              type="text" value={formData.admin_username}
+              onChange={(e) => setFormData({ ...formData, admin_username: e.target.value })}
+              placeholder="Panel admin username"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Admin Password</label>
+            <input
+              type="password" value={formData.admin_password}
+              onChange={(e) => setFormData({ ...formData, admin_password: e.target.value })}
+              placeholder="Panel admin password"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            />
           </div>
 
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">

@@ -18,6 +18,7 @@ import BackupManager from '../components/BackupManager';
 import RecaptchaSettings from '../components/RecaptchaSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import OneStreamPanelManagement from '../components/OneStreamPanelManagement';
+import InvoiceSettings from '../components/InvoiceSettings';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('panels');
@@ -80,8 +81,8 @@ export default function AdminSettings() {
               >
                 1-Stream Panels
                 <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'onestream' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                }`}>Soon</span>
+                  activeTab === 'onestream' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                }`}>Beta</span>
               </button>
               <button
                 onClick={() => setActiveTab('branding')}
@@ -130,6 +131,14 @@ export default function AdminSettings() {
                 }`}
               >
                 Refunds
+              </button>
+              <button
+                onClick={() => setActiveTab('invoices')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'invoices' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Invoices
               </button>
               <button
                 onClick={() => setActiveTab('account')}
@@ -228,6 +237,11 @@ export default function AdminSettings() {
             {/* Refunds Tab */}
             {activeTab === 'refunds' && (
               <RefundSettings settings={settings} />
+            )}
+
+            {/* Invoices Tab */}
+            {activeTab === 'invoices' && (
+              <InvoiceSettings settings={settings} />
             )}
             
             {/* My Account Tab */}

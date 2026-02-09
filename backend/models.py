@@ -268,6 +268,20 @@ class XuiOnePanel(BaseModel):
 class XuiOneSettings(BaseModel):
     panels: List[XuiOnePanel] = []  # Array of XuiOne panels
 
+class OneStreamPanel(BaseModel):
+    id: Optional[str] = None
+    name: str = ""
+    panel_url: str = ""
+    api_key: str = ""  # X-Api-Key header
+    auth_user_token: str = ""  # X-Auth-User header
+    admin_username: str = ""
+    admin_password: str = ""
+    ssl_verify: bool = False
+    active: bool = True
+
+class OneStreamSettings(BaseModel):
+    panels: List[OneStreamPanel] = []
+
 class SMTPSettings(BaseModel):
     host: str = ""
     port: int = 587
@@ -317,16 +331,37 @@ class CreditSettings(BaseModel):
 
 class RecaptchaSettings(BaseModel):
     enabled: bool = False
-    site_key: str = "6Ld3k10sAAAAAARRcgB5g_oMaPnZAf-QYTaGPOgm"
-    secret_key: str = "6Ld3k10sAAAAADqYygjrbMeostUHLzZkHSzbRTld"
+    site_key: str = ""
+    secret_key: str = ""
     customer_score_threshold: float = 0.5
     admin_score_threshold: float = 0.7
+
+class EMTSettings(BaseModel):
+    enabled: bool = False
+    instructions: str = ""
+
+class InvoiceSettings(BaseModel):
+    company_name: str = ""
+    company_address: str = ""
+    company_phone: str = ""
+    company_email: str = ""
+    company_website: str = ""
+    logo_url: str = ""
+    invoice_prefix: str = "INV"
+    next_number: int = 1001
+    number_padding: int = 4
+    notes: str = ""
+    terms: str = ""
+    payment_instructions: str = ""
+    primary_color: str = "#2563eb"
+    accent_color: str = "#f3f4f6"
 
 
 class Settings(BaseModel):
     id: Optional[str] = None
     xtream: XtreamSettings = Field(default_factory=XtreamSettings)
     xuione: XuiOneSettings = Field(default_factory=XuiOneSettings)
+    onestream: OneStreamSettings = Field(default_factory=OneStreamSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     paypal: PayPalSettings = Field(default_factory=PayPalSettings)
     stripe: StripeSettings = Field(default_factory=StripeSettings)
@@ -336,13 +371,18 @@ class Settings(BaseModel):
     referral: ReferralSettings = Field(default_factory=ReferralSettings)
     credit: CreditSettings = Field(default_factory=CreditSettings)
     recaptcha: RecaptchaSettings = Field(default_factory=RecaptchaSettings)
+    emt: EMTSettings = Field(default_factory=EMTSettings)
+    invoice: InvoiceSettings = Field(default_factory=InvoiceSettings)
     refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"
     company_email: str = ""
     support_email: str = ""
     license_key: str = ""
-    payment_method_order: List[str] = Field(default_factory=lambda: ["manual", "stripe", "paypal", "square", "blockonomics"])
+    payment_method_order: List[str] = Field(default_factory=lambda: ["manual", "emt", "stripe", "paypal", "square", "blockonomics"])
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        extra = "allow"  # Preserve extra fields like notifications, bouquets_panel_X, etc.
 
 
 # Email Template Models

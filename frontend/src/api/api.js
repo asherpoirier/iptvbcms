@@ -25,6 +25,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Handle 401 responses - redirect to login on expired session
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && !error.config?.url?.includes('/api/auth/login')) {
+      // Clear auth state and redirect to login
+      try {
+        localStorage.removeItem('auth-storage');
+      } catch (e) {}
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Auth API
 export const authAPI = {
   register: (data) => api.post('/api/auth/register', data),
@@ -183,6 +198,8 @@ export const adminAPI = {
   activateLicense: (key) => api.post(`/api/admin/licenses/${key}/activate`),
   // User Guide
   downloadUserGuide: () => api.get('/api/admin/user-guide', { responseType: 'blob' }),
+  // Imported User Credits
+  addCreditsToImportedUser: (userId, credits) => api.post(`/api/admin/imported-users/${userId}/add-credits`, { credits }),
   // 1-Stream
   testOneStream: () => api.post('/api/admin/onestream/test'),
   syncOneStreamPackages: (panelIndex = 0) => api.get(`/api/admin/onestream/packages?panel_index=${panelIndex}`),

@@ -48,6 +48,7 @@ class PayPalService:
                 "intent": "CAPTURE",
                 "purchase_units": [{
                     "reference_id": order_id,
+                    "custom_id": order_id,
                     "amount": {
                         "currency_code": currency,
                         "value": f"{float(amount):.2f}"

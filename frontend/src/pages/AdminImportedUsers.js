@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { ArrowLeft, Users, Filter, Ban, CheckCircle, Server, UserCog, CreditCard, Search, ChevronLeft, ChevronRight, Trash2, Plus, X, RefreshCw, Clock, Download } from 'lucide-react';
+import { ArrowLeft, Users, Filter, Ban, CheckCircle, Server, UserCog, CreditCard, Search, ChevronLeft, ChevronRight, Trash2, Plus, X, RefreshCw, Clock, Download, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 export default function AdminImportedUsers() {
   const queryClient = useQueryClient();
@@ -17,6 +17,9 @@ export default function AdminImportedUsers() {
   const [selectedUserForExtend, setSelectedUserForExtend] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [selectedUserForCredits, setSelectedUserForCredits] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   // Fetch imported users (get all, filter on frontend)
   const { data: allUsers, isLoading } = useQuery({
@@ -153,9 +156,52 @@ export default function AdminImportedUsers() {
   const filteredSubscribers = filterUsers(subscribers);
   const filteredResellers = filterUsers(resellers);
 
+  // Sort handler
+  const handleSort = (key) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+    setCurrentPage(1);
+  };
+
+  const SortIcon = ({ column }) => {
+    if (sortConfig.key !== column) return <ArrowUpDown className="w-3 h-3 opacity-40" />;
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="w-3 h-3 text-blue-500" /> 
+      : <ArrowDown className="w-3 h-3 text-blue-500" />;
+  };
+
+  const sortData = (data) => {
+    if (!sortConfig.key) return data;
+    return [...data].sort((a, b) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+      // Handle dates
+      if (sortConfig.key === 'expiry_date' || sortConfig.key === 'last_synced') {
+        aVal = aVal ? new Date(aVal).getTime() : 0;
+        bVal = bVal ? new Date(bVal).getTime() : 0;
+      }
+      // Handle numbers
+      else if (sortConfig.key === 'max_connections' || sortConfig.key === 'credits') {
+        aVal = parseFloat(aVal) || 0;
+        bVal = parseFloat(bVal) || 0;
+      }
+      // Handle strings
+      else {
+        aVal = String(aVal || '').toLowerCase();
+        bVal = String(bVal || '').toLowerCase();
+      }
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
   // Pagination logic
   const getCurrentData = () => {
-    const data = activeTab === 'subscribers' ? filteredSubscribers : filteredResellers;
+    const raw = activeTab === 'subscribers' ? filteredSubscribers : filteredResellers;
+    const data = sortData(raw);
     const totalPages = Math.ceil(data.length / entriesPerPage);
     const startIndex = (currentPage - 1) * entriesPerPage;
     const endIndex = startIndex + entriesPerPage;
@@ -449,13 +495,13 @@ export default function AdminImportedUsers() {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" data-testid="subscribers-table">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Username</th>
+                      <th onClick={() => handleSort('username')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Username <SortIcon column="username" /></span></th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Password</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Panel</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Expiry</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Connections</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Last Synced</th>
+                      <th onClick={() => handleSort('panel_name')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Panel <SortIcon column="panel_name" /></span></th>
+                      <th onClick={() => handleSort('expiry_date')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Expiry <SortIcon column="expiry_date" /></span></th>
+                      <th onClick={() => handleSort('max_connections')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Connections <SortIcon column="max_connections" /></span></th>
+                      <th onClick={() => handleSort('status')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Status <SortIcon column="status" /></span></th>
+                      <th onClick={() => handleSort('last_synced')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Last Synced <SortIcon column="last_synced" /></span></th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actions</th>
                     </tr>
                   </thead>
@@ -618,13 +664,13 @@ export default function AdminImportedUsers() {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" data-testid="resellers-table">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Username</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Panel</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Member Group</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Credits</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Owner</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Last Synced</th>
+                      <th onClick={() => handleSort('username')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Username <SortIcon column="username" /></span></th>
+                      <th onClick={() => handleSort('panel_name')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Panel <SortIcon column="panel_name" /></span></th>
+                      <th onClick={() => handleSort('member_group')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Member Group <SortIcon column="member_group" /></span></th>
+                      <th onClick={() => handleSort('credits')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Credits <SortIcon column="credits" /></span></th>
+                      <th onClick={() => handleSort('owner')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Owner <SortIcon column="owner" /></span></th>
+                      <th onClick={() => handleSort('status')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Status <SortIcon column="status" /></span></th>
+                      <th onClick={() => handleSort('last_synced')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Last Synced <SortIcon column="last_synced" /></span></th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actions</th>
                     </tr>
                   </thead>
@@ -663,15 +709,28 @@ export default function AdminImportedUsers() {
                           {user.last_synced ? new Date(user.last_synced).toLocaleString() : 'Never'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleDelete(user)}
-                            disabled={deleteMutation.isPending}
-                            className="text-red-600 hover:text-red-900 dark:hover:text-red-400"
-                            data-testid={`delete-reseller-${user.username}`}
-                            title="Remove from billing panel"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => {
+                                setSelectedUserForCredits(user);
+                                setShowCreditsModal(true);
+                              }}
+                              className="text-green-600 hover:text-green-900 dark:hover:text-green-400"
+                              title="Add credits"
+                            >
+                              <CreditCard className="w-4 h-4 inline mr-1" />
+                              Credits
+                            </button>
+                            <button
+                              onClick={() => handleDelete(user)}
+                              disabled={deleteMutation.isPending}
+                              className="text-red-600 hover:text-red-900 dark:hover:text-red-400"
+                              data-testid={`delete-reseller-${user.username}`}
+                              title="Remove from billing panel"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -767,6 +826,22 @@ export default function AdminImportedUsers() {
             queryClient.invalidateQueries(['imported-users']);
             setShowExtendModal(false);
             setSelectedUserForExtend(null);
+          }}
+        />
+      )}
+
+      {/* Add Credits Modal */}
+      {showCreditsModal && selectedUserForCredits && (
+        <AddCreditsModal
+          user={selectedUserForCredits}
+          onClose={() => {
+            setShowCreditsModal(false);
+            setSelectedUserForCredits(null);
+          }}
+          onSuccess={() => {
+            queryClient.invalidateQueries(['imported-users']);
+            setShowCreditsModal(false);
+            setSelectedUserForCredits(null);
           }}
         />
       )}
@@ -1407,3 +1482,126 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
     </div>
   );
 }
+
+// Add Credits Modal Component
+function AddCreditsModal({ user, onClose, onSuccess }) {
+  const [credits, setCredits] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(credits);
+    if (!amount || amount <= 0) {
+      alert('Please enter a valid credit amount');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await adminAPI.addCreditsToImportedUser(user.id, amount);
+      setResult(response.data);
+    } catch (error) {
+      alert('Failed to add credits: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-green-600 text-white px-6 py-4 rounded-t-lg flex justify-between items-center">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <CheckCircle className="w-6 h-6" />
+              Credits Added
+            </h3>
+            <button onClick={onSuccess} className="text-white hover:text-gray-200">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Reseller</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{user.username}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">New Credit Balance</p>
+                <p className="font-semibold text-green-600 dark:text-green-400">{result.new_credits}</p>
+              </div>
+            </div>
+            <button onClick={onSuccess} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-md w-full">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">Add Credits</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Reseller:</span>
+                <span className="ml-2 font-mono font-medium text-gray-900 dark:text-white">{user.username}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Panel:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{user.panel_name}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Current Credits:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{user.credits || 0}</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Credits to Add *</label>
+            <input
+              type="number" required min="0.01" step="0.01"
+              value={credits}
+              onChange={(e) => setCredits(e.target.value)}
+              placeholder="Enter credit amount"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 text-lg"
+              autoFocus
+            />
+          </div>
+
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              <strong>Note:</strong> Credits will be added directly on the {user.panel_type === 'onestream' ? '1-Stream' : user.panel_type === 'xuione' ? 'XuiOne' : 'XtreamUI'} panel.
+            </p>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+              Cancel
+            </button>
+            <button type="submit" disabled={isSubmitting || !credits}
+              className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
+              {isSubmitting ? (
+                <><RefreshCw className="w-5 h-5 animate-spin" /> Adding...</>
+              ) : (
+                <><CreditCard className="w-5 h-5" /> Add Credits</>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
