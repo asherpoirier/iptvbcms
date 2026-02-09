@@ -107,8 +107,34 @@ function LicenseCheck({ children }) {
 
 function App() {
   const { fetchBranding } = useBrandingStore();
-  const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('6Ld3k10sAAAAAARRcgB5g_oMaPnZAf-QYTaGPOgm');
+  const { token, logout } = useAuthStore();
+  const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
   const [isReady, setIsReady] = useState(false);
+
+  // Auto-logout after 15 minutes of inactivity
+  useEffect(() => {
+    if (!token) return;
+    
+    const TIMEOUT = 15 * 60 * 1000; // 15 minutes
+    let timer;
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        logout();
+        window.location.href = '/login';
+      }, TIMEOUT);
+    };
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, resetTimer));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+    };
+  }, [token, logout]);
 
   React.useEffect(() => {
     const loadBranding = async () => {
