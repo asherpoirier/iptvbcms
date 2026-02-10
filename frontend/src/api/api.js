@@ -205,8 +205,6 @@ export const adminAPI = {
   syncOneStreamPackages: (panelIndex = 0) => api.get(`/api/admin/onestream/packages?panel_index=${panelIndex}`),
   syncOneStreamBouquets: (panelIndex = 0) => api.get(`/api/admin/onestream/bouquets?panel_index=${panelIndex}`),
   syncOneStreamUsers: (panelIndex = 0) => api.post(`/api/admin/onestream/sync-users?panel_index=${panelIndex}`),
-  // Maintenance
-  deduplicateImportedUsers: () => api.post('/api/admin/imported-users/deduplicate'),
 };
 
 export default api;
