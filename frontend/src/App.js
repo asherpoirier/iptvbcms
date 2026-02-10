@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 import { useAuthStore } from './store/store';
 import { useBrandingStore } from './store/branding';
+import { useCurrencyStore } from './store/currency';
 import api from './api/api';
 
 // Pages
@@ -107,6 +108,7 @@ function LicenseCheck({ children }) {
 
 function App() {
   const { fetchBranding } = useBrandingStore();
+  const { fetchCurrency } = useCurrencyStore();
   const { token, logout } = useAuthStore();
   const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
   const [isReady, setIsReady] = useState(false);
@@ -139,6 +141,7 @@ function App() {
   React.useEffect(() => {
     const loadBranding = async () => {
       await fetchBranding();
+      await fetchCurrency();
     };
     loadBranding();
     

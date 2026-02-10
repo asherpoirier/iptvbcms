@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { authAPI } from '../api/api';
 import { useAuthStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
-import { LogIn, Server, AlertCircle, Shield } from 'lucide-react';
+import { LogIn, Server, AlertCircle, Shield, Mail } from 'lucide-react';
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import Header from '../components/Header';
 import PrimaryButton from '../components/PrimaryButton';
@@ -19,6 +19,9 @@ export default function LoginPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [requires2FA, setRequires2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  const [showResendVerification, setShowResendVerification] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [resending, setResending] = useState(false);
   const { executeRecaptcha } = useGoogleReCaptcha();
 
   // Fetch reCAPTCHA configuration
@@ -52,7 +55,11 @@ export default function LoginPage() {
       } else {
         // Normal login success
         setAuth(response.data.user, response.data.access_token);
-        if (response.data.user.role === 'admin') {
+        const params = new URLSearchParams(window.location.search);
+        const redirectTo = params.get('redirect');
+        if (redirectTo) {
+          navigate(redirectTo);
+        } else if (response.data.user.role === 'admin') {
           navigate('/admin');
         } else {
           navigate('/dashboard');
@@ -60,8 +67,12 @@ export default function LoginPage() {
       }
     },
     onError: (error) => {
-      setError(error.response?.data?.detail || 'Login failed');
-      // No need to reset reCAPTCHA v3 (it's invisible and auto-resets)
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail || 'Login failed';
+      setError(detail);
+      if (status === 403 && detail.toLowerCase().includes('not verified')) {
+        setShowResendVerification(true);
+      }
     },
   });
 
@@ -91,6 +102,24 @@ export default function LoginPage() {
     }
     
     loginMutation.mutate(loginData);
+  };
+
+  const handleResendVerification = async () => {
+    setResending(true);
+    setError('');
+    try {
+      const response = await api.post('/api/auth/resend-verification', {
+        email: formData.email,
+        password: formData.password,
+        new_email: newEmail || null
+      });
+      setSuccessMessage(response.data.message);
+      setShowResendVerification(false);
+      setNewEmail('');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to resend verification email');
+    }
+    setResending(false);
   };
 
   return (
@@ -131,9 +160,45 @@ export default function LoginPage() {
             )}
 
             {error && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-red-800">{error}</p>
+              <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+              </div>
+            )}
+
+            {/* Resend Verification Email */}
+            {showResendVerification && (
+              <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Mail className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">Resend Verification Email</h4>
+                </div>
+                <p className="text-sm text-amber-800 dark:text-amber-300 mb-3">
+                  Didn't receive the email? You can resend it or update your email address below.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">
+                      Change email address (optional)
+                    </label>
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder={formData.email || 'Enter new email address'}
+                      className="w-full px-3 py-2 text-sm border border-amber-300 dark:border-amber-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resending}
+                    className="w-full flex items-center justify-center gap-2 bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-700 text-sm font-semibold disabled:opacity-50"
+                  >
+                    <Mail className="w-4 h-4" />
+                    {resending ? 'Sending...' : 'Resend Verification Email'}
+                  </button>
+                </div>
               </div>
             )}
 

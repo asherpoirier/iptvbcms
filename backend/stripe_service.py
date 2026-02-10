@@ -19,7 +19,7 @@ class StripeService:
             )
             logger.info(f"Stripe configured with webhook: {webhook_url}")
     
-    async def create_payment_session(self, amount, order_id, success_url, cancel_url, crypto_enabled=True):
+    async def create_payment_session(self, amount, order_id, success_url, cancel_url, crypto_enabled=True, currency="usd"):
         """Create Stripe checkout session"""
         if not self.checkout:
             return {"success": False, "error": "Stripe not configured"}
@@ -29,8 +29,8 @@ class StripeService:
             payment_methods = ['card', 'crypto'] if crypto_enabled else ['card']
             
             request = CheckoutSessionRequest(
-                amount=float(amount),  # Keep as float for Stripe
-                currency="usd",
+                amount=float(amount),
+                currency=currency.lower(),
                 success_url=success_url,
                 cancel_url=cancel_url,
                 metadata={

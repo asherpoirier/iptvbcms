@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { productsAPI, panelsAPI } from '../api/api';
 import { useAuthStore, useCartStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
+import { useCurrencyStore } from '../store/currency';
 import { ShoppingCart, LogIn, UserPlus, Server, Users, Info, X, Filter, Grid } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 import axios from 'axios';
@@ -14,10 +15,12 @@ export default function HomePage() {
   const { user } = useAuthStore();
   const { items } = useCartStore();
   const { branding, fetchBranding } = useBrandingStore();
+  const { symbol: currencySymbol } = useCurrencyStore();
   
   const [selectedPanel, setSelectedPanel] = useState('all');
   const [priceFilter, setPriceFilter] = useState('all');
   const [accountTypeFilter, setAccountTypeFilter] = useState('all');
+  const [connectionFilter, setConnectionFilter] = useState('all');
   
   // Fetch branding when component mounts
   React.useEffect(() => {
@@ -149,8 +152,22 @@ export default function HomePage() {
       });
     }
     
+    // Connection filter
+    if (connectionFilter !== 'all') {
+      const connNum = parseInt(connectionFilter);
+      Object.keys(filtered).forEach(panelKey => {
+        filtered[panelKey] = {
+          ...filtered[panelKey],
+          products: filtered[panelKey].products.filter(product => {
+            if (product.account_type === 'reseller') return true;
+            return (product.max_connections || 1) === connNum;
+          })
+        };
+      });
+    }
+    
     return filtered;
-  }, [productsByPanel, selectedPanel, priceFilter, accountTypeFilter]);
+  }, [productsByPanel, selectedPanel, priceFilter, accountTypeFilter, connectionFilter]);
 
   return (
     <div 
@@ -287,180 +304,81 @@ export default function HomePage() {
             {/* Sidebar Filters */}
             <div className="lg:col-span-1">
               <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 sticky top-24">
-                <div className="flex items-center gap-2 mb-6">
-                  <Filter className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
+                  </div>
+                  {(selectedPanel !== 'all' || priceFilter !== 'all' || accountTypeFilter !== 'all' || connectionFilter !== 'all') && (
+                    <button
+                      onClick={() => { setSelectedPanel('all'); setPriceFilter('all'); setAccountTypeFilter('all'); setConnectionFilter('all'); }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  )}
                 </div>
 
-                {/* Panel Filter */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    Select Service
-                  </label>
-                  <div className="space-y-2">
-                    {panelOptions.map(option => (
-                      <button
-                        key={option.key}
-                        onClick={() => {
-                          setSelectedPanel(option.key);
-                          // Reset price filter when selecting a specific panel
-                          if (option.key !== 'all') {
-                            setPriceFilter('all');
-                          }
-                        }}
-                        className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                          selectedPanel === option.key
-                            ? 'text-white'
-                            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                        style={selectedPanel === option.key ? {
-                          backgroundColor: branding.product_card_color || '#2563eb'
-                        } : {}}
-                        data-testid={`filter-panel-${option.key}`}
-                      >
-                        {option.name}
-                      </button>
-                    ))}
+                <div className="space-y-4">
+                  {/* Panel Filter */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Service</label>
+                    <select value={selectedPanel}
+                      onChange={(e) => { setSelectedPanel(e.target.value); if (e.target.value !== 'all') setPriceFilter('all'); }}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                    >
+                      {panelOptions.map(opt => (
+                        <option key={opt.key} value={opt.key}>{opt.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Product Type Filter */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Product Type</label>
+                    <select value={accountTypeFilter}
+                      onChange={(e) => setAccountTypeFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                    >
+                      <option value="all">All Products</option>
+                      <option value="subscriber">Subscription Plans</option>
+                      <option value="reseller">Reseller Packages</option>
+                    </select>
+                  </div>
+
+                  {/* Price Range Filter */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Price Range</label>
+                    <select value={priceFilter}
+                      onChange={(e) => setPriceFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                    >
+                      <option value="all">All Prices</option>
+                      <option value="free">Free Trials</option>
+                      <option value="under10">Under $10</option>
+                      <option value="under25">$10 - $25</option>
+                      <option value="over25">$25+</option>
+                    </select>
+                  </div>
+
+                  {/* Connections Filter */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Connections</label>
+                    <select value={connectionFilter}
+                      onChange={(e) => setConnectionFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                    >
+                      <option value="all">All Connections</option>
+                      {[1,2,3,4,5,6].map(n => (
+                        <option key={n} value={String(n)}>{n} Connection{n > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
-
-                {/* Account Type Filter */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    Product Type
-                  </label>
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => setAccountTypeFilter('all')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        accountTypeFilter === 'all'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={accountTypeFilter === 'all' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      All Products
-                    </button>
-                    <button
-                      onClick={() => setAccountTypeFilter('subscriber')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        accountTypeFilter === 'subscriber'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={accountTypeFilter === 'subscriber' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      Subscription Plans
-                    </button>
-                    <button
-                      onClick={() => setAccountTypeFilter('reseller')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        accountTypeFilter === 'reseller'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={accountTypeFilter === 'reseller' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      Reseller Packages
-                    </button>
-                  </div>
-                </div>
-
-                {/* Price Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    Price Range
-                  </label>
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => setPriceFilter('all')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        priceFilter === 'all'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={priceFilter === 'all' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      All Prices
-                    </button>
-                    <button
-                      onClick={() => setPriceFilter('free')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        priceFilter === 'free'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={priceFilter === 'free' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      Free Trials
-                    </button>
-                    <button
-                      onClick={() => setPriceFilter('under10')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        priceFilter === 'under10'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={priceFilter === 'under10' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      Under $10
-                    </button>
-                    <button
-                      onClick={() => setPriceFilter('under25')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        priceFilter === 'under25'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={priceFilter === 'under25' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      $10 - $25
-                    </button>
-                    <button
-                      onClick={() => setPriceFilter('over25')}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                        priceFilter === 'over25'
-                          ? 'text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }`}
-                      style={priceFilter === 'over25' ? {
-                        backgroundColor: branding.product_card_color || '#2563eb'
-                      } : {}}
-                    >
-                      $25+
-                    </button>
-                  </div>
-                </div>
-
-                {/* Active Filters Summary */}
-                {(selectedPanel !== 'all' || priceFilter !== 'all' || accountTypeFilter !== 'all') && (
-                  <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                    <button
-                      onClick={() => {
-                        setSelectedPanel('all');
-                        setPriceFilter('all');
-                        setAccountTypeFilter('all');
-                      }}
-                      className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                    >
-                      Clear all filters
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -508,7 +426,7 @@ export default function HomePage() {
                         
                           return (
                             <>
-                              {/* Subscriber Packages */}
+                              {/* Subscriber Packages - grouped by connections */}
                               {subscribers.length > 0 && (
                                 <div className="space-y-4">
                                   <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
@@ -516,11 +434,50 @@ export default function HomePage() {
                                     Subscription Plans
                                   </h4>
                                   <div className="space-y-4">
-                                    {subscribers
-                                      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                      .map((product) => (
-                                        <ProductCard key={product.id} product={product} />
-                                      ))}
+                                    {(() => {
+                                      // Sort all subscribers by display_order first
+                                      const sorted = [...subscribers].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+                                      
+                                      // Build ordered render list respecting display_order
+                                      // Group consecutive non-trial products with same connections
+                                      const renderItems = [];
+                                      let currentGroup = null;
+                                      
+                                      sorted.forEach(p => {
+                                        if (p.is_trial) {
+                                          // Flush current group if exists
+                                          if (currentGroup) {
+                                            renderItems.push({ type: 'group', ...currentGroup });
+                                            currentGroup = null;
+                                          }
+                                          renderItems.push({ type: 'single', product: p });
+                                        } else {
+                                          const conns = p.max_connections || 1;
+                                          if (currentGroup && currentGroup.connections === conns) {
+                                            currentGroup.products.push(p);
+                                          } else {
+                                            if (currentGroup) {
+                                              renderItems.push({ type: 'group', ...currentGroup });
+                                            }
+                                            currentGroup = { connections: conns, products: [p] };
+                                          }
+                                        }
+                                      });
+                                      if (currentGroup) {
+                                        renderItems.push({ type: 'group', ...currentGroup });
+                                      }
+                                      
+                                      return renderItems.map((item, idx) => {
+                                        if (item.type === 'single') {
+                                          return <ProductCard key={item.product.id} product={item.product} />;
+                                        }
+                                        return item.products.length > 1 ? (
+                                          <GroupedProductCard key={`group-${idx}-${item.connections}`} products={item.products} connections={item.connections} />
+                                        ) : (
+                                          <ProductCard key={item.products[0].id} product={item.products[0]} />
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               )}
@@ -560,6 +517,8 @@ export default function HomePage() {
                       onClick={() => {
                         setSelectedPanel('all');
                         setPriceFilter('all');
+                        setAccountTypeFilter('all');
+                        setConnectionFilter('all');
                       }}
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
@@ -571,6 +530,7 @@ export default function HomePage() {
             </div>
           </div>
         )}
+
       </section>
 
       {/* Footer */}
@@ -589,10 +549,119 @@ export default function HomePage() {
   );
 }
 
+function GroupedProductCard({ products, connections }) {
+  const { user } = useAuthStore();
+  const { addItem } = useCartStore();
+  const { branding } = useBrandingStore();
+  const { symbol: currencySymbol } = useCurrencyStore();
+  const [showChannels, setShowChannels] = React.useState(false);
+  const [channels, setChannels] = React.useState([]);
+  const [loadingChannels, setLoadingChannels] = React.useState(false);
+
+  const sorted = [...products].sort((a, b) => {
+    const aMonths = parseInt(Object.keys(a.prices)[0]) || 1;
+    const bMonths = parseInt(Object.keys(b.prices)[0]) || 1;
+    return aMonths - bMonths;
+  });
+
+  const handleAddToCart = (product, termMonths, price) => {
+    if (!user) { window.location.href = '/login'; return; }
+    addItem({ product_id: product.id, product_name: product.name, term_months: termMonths, price, account_type: product.account_type });
+    window.location.href = '/checkout';
+  };
+
+  const handleShowChannels = async () => {
+    setShowChannels(true);
+    setLoadingChannels(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/products/${sorted[0].id}/channels`);
+      setChannels(response.data.channels || []);
+    } catch { setChannels([]); }
+    finally { setLoadingChannels(false); }
+  };
+
+  const cardColor = branding.product_card_color || '#2563eb';
+  const darkenColor = (hex, pct) => {
+    const num = parseInt(hex.replace('#',''),16), amt = Math.round(2.55*pct);
+    const R=Math.max(0,(num>>16)-amt), G=Math.max(0,(num>>8&0xFF)-amt), B=Math.max(0,(num&0xFF)-amt);
+    return '#'+(0x1000000+R*0x10000+G*0x100+B).toString(16).slice(1);
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition border border-gray-200 dark:border-gray-700">
+      <div className="flex flex-col md:flex-row">
+        <div className="md:w-1/3 p-4 text-white relative" style={{ background: `linear-gradient(135deg, ${cardColor} 0%, ${darkenColor(cardColor, 15)} 100%)` }}>
+          <h3 className="text-lg font-bold mb-1">{connections} Connection{connections > 1 ? 's' : ''}</h3>
+          <p className="text-white text-xs opacity-90">{sorted.length} plan{sorted.length > 1 ? 's' : ''} available</p>
+          <div className="mt-3 pt-3 border-t border-white border-opacity-20">
+            <div className="flex items-center gap-2 text-xs">
+              <Server className="w-3.5 h-3.5" />
+              <span>{connections} connection{connections > 1 ? 's' : ''}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="md:w-2/3 p-4 flex flex-col justify-between">
+          <div className="space-y-2">
+            {sorted.map((product) => {
+              const [term, price] = Object.entries(product.prices)[0] || ['1', 0];
+              return (
+                <button key={product.id}
+                  onClick={() => handleAddToCart(product, parseInt(term), parseFloat(price))}
+                  className="w-full flex items-center justify-between bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-gray-700 p-3 rounded-lg transition border-2 border-gray-200 dark:border-gray-600 hover:border-blue-400 group"
+                >
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{product.name}</span>
+                  <span className="text-lg font-bold text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">
+                    {parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${price}`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={handleShowChannels}
+            className="mt-3 w-full flex items-center justify-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded-lg hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition text-sm font-medium">
+            <Info className="w-4 h-4" /> View Channels
+          </button>
+        </div>
+      </div>
+
+      {showChannels && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowChannels(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{connections} Connection{connections > 1 ? 's' : ''}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Live TV Channel Packages</p>
+              </div>
+              <button onClick={() => setShowChannels(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingChannels ? (
+                <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" /></div>
+              ) : channels.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {channels.map(ch => (
+                    <div key={ch.id} className="p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm text-gray-800 dark:text-gray-200">{ch.name}</div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-500 py-8">Channel list not available</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductCard({ product }) {
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
   const { branding } = useBrandingStore();
+  const { symbol: currencySymbol } = useCurrencyStore();
   const [showChannels, setShowChannels] = React.useState(false);
   const [channels, setChannels] = React.useState([]);
   const [loadingChannels, setLoadingChannels] = React.useState(false);
@@ -697,29 +766,16 @@ function ProductCard({ product }) {
         {/* Right: Pricing & Actions */}
         <div className="md:w-2/3 p-4 flex flex-col justify-between">
           <div>
-            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Available Plans:</h4>
             <div className="flex flex-wrap gap-2">
               {Object.entries(product.prices).map(([term, price]) => {
-                let displayTerm;
-                if (product.account_type === 'reseller') {
-                  displayTerm = 'Purchase';
-                } else if (product.is_trial && product.trial_duration) {
-                  const unit = product.trial_duration_unit || 'days';
-                  const singularUnit = unit.toLowerCase().endsWith('s') ? unit.slice(0, -1) : unit;
-                  displayTerm = `${product.trial_duration} ${product.trial_duration === 1 ? singularUnit : unit}`;
-                } else {
-                  displayTerm = `${term} ${parseInt(term) === 1 ? 'Mo' : 'Mos'}`;
-                }
-                
                 return (
                   <button
                     key={term}
                     onClick={() => handleAddToCart(parseInt(term), price)}
                     className="flex-1 min-w-[110px] flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-gray-700 p-3 rounded-lg transition border-2 border-gray-200 dark:border-gray-600 hover:border-blue-400 group"
                   >
-                    <span className="text-xs text-gray-600 dark:text-gray-400 mb-0.5">{displayTerm}</span>
                     <span className="text-xl font-bold text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">
-                      {product.is_trial && parseFloat(price) === 0 ? 'FREE' : `$${price}`}
+                      {product.is_trial && parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${price}`}
                     </span>
                   </button>
                 );

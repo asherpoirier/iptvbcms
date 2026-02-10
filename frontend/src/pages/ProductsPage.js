@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { productsAPI } from '../api/api';
 import { useAuthStore, useCartStore } from '../store/store';
-import { ShoppingCart, ArrowLeft } from 'lucide-react';
+import { useCurrencyStore } from '../store/currency';
+import { ShoppingCart, ArrowLeft, Tv, Users } from 'lucide-react';
 
 export default function ProductsPage() {
   const { user } = useAuthStore();
@@ -106,7 +107,7 @@ export default function ProductsPage() {
 }
 
 function ProductCard({ product, onAddToCart }) {
-  // Add visual distinction for reseller cards
+  const { symbol } = useCurrencyStore();
   const isReseller = product.account_type === 'reseller';
   
   return (
@@ -138,7 +139,7 @@ function ProductCard({ product, onAddToCart }) {
               <span className="font-semibold text-gray-900 dark:text-white">
                 {product.account_type === 'reseller' ? 'Purchase' : `${term} ${parseInt(term) === 1 ? 'Month' : 'Months'}`}
               </span>
-              <span className="text-2xl font-bold text-blue-600">${price}</span>
+              <span className="text-2xl font-bold text-blue-600">{symbol}{price}</span>
             </button>
           ))}
         </div>

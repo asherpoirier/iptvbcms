@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { productsAPI } from '../api/api';
@@ -9,7 +9,8 @@ export default function OrderProductPage() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { items, addItem } = useCartStore();
+  const { items, addItem, clearCart } = useCartStore();
+  const autoAdded = useRef(false);
 
   const { data: product, isLoading, error } = useQuery({
     queryKey: ['product', productId],
@@ -19,11 +20,39 @@ export default function OrderProductPage() {
     },
   });
 
+  // Auto-add to cart and redirect to checkout
+  useEffect(() => {
+    if (!product || autoAdded.current) return;
+    
+    const prices = Object.entries(product.prices || {});
+    if (prices.length === 0) return;
+    
+    // If not logged in, redirect to login with redirect back
+    if (!user) {
+      navigate(`/login?redirect=/order/${productId}`);
+      return;
+    }
+
+    // Clear cart and add this product with the first price option
+    const [term, price] = prices[0];
+    clearCart();
+    addItem({
+      product_id: product.id,
+      product_name: product.name,
+      term_months: parseInt(term),
+      price: parseFloat(price),
+      account_type: product.account_type,
+    });
+    autoAdded.current = true;
+    navigate('/checkout');
+  }, [product, user, productId, navigate, addItem, clearCart]);
+
   const handleAddToCart = (termMonths, price) => {
     if (!user) {
       navigate(`/login?redirect=/order/${productId}`);
       return;
     }
+    clearCart();
     addItem({
       product_id: product.id,
       product_name: product.name,

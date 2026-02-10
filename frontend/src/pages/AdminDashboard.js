@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { useAuthStore } from '../store/store';
+import { useCurrencyStore } from '../store/currency';
 import { 
   Home, ShoppingCart, Users, Server, MessageSquare, FileText, 
   BarChart3, Settings, LogOut, DollarSign, TrendingUp, Plus, 
@@ -17,6 +18,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const { symbol: currencySymbol } = useCurrencyStore();
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({});
@@ -284,7 +286,7 @@ export default function AdminDashboard() {
                             Total Revenue
                           </p>
                           <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                            ${stats?.total_revenue?.toFixed(2) || '0.00'}
+                            {currencySymbol}{stats?.total_revenue?.toFixed(2) || '0.00'}
                           </p>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             All time earnings
@@ -357,7 +359,7 @@ export default function AdminDashboard() {
                               borderRadius: '8px',
                               boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                             }}
-                            formatter={(value) => [`$${value.toFixed(2)}`, 'Revenue']}
+                            formatter={(value) => [`${currencySymbol}${value.toFixed(2)}`, 'Revenue']}
                           />
                           <Area 
                             type="monotone" 
@@ -492,7 +494,7 @@ export default function AdminDashboard() {
                               </TableCell>
                               <TableCell>{order.customer_name}</TableCell>
                               <TableCell className="font-semibold">
-                                ${order.total.toFixed(2)}
+                                {currencySymbol}{order.total.toFixed(2)}
                               </TableCell>
                               <TableCell>
                                 <Badge 

@@ -373,6 +373,7 @@ class Settings(BaseModel):
     recaptcha: RecaptchaSettings = Field(default_factory=RecaptchaSettings)
     emt: EMTSettings = Field(default_factory=EMTSettings)
     invoice: InvoiceSettings = Field(default_factory=InvoiceSettings)
+    currency: str = "USD"
     refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"
     company_email: str = ""

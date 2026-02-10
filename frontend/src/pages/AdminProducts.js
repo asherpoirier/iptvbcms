@@ -318,16 +318,6 @@ export default function AdminProducts() {
                       return matchesSearch && matchesPanel && matchesType;
                     })
                     .sort((a, b) => {
-                      // Sort by panel type first (xtream before xuione)
-                      const typeA = a.panel_type || 'xtream';
-                      const typeB = b.panel_type || 'xtream';
-                      if (typeA !== typeB) {
-                        return typeA === 'xtream' ? -1 : 1;
-                      }
-                      // Then by panel_index
-                      const panelDiff = (a.panel_index || 0) - (b.panel_index || 0);
-                      if (panelDiff !== 0) return panelDiff;
-                      // Then by display_order
                       return (a.display_order || 0) - (b.display_order || 0);
                     })
                     .map((product, index, array) => (
@@ -616,11 +606,14 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
+      // Only save ONE price entry based on the package duration
       const prices = {};
-      if (data.price_1) prices['1'] = parseFloat(data.price_1);
-      if (data.price_3) prices['3'] = parseFloat(data.price_3);
-      if (data.price_6) prices['6'] = parseFloat(data.price_6);
-      if (data.price_12) prices['12'] = parseFloat(data.price_12);
+      const pkg = selectedPackage || product;
+      const durationMonths = pkg ? convertDurationToMonths(pkg.duration || 1, pkg.duration_unit || 'months') : 1;
+      
+      // Find the price value from whichever field has it
+      const priceValue = data[`price_${durationMonths}`] || data.price_1 || data.price_3 || data.price_6 || data.price_12 || '0';
+      prices[String(durationMonths)] = parseFloat(priceValue);
 
       const productData = {
         name: data.name,
@@ -950,7 +943,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     max="10"
                     value={formData.max_connections}
                     onChange={(e) => setFormData({ ...formData, max_connections: e.target.value })}
-                    disabled={selectedPackage !== null}
+                    disabled={selectedPackage !== null || isEditing}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                   />
                   {selectedPackage && (

@@ -21,7 +21,7 @@ class SquareService:
             )
             logger.info(f"Square configured in {environment} mode")
     
-    async def create_payment(self, amount, source_id, order_id="", customer_email=""):
+    async def create_payment(self, amount, source_id, order_id="", customer_email="", currency="USD"):
         """Create Square payment"""
         if not self.access_token:
             return {"success": False, "error": "Square not configured"}
@@ -35,7 +35,7 @@ class SquareService:
                 source_id=source_id,
                 amount_money={
                     "amount": int(amount * 100),
-                    "currency": "CAD"
+                    "currency": currency.upper()
                 },
                 location_id=self.location_id,
                 reference_id=order_id,

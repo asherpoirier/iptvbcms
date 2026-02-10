@@ -165,6 +165,14 @@ export default function AdminSettings() {
                 reCAPTCHA
               </button>
               <button
+                onClick={() => setActiveTab('currency')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'currency' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Currency
+              </button>
+              <button
                 onClick={() => setActiveTab('license')}
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
                   activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -259,6 +267,11 @@ export default function AdminSettings() {
               <RecaptchaSettings settings={settings} />
             )}
 
+            {/* Currency Tab */}
+            {activeTab === 'currency' && (
+              <CurrencySettings settings={settings} />
+            )}
+
             {/* License Tab */}
             {activeTab === 'license' && (
               <LicenseSettings settings={settings} />
@@ -277,6 +290,88 @@ export default function AdminSettings() {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+
+function CurrencySettings({ settings }) {
+  const [selected, setSelected] = React.useState(settings?.currency || 'USD');
+  const [loading, setLoading] = React.useState(false);
+  const queryClient = React.useMemo(() => require('@tanstack/react-query').useQueryClient, []);
+
+  const currencies = [
+    { code: 'USD', symbol: '$', name: 'US Dollar' },
+    { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+    { code: 'EUR', symbol: '\u20ac', name: 'Euro' },
+  ];
+
+  const current = settings?.currency || 'USD';
+
+  const handleChange = async () => {
+    if (selected === current) return;
+    if (!window.confirm(`Change currency from ${current} to ${selected}?\n\nThis will convert ALL existing product prices using current exchange rates. This action cannot be easily undone.`)) return;
+    setLoading(true);
+    try {
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/currency`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ currency: selected })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`${data.message}\n\nConversion factor: ${data.conversion_factor}`);
+        window.location.reload();
+      } else {
+        alert('Error: ' + (data.detail || 'Failed'));
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Currency</h2>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Set the system-wide currency for all prices and invoices</p>
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="mb-4">
+          <p className="text-sm text-gray-700 dark:text-gray-300">Current currency: <span className="font-bold text-lg">{current}</span></p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          {currencies.map((c) => (
+            <button key={c.code} type="button"
+              onClick={() => setSelected(c.code)}
+              className={`p-4 rounded-lg border-2 text-center transition ${
+                selected === c.code
+                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'
+              }`}>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{c.symbol}</p>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">{c.code}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{c.name}</p>
+            </button>
+          ))}
+        </div>
+
+        {selected !== current && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-4">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              <strong>Warning:</strong> Changing currency will convert all existing product prices from {current} to {selected} using current exchange rates. Review your prices after conversion.
+            </p>
+          </div>
+        )}
+
+        <button onClick={handleChange}
+          disabled={loading || selected === current}
+          className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50">
+          {loading ? 'Converting...' : selected === current ? `Current: ${current}` : `Switch to ${selected}`}
+        </button>
+      </div>
     </div>
   );
 }

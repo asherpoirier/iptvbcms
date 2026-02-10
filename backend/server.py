@@ -854,17 +854,59 @@ async def verify_email(token: str):
     except:
         return RedirectResponse(url="/?error=invalid_token")
 
+class ResendVerificationRequest(BaseModel):
+    email: str
+    password: str
+    new_email: Optional[str] = None
+
+@app.post("/api/auth/resend-verification")
+async def resend_verification(data: ResendVerificationRequest):
+    """Resend verification email, optionally update email address"""
+    user = await users_collection.find_one({"email": data.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
     
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user_dict["id"],
-            "email": user_data.email,
-            "name": user_data.name,
-            "role": "user"
-        }
-    }
+    if not verify_password(data.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    
+    if user.get("email_verified"):
+        raise HTTPException(status_code=400, detail="Email already verified")
+    
+    target_email = data.new_email.strip() if data.new_email and data.new_email.strip() else data.email
+    
+    # If changing email, check it's not taken
+    if target_email != data.email:
+        existing = await users_collection.find_one({"email": target_email})
+        if existing:
+            raise HTTPException(status_code=400, detail="That email is already registered")
+        await users_collection.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"email": target_email}}
+        )
+    
+    # Generate new verification token
+    verification_token = secrets.token_urlsafe(32)
+    await users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"verification_token": verification_token}}
+    )
+    
+    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/verify-email?token={verification_token}"
+    logger.info(f"Resend verification: new token generated for {target_email}, link={verification_link[:80]}...")
+    
+    email_service = await get_configured_email_service()
+    if email_service and email_service.enabled:
+        try:
+            await email_service.send_email_verification(
+                customer_email=target_email,
+                customer_name=user.get("name", ""),
+                verification_link=verification_link,
+                customer_id=str(user["_id"])
+            )
+        except Exception as e:
+            logger.error(f"Failed to resend verification: {e}")
+    
+    return {"message": f"Verification email sent to {target_email}"}
 
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
@@ -1169,8 +1211,11 @@ async def create_paypal_payment(order_id: str, origin: dict, current_user: dict 
     frontend_url = origin.get("origin", "http://localhost:3000")
     
     # Create payment with frontend URLs
+    settings = await get_settings()
+    currency = settings.get("currency", "USD")
     result = paypal.create_order(
         amount=order["total"],
+        currency=currency,
         return_url=f"{frontend_url}/payment/paypal/success?order_id={order_id}",
         cancel_url=f"{frontend_url}/checkout?payment=cancelled",
         order_id=order_id
@@ -1381,13 +1426,16 @@ async def create_stripe_payment(order_id: str, request: Request, current_user: d
     frontend_url = base_url.replace(':8001', ':3000') if ':8001' in base_url else base_url
     
     # Create payment session
+    settings = await get_settings()
+    currency = settings.get("currency", "USD").lower()
     # Note: {CHECKOUT_SESSION_ID} is a Stripe placeholder that gets replaced with actual session ID
     result = await stripe.create_payment_session(
         amount=order["total"],
         order_id=order_id,
         success_url=f"{frontend_url}/checkout?payment=success&session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}",
         cancel_url=f"{frontend_url}/checkout?payment=cancelled",
-        crypto_enabled=stripe_settings.get("crypto_enabled", True)
+        crypto_enabled=stripe_settings.get("crypto_enabled", True),
+        currency=currency
     )
     
     if result["success"]:
@@ -1398,7 +1446,7 @@ async def create_stripe_payment(order_id: str, request: Request, current_user: d
             "gateway": "stripe",
             "session_id": result["session_id"],
             "amount": order["total"],
-            "currency": "usd",
+            "currency": currency,
             "payment_status": "pending",
             "created_at": datetime.utcnow()
         })
@@ -1594,11 +1642,14 @@ async def create_square_payment(order_id: str, data: dict, background_tasks: Bac
         raise HTTPException(status_code=500, detail="Square service not available")
     
     # Create payment
+    settings = await get_settings()
+    currency = settings.get("currency", "USD")
     result = await square.create_payment(
         amount=order["total"],
         source_id=source_id,
         order_id=order_id,
-        customer_email=user.get("email", "")
+        customer_email=user.get("email", ""),
+        currency=currency
     )
     
     if result["success"] and result["status"] == "COMPLETED":
@@ -2735,7 +2786,8 @@ async def get_payment_config():
         "manual": {
             "enabled": True
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "stripe", "paypal", "square", "blockonomics"])
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "stripe", "paypal", "square", "blockonomics"]),
+        "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
     }
 
 @app.post("/api/admin/orders/{order_id}/mark-paid")
@@ -4302,103 +4354,58 @@ async def delete_product(product_id: str, current_user: dict = Depends(get_curre
 
 @app.post("/api/admin/products/{product_id}/reorder")
 async def reorder_product(product_id: str, direction: str = Query(...), current_user: dict = Depends(get_current_admin_user)):
-    """Reorder product (move up or down)"""
+    """Reorder product (move up or down) in the global display list"""
     if direction not in ['up', 'down']:
         raise HTTPException(status_code=400, detail="Direction must be 'up' or 'down'")
     
-    # Get current product
-    product = await products_collection.find_one({"_id": str_to_objectid(product_id)})
-    if not product:
+    # Get ALL products sorted by display_order (same as admin page shows)
+    all_products = []
+    async for p in products_collection.find().sort([("display_order", 1), ("created_at", 1)]):
+        all_products.append(p)
+    
+    # Find current product index
+    current_index = next((i for i, p in enumerate(all_products) if str(p["_id"]) == product_id), None)
+    if current_index is None:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    current_order = product.get("display_order", 0)
-    panel_index = product.get("panel_index", 0)
-    panel_type = product.get("panel_type", "xtream")
-    account_type = product.get("account_type", "subscriber")
-    
-    # Get all products in same panel type, panel index, AND same account type, sorted by display_order
-    panel_products = []
-    async for p in products_collection.find({
-        "panel_index": panel_index,
-        "panel_type": panel_type,
-        "account_type": account_type
-    }).sort("display_order", 1):
-        panel_products.append(p)
-    
-    # Find current product index in the list
-    current_index = next((i for i, p in enumerate(panel_products) if str(p["_id"]) == product_id), None)
-    
-    if current_index is None:
-        raise HTTPException(status_code=404, detail="Product not found in panel")
-    
     # Determine swap index
-    if direction == 'up':
-        if current_index == 0:
-            return {"message": "Product is already first"}
-        swap_index = current_index - 1
-    else:  # down
-        if current_index == len(panel_products) - 1:
-            return {"message": "Product is already last"}
-        swap_index = current_index + 1
+    if direction == 'up' and current_index == 0:
+        return {"message": "Already first"}
+    if direction == 'down' and current_index == len(all_products) - 1:
+        return {"message": "Already last"}
+    
+    swap_index = current_index - 1 if direction == 'up' else current_index + 1
     
     # Swap display_order values
-    current_product = panel_products[current_index]
-    swap_product = panel_products[swap_index]
+    cur = all_products[current_index]
+    swp = all_products[swap_index]
+    cur_order = cur.get("display_order", current_index)
+    swp_order = swp.get("display_order", swap_index)
     
-    current_display_order = current_product.get("display_order", current_index)
-    swap_display_order = swap_product.get("display_order", swap_index)
+    # If they have the same display_order, use their indices instead
+    if cur_order == swp_order:
+        cur_order = current_index
+        swp_order = swap_index
     
-    await products_collection.update_one(
-        {"_id": current_product["_id"]},
-        {"$set": {"display_order": swap_display_order}}
-    )
-    
-    await products_collection.update_one(
-        {"_id": swap_product["_id"]},
-        {"$set": {"display_order": current_display_order}}
-    )
+    await products_collection.update_one({"_id": cur["_id"]}, {"$set": {"display_order": swp_order}})
+    await products_collection.update_one({"_id": swp["_id"]}, {"$set": {"display_order": cur_order}})
     
     return {"message": "Product reordered successfully"}
 
 @app.post("/api/admin/products/fix-display-order")
 async def fix_display_order(current_user: dict = Depends(get_current_admin_user)):
-    """Fix and initialize display_order for all products"""
-    # Get all products grouped by panel_type, panel_index, and account_type
+    """Fix display_order - assign sequential numbers to all products"""
     all_products = []
-    async for p in products_collection.find():
+    async for p in products_collection.find().sort([("display_order", 1), ("created_at", 1)]):
         all_products.append(p)
     
-    # Group products
-    from collections import defaultdict
-    groups = defaultdict(list)
+    for index, product in enumerate(all_products):
+        await products_collection.update_one(
+            {"_id": product["_id"]},
+            {"$set": {"display_order": index}}
+        )
     
-    for product in all_products:
-        panel_type = product.get("panel_type", "xtream")
-        panel_index = product.get("panel_index", 0)
-        account_type = product.get("account_type", "subscriber")
-        key = f"{panel_type}-{panel_index}-{account_type}"
-        groups[key].append(product)
-    
-    # Assign sequential display_order within each group
-    updated_count = 0
-    for group_key, group_products in groups.items():
-        # Sort by current display_order (if exists) or creation date
-        group_products.sort(key=lambda p: (
-            p.get("display_order", 999),
-            p.get("created_at", datetime.min)
-        ))
-        
-        # Assign sequential order
-        for index, product in enumerate(group_products):
-            await products_collection.update_one(
-                {"_id": product["_id"]},
-                {"$set": {"display_order": index}}
-            )
-            updated_count += 1
-    
-    return {
-        "message": f"Fixed display_order for {updated_count} products across {len(groups)} groups"
-    }
+    return {"message": f"Fixed display_order for {len(all_products)} products"}
 
 
 @app.get("/api/branding")
@@ -4450,6 +4457,74 @@ async def update_admin_settings(settings_update: Settings,
     get_email_service(settings_dict.get("smtp", {}))
     
     return {"message": "Settings updated successfully"}
+
+# Exchange rates relative to USD
+CURRENCY_RATES = {
+    "USD": 1.0,
+    "CAD": 1.36,
+    "EUR": 0.92,
+}
+CURRENCY_SYMBOLS = {
+    "USD": "$",
+    "CAD": "C$",
+    "EUR": "\u20ac",
+}
+
+@app.get("/api/currency")
+async def get_currency():
+    """Get current currency setting (public)"""
+    settings = await get_settings()
+    code = settings.get("currency", "USD")
+    return {"code": code, "symbol": CURRENCY_SYMBOLS.get(code, "$")}
+
+class ChangeCurrencyRequest(BaseModel):
+    currency: str
+
+@app.post("/api/admin/currency")
+async def change_currency(data: ChangeCurrencyRequest, current_user: dict = Depends(get_current_admin_user)):
+    """Change system currency and convert all product prices"""
+    new_currency = data.currency.upper()
+    if new_currency not in CURRENCY_RATES:
+        raise HTTPException(status_code=400, detail=f"Unsupported currency. Choose from: {', '.join(CURRENCY_RATES.keys())}")
+    
+    settings = await get_settings()
+    old_currency = settings.get("currency", "USD")
+    
+    if old_currency == new_currency:
+        return {"message": f"Currency is already {new_currency}"}
+    
+    # Convert: old -> USD -> new
+    old_rate = CURRENCY_RATES[old_currency]
+    new_rate = CURRENCY_RATES[new_currency]
+    conversion_factor = new_rate / old_rate
+    
+    # Convert all product prices
+    converted = 0
+    async for product in products_collection.find({}):
+        prices = product.get("prices", {})
+        new_prices = {}
+        for term, price in prices.items():
+            new_prices[term] = round(float(price) * conversion_factor, 2)
+        await products_collection.update_one(
+            {"_id": product["_id"]},
+            {"$set": {"prices": new_prices}}
+        )
+        converted += 1
+    
+    # Save currency setting
+    await settings_collection.update_one({}, {"$set": {"currency": new_currency}}, upsert=True)
+    
+    logger.info(f"Currency changed from {old_currency} to {new_currency} (factor: {conversion_factor:.4f}), {converted} products converted")
+    
+    return {
+        "message": f"Currency changed to {new_currency}. {converted} products converted.",
+        "old_currency": old_currency,
+        "new_currency": new_currency,
+        "conversion_factor": round(conversion_factor, 4),
+        "products_converted": converted
+    }
+
+
 
 # ===== NOTIFICATION SETTINGS ENDPOINTS =====
 

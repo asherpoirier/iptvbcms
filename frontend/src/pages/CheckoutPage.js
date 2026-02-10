@@ -454,7 +454,7 @@ export default function CheckoutPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="text-xl font-bold text-gray-900">${item.price.toFixed(2)}</span>
+                        <span className="text-xl font-bold text-gray-900">{(settings?.currency?.symbol || "$")}{item.price.toFixed(2)}</span>
                         <button
                           onClick={() => removeItem(item.product_id, item.term_months)}
                           className="text-red-600 hover:text-red-700"
@@ -620,7 +620,7 @@ export default function CheckoutPage() {
                 
                 <div className="flex justify-between text-lg font-bold border-t pt-4">
                   <span className="text-gray-900 dark:text-white">Total</span>
-                  <span className="text-blue-600">${Math.max(0, getTotal() - discountAmount - creditsUsed).toFixed(2)}</span>
+                  <span className="text-blue-600">{(settings?.currency?.symbol || "$")}{Math.max(0, getTotal() - discountAmount - creditsUsed).toFixed(2)}</span>
                 </div>
               </div>
 
@@ -807,7 +807,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
                         <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
-                          Amount: <span className="font-bold">${getTotal().toFixed(2)} CAD</span>
+                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
                         </p>
                       </div>
                     </div>
@@ -823,7 +823,7 @@ export default function CheckoutPage() {
                     </p>
                   </div>
                 ) : paymentMethod === 'paypal' && settings?.paypal?.client_id ? (
-                  <PayPalScriptProvider options={{ "client-id": settings.paypal.client_id, currency: "USD" }}>
+                  <PayPalScriptProvider options={{ "client-id": settings.paypal.client_id, currency: settings?.currency?.code || "USD" }}>
                     <PayPalButtons
                       style={{ layout: "vertical", color: "blue" }}
                       createOrder={createPayPalOrder}
