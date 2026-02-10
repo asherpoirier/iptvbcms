@@ -4871,13 +4871,6 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             
             xuione_subscriber_usernames.add(username)
             
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "panel_type": "xuione",
-                "account_type": "subscriber"
-            })
-            
             expiry_str = user_data.get("expiry", "")
             expiry_date = None
             if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
@@ -4903,24 +4896,19 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 "status": status,
                 "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
                 "account_type": "subscriber",
+                "xtream_user_id": user_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
             }
             
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": user_doc}
-                )
-                updated_count += 1
-            else:
-                user_doc["created_at"] = datetime.utcnow()
-                user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                await imported_users_collection.update_one(
-                    {"username": username, "panel_type": "xuione", "panel_index": panel_index, "account_type": "subscriber"},
-                    {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                    upsert=True
-                )
+            result_up = await imported_users_collection.update_one(
+                {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                upsert=True
+            )
+            if result_up.upserted_id:
                 synced_count += 1
+            elif result_up.modified_count:
+                updated_count += 1
     # Sync subresellers
     reseller_result = service.get_subresellers()
     reseller_synced = 0
@@ -4936,13 +4924,6 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 continue
             
             xuione_reseller_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "panel_type": "xuione",
-                "account_type": "reseller"
-            })
             
             expiry_str = reseller_data.get("expiry", "NEVER")
             expiry_date = None
@@ -4967,26 +4948,21 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 "member_group": reseller_data.get("member_group", ""),
                 "owner": reseller_data.get("owner", ""),
                 "account_type": "reseller",
+                "xtream_user_id": reseller_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
             }
             
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": reseller_doc}
-                )
-                reseller_updated += 1
-                updated_count += 1
-            else:
-                reseller_doc["created_at"] = datetime.utcnow()
-                reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.update_one(
-                    {"username": reseller_doc.get("username",""), "panel_name": reseller_doc.get("panel_name",""), "account_type": reseller_doc.get("account_type","subscriber")},
-                    {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                    upsert=True
-                )
+            result_up = await imported_users_collection.update_one(
+                {"username": username, "panel_name": panel_name, "account_type": "reseller"},
+                {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                upsert=True
+            )
+            if result_up.upserted_id:
                 reseller_synced += 1
                 synced_count += 1
+            elif result_up.modified_count:
+                reseller_updated += 1
+                updated_count += 1
     
     # Cleanup stale users
     if xuione_subscriber_usernames:
@@ -6595,12 +6571,6 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
             
             xtream_subscriber_usernames.add(username)
             
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "account_type": "subscriber"
-            })
-            
             # Parse expiry date - handle multiple formats
             expiry_str = user_data.get("expiry", "")
             expiry_date = None
@@ -6626,6 +6596,7 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
             
             user_doc = {
                 "panel_index": panel_index,
+                "panel_type": "xtream",
                 "panel_name": panel_name,
                 "username": username,
                 "password": user_data.get("password", ""),
@@ -6633,32 +6604,19 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 "status": status,
                 "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
                 "account_type": "subscriber",
+                "xtream_user_id": user_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
             }
             
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": user_doc}
-                )
+            result_up = await imported_users_collection.update_one(
+                {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                upsert=True
+            )
+            if result_up.upserted_id:
+                synced_count += 1
+            elif result_up.modified_count:
                 updated_count += 1
-            else:
-                user_doc["created_at"] = datetime.utcnow()
-                user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                try:
-                    await imported_users_collection.update_one(
-                        {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
-                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
-                    synced_count += 1
-                except Exception:
-                    # Duplicate - update instead
-                    await imported_users_collection.update_one(
-                        {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
-                        {"$set": user_doc}
-                        )
-                    updated_count += 1
     # === SYNC SUBRESELLERS (reg_users table) ===
     reseller_result = xtream_service.get_subresellers()
     reseller_synced = 0
@@ -6674,12 +6632,6 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 continue
             
             xtream_reseller_usernames.add(username)
-            
-            existing = await imported_users_collection.find_one({
-                "username": username,
-                "panel_index": panel_index,
-                "account_type": "reseller"
-            })
             
             # Parse expiry - resellers usually have "NEVER"
             expiry_str = reseller_data.get("expiry", "NEVER")
@@ -6699,35 +6651,31 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
             
             reseller_doc = {
                 "panel_index": panel_index,
+                "panel_type": "xtream",
                 "panel_name": panel_name,
                 "username": username,
-                "password": "",  # Reseller passwords not exposed
+                "password": "",
                 "expiry_date": expiry_date,
                 "status": "active",
                 "credits": float(reseller_data.get("credits", 0) or 0),
                 "member_group": reseller_data.get("member_group", ""),
                 "owner": reseller_data.get("owner", ""),
                 "account_type": "reseller",
+                "xtream_user_id": reseller_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
             }
             
-            if existing:
-                await imported_users_collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": reseller_doc}
-                )
-                reseller_updated += 1
-                updated_count += 1
-            else:
-                reseller_doc["created_at"] = datetime.utcnow()
-                reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.update_one(
-                    {"username": reseller_doc.get("username",""), "panel_name": reseller_doc.get("panel_name",""), "account_type": reseller_doc.get("account_type","subscriber")},
-                    {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                    upsert=True
-                )
+            result_up = await imported_users_collection.update_one(
+                {"username": username, "panel_name": panel_name, "account_type": "reseller"},
+                {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                upsert=True
+            )
+            if result_up.upserted_id:
                 reseller_synced += 1
                 synced_count += 1
+            elif result_up.modified_count:
+                reseller_updated += 1
+                updated_count += 1
     
     # === CLEANUP: Remove users that no longer exist in XtreamUI ===
     # This ensures the billing panel is a 1:1 mirror of XtreamUI
