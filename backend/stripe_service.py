@@ -1,58 +1,123 @@
-from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
-import logging
 import os
+import logging
 
 logger = logging.getLogger(__name__)
 
+# Try emergentintegrations first (Emergent platform), fall back to official stripe SDK
+try:
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+    USING_EMERGENT = True
+    logger.info("Using emergentintegrations Stripe")
+except ImportError:
+    USING_EMERGENT = False
+    try:
+        import stripe
+        logger.info("Using official stripe SDK")
+    except ImportError:
+        stripe = None
+        logger.warning("No Stripe library available. Install 'stripe' package.")
+
+
 class StripeService:
-    """Stripe payment processing service with crypto support"""
-    
     def __init__(self, api_key=None, webhook_url=""):
-        self.api_key = api_key or os.getenv("STRIPE_API_KEY", "sk_test_emergent")
+        self.api_key = api_key or os.getenv("STRIPE_API_KEY", "")
         self.webhook_url = webhook_url
         self.checkout = None
         
-        if self.api_key:
+        if not self.api_key:
+            logger.warning("No Stripe API key provided")
+            return
+        
+        if USING_EMERGENT:
             try:
                 self.checkout = StripeCheckout(
                     api_key=self.api_key,
                     webhook_url=self.webhook_url or "https://example.com/api/webhooks/stripe"
                 )
-                logger.info(f"Stripe configured (key: {self.api_key[:12]}...)")
+                logger.info(f"Stripe configured via emergentintegrations (key: {self.api_key[:12]}...)")
             except Exception as e:
                 logger.error(f"Stripe init failed: {e}")
-                self.checkout = None
+        else:
+            if stripe:
+                stripe.api_key = self.api_key
+                self.checkout = "native"  # marker that native SDK is ready
+                logger.info(f"Stripe configured via native SDK (key: {self.api_key[:12]}...)")
     
     async def create_payment_session(self, amount, order_id, success_url, cancel_url, crypto_enabled=True, currency="usd"):
         """Create Stripe checkout session"""
         if not self.checkout:
-            return {"success": False, "error": "Stripe not configured"}
+            return {"success": False, "error": "Stripe not configured. Check API key."}
         
         try:
-            # Include crypto payment method if enabled
-            payment_methods = ['card', 'crypto'] if crypto_enabled else ['card']
-            
-            request = CheckoutSessionRequest(
-                amount=float(amount),
-                currency=currency.lower(),
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
-                    "order_id": order_id,
-                    "source": "web_checkout"
-                },
-                payment_methods=payment_methods
-            )
-            
-            session: CheckoutSessionResponse = await self.checkout.create_checkout_session(request)
-            
-            logger.info(f"Stripe session created: {session.session_id} for order {order_id}")
-            return {
-                "success": True,
-                "session_id": session.session_id,
-                "checkout_url": session.url
-            }
-            
+            if USING_EMERGENT:
+                payment_methods = ['card', 'crypto'] if crypto_enabled else ['card']
+                request = CheckoutSessionRequest(
+                    amount=float(amount),
+                    currency=currency.lower(),
+                    order_id=order_id,
+                    success_url=success_url,
+                    cancel_url=cancel_url,
+                    payment_method_types=payment_methods,
+                    metadata={"order_id": order_id}
+                )
+                session = self.checkout.create_session(request)
+                logger.info(f"Stripe session created: {session.session_id}")
+                return {
+                    "success": True,
+                    "session_id": session.session_id,
+                    "checkout_url": session.url
+                }
+            else:
+                # Native Stripe SDK
+                payment_methods = ['card']
+                if crypto_enabled:
+                    payment_methods.append('crypto')
+                
+                try:
+                    session = stripe.checkout.Session.create(
+                        payment_method_types=payment_methods,
+                        line_items=[{
+                            'price_data': {
+                                'currency': currency.lower(),
+                                'product_data': {
+                                    'name': f'Order #{order_id[:8]}',
+                                },
+                                'unit_amount': int(float(amount) * 100),  # Stripe uses cents
+                            },
+                            'quantity': 1,
+                        }],
+                        mode='payment',
+                        success_url=success_url,
+                        cancel_url=cancel_url,
+                        metadata={'order_id': order_id},
+                    )
+                except stripe.error.InvalidRequestError:
+                    # If crypto not supported, retry without it
+                    session = stripe.checkout.Session.create(
+                        payment_method_types=['card'],
+                        line_items=[{
+                            'price_data': {
+                                'currency': currency.lower(),
+                                'product_data': {
+                                    'name': f'Order #{order_id[:8]}',
+                                },
+                                'unit_amount': int(float(amount) * 100),
+                            },
+                            'quantity': 1,
+                        }],
+                        mode='payment',
+                        success_url=success_url,
+                        cancel_url=cancel_url,
+                        metadata={'order_id': order_id},
+                    )
+                
+                logger.info(f"Stripe session created: {session.id}")
+                return {
+                    "success": True,
+                    "session_id": session.id,
+                    "checkout_url": session.url
+                }
+        
         except Exception as e:
             import traceback
             logger.error(f"Stripe session creation error: {e}\n{traceback.format_exc()}")
@@ -60,44 +125,26 @@ class StripeService:
     
     async def get_payment_status(self, session_id):
         """Get payment status"""
-        if not self.checkout:
-            return {"success": False, "error": "Stripe not configured"}
-        
         try:
-            status: CheckoutStatusResponse = await self.checkout.get_checkout_status(session_id)
-            
-            return {
-                "success": True,
-                "status": status.status,
-                "payment_status": status.payment_status,
-                "amount": status.amount_total / 100,  # Convert from cents
-                "currency": status.currency,
-                "metadata": status.metadata
-            }
-            
+            if USING_EMERGENT and self.checkout:
+                status = self.checkout.get_session_status(session_id)
+                return {
+                    "success": True,
+                    "status": status.payment_status,
+                    "amount": status.amount_total
+                }
+            elif stripe:
+                session = stripe.checkout.Session.retrieve(session_id)
+                return {
+                    "success": True,
+                    "status": session.payment_status,
+                    "amount": session.amount_total / 100 if session.amount_total else 0
+                }
+            return {"success": False, "error": "Stripe not available"}
         except Exception as e:
             logger.error(f"Stripe status check error: {e}")
             return {"success": False, "error": str(e)}
-    
-    async def handle_webhook(self, body, signature):
-        """Handle Stripe webhook"""
-        if not self.checkout:
-            return {"success": False, "error": "Stripe not configured"}
-        
-        try:
-            event = await self.checkout.handle_webhook(body, signature)
-            
-            return {
-                "success": True,
-                "event_type": event.event_type,
-                "session_id": event.session_id,
-                "payment_status": event.payment_status,
-                "metadata": event.metadata
-            }
-            
-        except Exception as e:
-            logger.error(f"Stripe webhook error: {e}")
-            return {"success": False, "error": str(e)}
+
 
 def get_stripe_service(stripe_settings=None, webhook_url=""):
     """Get Stripe service instance"""
@@ -108,18 +155,13 @@ def get_stripe_service(stripe_settings=None, webhook_url=""):
     
     if mode == "live":
         api_key = stripe_settings.get("live_secret_key", "")
-        if api_key:
-            logger.info("Using live Stripe key")
-        else:
+        if not api_key:
             logger.warning("Stripe in live mode but no live_secret_key set")
             return None
     else:
         api_key = stripe_settings.get("test_secret_key", "")
-        if not api_key or api_key == "sk_test_":
+        if not api_key:
             api_key = "sk_test_emergent"
-        logger.info("Using test Stripe key")
     
-    return StripeService(
-        api_key=api_key,
-        webhook_url=webhook_url
-    )
+    logger.info(f"Stripe service: mode={mode}, key={api_key[:12]}...")
+    return StripeService(api_key=api_key, webhook_url=webhook_url)

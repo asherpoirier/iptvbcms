@@ -289,6 +289,11 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     # Remove emergentintegrations (only for hosted environment)
     grep -v "emergentintegrations" "$INSTALL_DIR/backend/requirements.txt" > "$INSTALL_DIR/backend/requirements_clean.txt"
     
+    # Add stripe SDK (replaces emergentintegrations for payments)
+    if ! grep -q "^stripe" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "stripe==14.1.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    
     # Add cloud backup dependencies if not present
     if ! grep -q "gitpython" "$INSTALL_DIR/backend/requirements_clean.txt"; then
         echo "gitpython==3.1.43" >> "$INSTALL_DIR/backend/requirements_clean.txt"
