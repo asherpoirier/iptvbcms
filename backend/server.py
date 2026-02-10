@@ -1471,18 +1471,18 @@ async def create_stripe_payment(order_id: str, request: Request, current_user: d
     if not stripe_settings.get("enabled"):
         raise HTTPException(status_code=400, detail="Stripe not enabled")
     
-    # Get base URL from request
-    base_url = str(request.base_url).rstrip('/')
+    # Get base URL - prefer BACKEND_PUBLIC_URL for production behind proxy
+    base_url = os.getenv("BACKEND_PUBLIC_URL", str(request.base_url).rstrip('/'))
     webhook_url = f"{base_url}/api/webhooks/stripe"
     
     from stripe_service import get_stripe_service
     stripe = get_stripe_service(stripe_settings, webhook_url)
     
     if not stripe:
-        raise HTTPException(status_code=500, detail="Stripe service not available")
+        raise HTTPException(status_code=500, detail="Stripe service not available. Check your Stripe API keys.")
     
     # Get frontend URL for redirects
-    frontend_url = base_url.replace(':8001', ':3000') if ':8001' in base_url else base_url
+    frontend_url = os.getenv("BACKEND_PUBLIC_URL", base_url)
     
     # Create payment session
     settings = await get_settings()

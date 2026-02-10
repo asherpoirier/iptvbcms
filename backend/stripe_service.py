@@ -12,12 +12,16 @@ class StripeService:
         self.webhook_url = webhook_url
         self.checkout = None
         
-        if self.api_key and self.webhook_url:
-            self.checkout = StripeCheckout(
-                api_key=self.api_key,
-                webhook_url=self.webhook_url
-            )
-            logger.info(f"Stripe configured with webhook: {webhook_url}")
+        if self.api_key:
+            try:
+                self.checkout = StripeCheckout(
+                    api_key=self.api_key,
+                    webhook_url=self.webhook_url or "https://example.com/api/webhooks/stripe"
+                )
+                logger.info(f"Stripe configured (key: {self.api_key[:12]}...)")
+            except Exception as e:
+                logger.error(f"Stripe init failed: {e}")
+                self.checkout = None
     
     async def create_payment_session(self, amount, order_id, success_url, cancel_url, crypto_enabled=True, currency="usd"):
         """Create Stripe checkout session"""
@@ -50,7 +54,8 @@ class StripeService:
             }
             
         except Exception as e:
-            logger.error(f"Stripe session creation error: {e}")
+            import traceback
+            logger.error(f"Stripe session creation error: {e}\n{traceback.format_exc()}")
             return {"success": False, "error": str(e)}
     
     async def get_payment_status(self, session_id):
