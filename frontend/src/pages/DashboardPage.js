@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
   const activeServices = services?.filter((s) => s.status === 'active') || [];
   const pendingOrders = orders?.filter((o) => o.status === 'pending') || [];
-  const referrerReward = referralSettings?.settings?.referrer_reward || 10;
+  const referrerReward = referralSettings?.settings?.referrer_reward || 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
@@ -178,7 +178,9 @@ export default function DashboardPage() {
           >
             <Gift className="w-8 h-8 text-purple-600 mx-auto mb-2" />
             <h3 className="font-semibold text-gray-900 dark:text-white">Refer & Earn</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get ${referrerReward} credits</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              {referrerReward > 0 ? `Get $${referrerReward} credits` : 'Earn credits'}
+            </p>
           </Link>
         </div>
 
