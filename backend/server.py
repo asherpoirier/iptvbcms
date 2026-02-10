@@ -110,17 +110,44 @@ licenses_collection = db.licenses
 license_validations_collection = db.license_validations
 imported_users_collection = db.imported_users
 
-# Create unique index to prevent duplicate imported users
+# Deduplicate imported users and create unique index on startup
 import asyncio
 async def ensure_indexes():
+    # Step 1: Remove duplicates (keep the most recently synced one)
+    pipeline = [
+        {"$group": {
+            "_id": {"username": "$username", "panel_type": "$panel_type", "panel_index": "$panel_index", "account_type": "$account_type"},
+            "docs": {"$push": "$_id"},
+            "count": {"$sum": 1},
+            "keep": {"$last": "$_id"}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    duplicates = await db.imported_users.aggregate(pipeline).to_list(1000)
+    removed = 0
+    for dup in duplicates:
+        ids_to_remove = [d for d in dup["docs"] if d != dup["keep"]]
+        if ids_to_remove:
+            result = await db.imported_users.delete_many({"_id": {"$in": ids_to_remove}})
+            removed += result.deleted_count
+    if removed:
+        logger.info(f"Startup: Removed {removed} duplicate imported users")
+    
+    # Step 2: Drop old index if exists (in case it was created incorrectly)
+    try:
+        await db.imported_users.drop_index("unique_imported_user")
+    except Exception:
+        pass
+    
+    # Step 3: Create unique index
     await db.imported_users.create_index(
         [("username", 1), ("panel_type", 1), ("panel_index", 1), ("account_type", 1)],
         unique=True, name="unique_imported_user", background=True
     )
 try:
     asyncio.get_event_loop().run_until_complete(ensure_indexes())
-except Exception:
-    pass  # Index creation runs on startup
+except Exception as e:
+    logger.warning(f"Index creation: {e}")
 
 # Initialize email logger and unsubscribe manager
 email_logger = EmailLogger(db)
