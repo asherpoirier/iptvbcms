@@ -4886,16 +4886,12 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             else:
                 user_doc["created_at"] = datetime.utcnow()
                 user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                try:
-                    await imported_users_collection.insert_one(user_doc)
-                    synced_count += 1
-                except Exception:
-                    # Duplicate - update instead
-                    await imported_users_collection.update_one(
-                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
-                        {"$set": user_doc}
-                        )
-                    updated_count += 1
+                await imported_users_collection.update_one(
+                    {"username": username, "panel_type": "xuione", "panel_index": panel_index, "account_type": "subscriber"},
+                    {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                    upsert=True
+                )
+                synced_count += 1
     # Sync subresellers
     reseller_result = service.get_subresellers()
     reseller_synced = 0
@@ -4955,7 +4951,11 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             else:
                 reseller_doc["created_at"] = datetime.utcnow()
                 reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.insert_one(reseller_doc)
+                await imported_users_collection.update_one(
+                    {"username": reseller_doc.get("username",""), "panel_type": reseller_doc.get("panel_type","xtream"), "panel_index": reseller_doc.get("panel_index",0), "account_type": reseller_doc.get("account_type","subscriber")},
+                    {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                    upsert=True
+                )
                 reseller_synced += 1
                 synced_count += 1
     
@@ -5109,7 +5109,11 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
             else:
                 user_doc["created_at"] = datetime.utcnow()
                 try:
-                    await imported_users_collection.insert_one(user_doc)
+                    await imported_users_collection.update_one(
+                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
                     synced_count += 1
                 except Exception:
                     # Duplicate - update instead
@@ -5147,7 +5151,11 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
             else:
                 reseller_doc["created_at"] = datetime.utcnow()
                 try:
-                    await imported_users_collection.insert_one(reseller_doc)
+                    await imported_users_collection.update_one(
+                        {"username": reseller_doc.get("username",""), "panel_type": reseller_doc.get("panel_type","xtream"), "panel_index": reseller_doc.get("panel_index",0), "account_type": reseller_doc.get("account_type","subscriber")},
+                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
                     synced_count += 1
                 except Exception:
                     # Duplicate - update instead
@@ -6039,6 +6047,42 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
         {"id": 3, "name": "Sports"},
     ]
 
+@app.post("/api/admin/imported-users/deduplicate")
+async def deduplicate_imported_users(current_user: dict = Depends(get_current_admin_user)):
+    """Remove duplicate imported users, keeping the most recent"""
+    pipeline = [
+        {"$sort": {"last_synced": -1}},
+        {"$group": {
+            "_id": {"username": "$username", "panel_type": "$panel_type", "panel_index": "$panel_index", "account_type": "$account_type"},
+            "docs": {"$push": "$_id"},
+            "count": {"$sum": 1},
+            "keep": {"$first": "$_id"}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    duplicates = await imported_users_collection.aggregate(pipeline).to_list(10000)
+    removed = 0
+    for dup in duplicates:
+        ids_to_remove = [d for d in dup["docs"] if d != dup["keep"]]
+        if ids_to_remove:
+            result = await imported_users_collection.delete_many({"_id": {"$in": ids_to_remove}})
+            removed += result.deleted_count
+    
+    # Recreate unique index
+    try:
+        await imported_users_collection.drop_index("unique_imported_user")
+    except Exception:
+        pass
+    try:
+        await imported_users_collection.create_index(
+            [("username", 1), ("panel_type", 1), ("panel_index", 1), ("account_type", 1)],
+            unique=True, name="unique_imported_user", background=True
+        )
+    except Exception:
+        pass
+    
+    return {"message": f"Removed {removed} duplicates", "removed": removed}
+
 @app.post("/api/admin/sync-all-users")
 async def sync_all_users_from_all_panels(current_user: dict = Depends(get_current_admin_user)):
     """Sync users from ALL active XtreamUI and XuiOne panels"""
@@ -6359,7 +6403,11 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     else:
                         user_doc["created_at"] = datetime.utcnow()
                         try:
-                            await imported_users_collection.insert_one(user_doc)
+                            await imported_users_collection.update_one(
+                                {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                                upsert=True
+                            )
                             synced_count += 1
                         except Exception:
                             # Duplicate - update instead
@@ -6543,7 +6591,11 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 user_doc["created_at"] = datetime.utcnow()
                 user_doc["xtream_user_id"] = user_data.get("user_id", 0)
                 try:
-                    await imported_users_collection.insert_one(user_doc)
+                    await imported_users_collection.update_one(
+                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
                     synced_count += 1
                 except Exception:
                     # Duplicate - update instead
@@ -6614,7 +6666,11 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
             else:
                 reseller_doc["created_at"] = datetime.utcnow()
                 reseller_doc["xtream_user_id"] = reseller_data.get("user_id", 0)
-                await imported_users_collection.insert_one(reseller_doc)
+                await imported_users_collection.update_one(
+                    {"username": reseller_doc.get("username",""), "panel_type": reseller_doc.get("panel_type","xtream"), "panel_index": reseller_doc.get("panel_index",0), "account_type": reseller_doc.get("account_type","subscriber")},
+                    {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                    upsert=True
+                )
                 reseller_synced += 1
                 synced_count += 1
     
