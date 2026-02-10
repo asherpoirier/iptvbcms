@@ -618,6 +618,51 @@ class XtreamUISessionClient:
         # Use the old approach
         pass
 
+
+    def get_user_info(self, username: str) -> Optional[Dict[str, Any]]:
+        """Fetch a user's info from the panel to get actual expiry date"""
+        try:
+            if not self.logged_in:
+                if not self.login():
+                    return None
+            
+            # Try API endpoint first
+            api_resp = self.session.get(
+                f"{self.panel_url}/api.php",
+                params={"username": self.username, "password": self.password, "action": "user", "sub": "info", "user_username": username},
+                timeout=15
+            )
+            if api_resp.status_code == 200:
+                try:
+                    data = api_resp.json()
+                    if data.get("user_info") or data.get("exp_date"):
+                        info = data.get("user_info", data)
+                        return {"exp_date": info.get("exp_date", ""), "username": username}
+                except Exception:
+                    pass
+            
+            # Fallback: scrape from reseller panel user list
+            resp = self.session.get(f"{self.panel_url}/user_reseller.php", timeout=15)
+            if resp.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                rows = soup.find_all('tr')
+                for row in rows:
+                    cells = row.find_all('td')
+                    if cells and len(cells) > 2:
+                        row_username = cells[0].text.strip() if cells else ""
+                        if row_username == username:
+                            # Find expiry cell (usually contains a date)
+                            for cell in cells:
+                                text = cell.text.strip()
+                                if '-' in text and len(text) >= 10:
+                                    return {"exp_date": text, "username": username}
+            return None
+        except Exception as e:
+            logger.warning(f"get_user_info error for {username}: {e}")
+            return None
+
+
     def fetch_packages(self) -> List[Dict]:
         """Fetch available packages from reseller panel"""
         if not self.logged_in:

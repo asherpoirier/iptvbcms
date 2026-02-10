@@ -9,6 +9,7 @@ export default function AdminProducts() {
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [showResellerModal, setShowResellerModal] = useState(false);
+  const [showManualModal, setShowManualModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   
@@ -175,8 +176,27 @@ export default function AdminProducts() {
               <Plus className="w-5 h-5" />
               Add Reseller Package
             </button>
+            <button
+              onClick={() => setShowManualModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              <Plus className="w-5 h-5" />
+              Add Manual Product
+            </button>
           </div>
         </div>
+
+        {/* Manual Product Modal */}
+        {showManualModal && (
+          <ManualProductModal
+            onClose={() => setShowManualModal(false)}
+            onSuccess={() => {
+              setShowManualModal(false);
+              queryClient.invalidateQueries(['admin-products']);
+            }}
+          />
+        )}
+
 
         {/* Reseller Package Modal */}
         {showResellerModal && (
@@ -360,13 +380,15 @@ export default function AdminProducts() {
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           product.account_type === 'reseller'
                             ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                            : product.account_type === 'manual'
+                            ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                             : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                         }`}>
-                          {product.account_type === 'reseller' ? 'Reseller' : 'Subscriber'}
+                          {product.account_type === 'reseller' ? 'Reseller' : product.account_type === 'manual' ? 'Manual' : 'Subscriber'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
+                        {product.panel_type === 'manual' ? '—' : getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                         {product.account_type === 'reseller' ? (
@@ -1235,6 +1257,104 @@ function ResellerPackageModal({ onClose, onSuccess, panels, xtreamPanels, xuione
                 {saveMutation.isPending ? (isEditing ? 'Updating...' : 'Creating...') : (isEditing ? 'Update Package' : 'Create Package')}
               </button>
             </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+function ManualProductModal({ onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    price: '',
+    setup_instructions: '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.name || !formData.price) {
+      alert('Name and price are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await adminAPI.createProduct({
+        name: formData.name,
+        description: formData.description,
+        account_type: 'manual',
+        panel_type: 'manual',
+        panel_index: 0,
+        prices: { '1': parseFloat(formData.price) },
+        max_connections: 0,
+        bouquets: [],
+        xtream_package_id: null,
+        is_trial: false,
+        setup_instructions: formData.setup_instructions,
+      });
+      onSuccess();
+    } catch (err) {
+      alert('Failed to create: ' + (err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || err.message));
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-lg w-full">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Manual Product</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-400">
+            Manual products are not linked to any IPTV panel. Orders require manual fulfillment by the admin.
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Name *</label>
+            <input type="text" required value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., VPN Subscription, Setup Service"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <textarea rows={2} value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Brief description of the product"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price *</label>
+            <div className="relative">
+              <span className="absolute left-3 top-2.5 text-gray-500 dark:text-gray-400">$</span>
+              <input type="number" required min="0" step="0.01" value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                placeholder="0.00"
+                className="w-full pl-7 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Setup Instructions (shown to customer after purchase)</label>
+            <textarea rows={3} value={formData.setup_instructions}
+              onChange={(e) => setFormData({ ...formData, setup_instructions: e.target.value })}
+              placeholder="Instructions the customer will see after their order is fulfilled"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 bg-gray-700 text-white rounded-lg hover:bg-gray-800 font-semibold disabled:opacity-50">
+              {saving ? 'Creating...' : 'Create Product'}
+            </button>
           </div>
         </form>
       </div>

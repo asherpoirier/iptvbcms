@@ -292,6 +292,8 @@ export default function AdminImportedUsers() {
                 setIsSyncing(true);
                 setSyncResult(null);
                 try {
+                  // Deduplicate first, then sync
+                  await adminAPI.deduplicateImportedUsers();
                   const response = await adminAPI.syncAllUsers();
                   setSyncResult(response.data);
                   queryClient.invalidateQueries(['imported-users']);

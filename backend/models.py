@@ -44,6 +44,7 @@ class ImportedUser(BaseModel):
 class AccountType(str, Enum):
     SUBSCRIBER = "subscriber"
     RESELLER = "reseller"
+    MANUAL = "manual"
 
 # User Models
 class UserCreate(BaseModel):

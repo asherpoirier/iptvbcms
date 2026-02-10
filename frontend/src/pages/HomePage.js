@@ -5,7 +5,7 @@ import { productsAPI, panelsAPI } from '../api/api';
 import { useAuthStore, useCartStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
 import { useCurrencyStore } from '../store/currency';
-import { ShoppingCart, LogIn, UserPlus, Server, Users, Info, X, Filter, Grid } from 'lucide-react';
+import { ShoppingCart, LogIn, UserPlus, Server, Users, Info, X, Filter, Grid, Package } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 import axios from 'axios';
 
@@ -74,7 +74,9 @@ export default function HomePage() {
     const onestreamPanels = panelData?.onestream_panels || [];
     
     let panel;
-    if (panelType === 'xuione') {
+    if (panelType === 'manual') {
+      return 'Other Products';
+    } else if (panelType === 'xuione') {
       panel = xuionePanels.find(p => p.index === Number(panelIndex));
       return panel?.name || `Panel ${Number(panelIndex) + 1}`;
     } else if (panelType === 'onestream') {
@@ -421,8 +423,9 @@ export default function HomePage() {
 
                         {/* Group by account type */}
                         {(() => {
-                          const subscribers = panelProducts.filter(p => p.account_type !== 'reseller');
+                          const subscribers = panelProducts.filter(p => p.account_type === 'subscriber');
                           const resellers = panelProducts.filter(p => p.account_type === 'reseller');
+                          const manualProducts = panelProducts.filter(p => p.account_type === 'manual');
                         
                           return (
                             <>
@@ -491,6 +494,23 @@ export default function HomePage() {
                                   </h4>
                                   <div className="space-y-4">
                                     {resellers
+                                      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                                      .map((product) => (
+                                        <ProductCard key={product.id} product={product} />
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Manual Products */}
+                              {manualProducts.length > 0 && (
+                                <div className="space-y-4 mt-8">
+                                  <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                    <Package className="w-5 h-5" />
+                                    Other Products
+                                  </h4>
+                                  <div className="space-y-4">
+                                    {manualProducts
                                       .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
                                       .map((product) => (
                                         <ProductCard key={product.id} product={product} />

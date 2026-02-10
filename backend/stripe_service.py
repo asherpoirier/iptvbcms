@@ -99,16 +99,19 @@ def get_stripe_service(stripe_settings=None, webhook_url=""):
     if not stripe_settings or not stripe_settings.get("enabled"):
         return None
     
-    # Use production key if in live mode and key is provided
-    api_key = None
     mode = stripe_settings.get("mode", "test")
     
-    if mode == "live" and stripe_settings.get("secret_key"):
-        api_key = stripe_settings.get("secret_key")
-        logger.info("Using production Stripe key")
+    if mode == "live":
+        api_key = stripe_settings.get("live_secret_key", "")
+        if api_key:
+            logger.info("Using live Stripe key")
+        else:
+            logger.warning("Stripe in live mode but no live_secret_key set")
+            return None
     else:
-        # Use emergent test key
-        api_key = "sk_test_emergent"
+        api_key = stripe_settings.get("test_secret_key", "")
+        if not api_key or api_key == "sk_test_":
+            api_key = "sk_test_emergent"
         logger.info("Using test Stripe key")
     
     return StripeService(
