@@ -448,7 +448,7 @@ class XuiOneService:
                                 users.append({
                                     "user_id": line.get('id'),
                                     "username": line.get('username', ''),
-                                    "password": "",  # XuiOne doesn't return plaintext password
+                                    "password": line.get('password', ''),
                                     "expiry": expiry_str,
                                     "max_connections": str(line.get('max_connections', 1)),
                                     "status": "active" if line.get('enabled') == '1' else "disabled",

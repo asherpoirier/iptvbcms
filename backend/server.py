@@ -110,6 +110,17 @@ licenses_collection = db.licenses
 license_validations_collection = db.license_validations
 imported_users_collection = db.imported_users
 
+# Create unique index to prevent duplicate imported users
+import asyncio
+async def ensure_indexes():
+    await db.imported_users.create_index(
+        [("username", 1), ("panel_type", 1), ("panel_index", 1), ("account_type", 1)],
+        unique=True, name="unique_imported_user", background=True
+    )
+try:
+    asyncio.get_event_loop().run_until_complete(ensure_indexes())
+except Exception:
+    pass  # Index creation runs on startup
 
 # Initialize email logger and unsubscribe manager
 email_logger = EmailLogger(db)
@@ -132,9 +143,7 @@ license_manager = None
 lifecycle_manager = None
 background_scheduler = None
 
-
 # Helper functions
-
 
 async def get_configured_email_service():
     """Get email service with logger and unsubscribe manager"""
@@ -1018,7 +1027,6 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "role": user.get("role", "user")
     }
 
-
 # ===== 2FA ROUTES (Admin Only) =====
 
 @app.post("/api/auth/2fa/setup")
@@ -1147,7 +1155,6 @@ async def get_recaptcha_sitekey():
         "enabled": recaptcha.get("enabled", False)
     }
 
-
 # ===== PRODUCT ROUTES =====
 
 @app.get("/api/products")
@@ -1172,8 +1179,6 @@ async def get_product(product_id: str):
     return product
 
 # ===== ORDER ROUTES =====
-
-
 
 # ===== PAYPAL ROUTES =====
 
@@ -1225,7 +1230,6 @@ async def create_paypal_payment(order_id: str, origin: dict, current_user: dict 
         return {"success": True, "order_id": result["order_id"]}  # Return EC-XXX token
     else:
         raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
-
 
 @app.post("/api/orders/paypal/capture")
 async def capture_paypal_order(data: dict, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
@@ -1384,7 +1388,6 @@ async def paypal_webhook(request: Request, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"PayPal webhook error: {str(e)}")
         return {"status": "error"}
-
 
 # ===== STRIPE/CRYPTO ROUTES =====
 
@@ -1600,7 +1603,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"Stripe webhook error: {str(e)}")
         return {"status": "error"}
-
 
 # ===== SQUARE ROUTES =====
 
@@ -1989,7 +1991,6 @@ async def blockonomics_webhook(request: Request, background_tasks: BackgroundTas
     
     return {"status": "received"}
 
-    
     # Handle payment capture completion
     if data.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
         # Extract order info and process
@@ -2269,7 +2270,6 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
     # Return the PDF file
     return FileResponse(pdf_path, media_type="application/pdf", filename=f"invoice_{invoice['invoice_number']}.pdf")
 
-
 # ===== TICKET ROUTES =====
 
 @app.post("/api/tickets")
@@ -2397,7 +2397,6 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
     
     return {"message": "Ticket status updated"}
 
-
 @app.post("/api/admin/customers/{customer_id}/change-password")
 async def admin_change_customer_password(
     customer_id: str,
@@ -2422,8 +2421,6 @@ async def admin_change_customer_password(
     logger.info(f"Admin {current_user['sub']} changed password for user {customer_id}")
     
     return {"message": "Password changed successfully"}
-
-
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -2580,7 +2577,6 @@ class CreateCustomerRequest(BaseModel):
     email: EmailStr
     password: str
 
-
 @app.post("/api/admin/customers/create")
 async def create_customer(data: CreateCustomerRequest, current_user: dict = Depends(get_current_admin_user)):
     """Create a new customer account"""
@@ -2627,7 +2623,6 @@ async def create_customer(data: CreateCustomerRequest, current_user: dict = Depe
             "referral_code": referral_code
         }
     }
-
 
 @app.get("/api/admin/customers")
 async def get_all_customers(current_user: dict = Depends(get_current_admin_user)):
@@ -2698,7 +2693,6 @@ async def update_customer(customer_id: str, update_data: dict, current_user: dic
     if "name" in update_data:
         update_fields["name"] = update_data["name"]
 
-
 @app.get("/api/refunds/enabled")
 async def check_refunds_enabled():
     """Public endpoint to check if refunds are enabled (no auth required)"""
@@ -2737,7 +2731,6 @@ async def delete_customer(customer_id: str, current_user: dict = Depends(get_cur
     
     return {"message": "Customer and all associated data deleted successfully"}
 
-
 @app.get("/api/admin/orders")
 async def get_all_orders(current_user: dict = Depends(get_current_admin_user)):
     """Get all orders"""
@@ -2752,7 +2745,6 @@ async def get_all_orders(current_user: dict = Depends(get_current_admin_user)):
         orders.append(order)
     
     return orders
-
 
 @app.get("/api/payment/config")
 async def get_payment_config():
@@ -3302,8 +3294,6 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
     except Exception as e:
         logger.error(f"Provisioning error: {str(e)}")
 
-
-
 async def extend_xuione_line(xuione_service, existing_service: dict, item: dict, product: dict, order: dict, order_id: str, user: dict, email_service):
     """Extend/renew an existing XuiOne line using edit_line API"""
     try:
@@ -3408,7 +3398,6 @@ async def extend_xuione_line(xuione_service, existing_service: dict, item: dict,
         logger.error(f"XuiOne extension error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-
 
 async def provision_xuione_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
     """Provision XuiOne service using API"""
@@ -3800,12 +3789,10 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                 # Note: Email templates may need to be adapted for reseller accounts
                 logger.info(f"Reseller {username} created with {product.get('reseller_credits', 0)} credits")
 
-    
     except Exception as e:
         logger.error(f"XuiOne provisioning error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-
 
 async def provision_onestream_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
     """Provision 1-Stream service via API"""
@@ -4096,8 +4083,6 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
         import traceback
         logger.error(traceback.format_exc())
 
-
-
 @app.post("/api/admin/services/{service_id}/suspend")
 async def suspend_service(service_id: str, current_user: dict = Depends(get_current_admin_user)):
     """Suspend a service"""
@@ -4241,7 +4226,6 @@ async def get_panel_names():
     
     raise HTTPException(status_code=500, detail="XtreamUI service not configured")
 
-
 class ManualServiceCreate(BaseModel):
     user_id: str
     product_id: str
@@ -4294,7 +4278,6 @@ async def create_manual_service(service_data: ManualServiceCreate, background_ta
         "message": "Service creation initiated. Provisioning in background...",
         "order_id": order_id
     }
-
 
 @app.get("/api/admin/products")
 async def get_all_products_admin(current_user: dict = Depends(get_current_admin_user)):
@@ -4406,7 +4389,6 @@ async def fix_display_order(current_user: dict = Depends(get_current_admin_user)
         )
     
     return {"message": f"Fixed display_order for {len(all_products)} products"}
-
 
 @app.get("/api/branding")
 async def get_branding():
@@ -4523,8 +4505,6 @@ async def change_currency(data: ChangeCurrencyRequest, current_user: dict = Depe
         "conversion_factor": round(conversion_factor, 4),
         "products_converted": converted
     }
-
-
 
 # ===== NOTIFICATION SETTINGS ENDPOINTS =====
 
@@ -4879,9 +4859,16 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             else:
                 user_doc["created_at"] = datetime.utcnow()
                 user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                await imported_users_collection.insert_one(user_doc)
-                synced_count += 1
-    
+                try:
+                    await imported_users_collection.insert_one(user_doc)
+                    synced_count += 1
+                except Exception:
+                    # Duplicate - update instead
+                    await imported_users_collection.update_one(
+                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                        {"$set": user_doc}
+                        )
+                    updated_count += 1
     # Sync subresellers
     reseller_result = service.get_subresellers()
     reseller_synced = 0
@@ -4976,7 +4963,6 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
         "panel_name": panel_name
     }
 
-
 # ===== 1-STREAM PANEL ENDPOINTS =====
 
 @app.post("/api/admin/onestream/test")
@@ -4994,7 +4980,6 @@ async def test_onestream_connection(current_user: dict = Depends(get_current_adm
     if result.get("success"):
         return {"success": True, "message": f"Connected! User: {result.get('name')}, Credits: {result.get('credits')}"}
     raise HTTPException(status_code=500, detail=result.get("error", "Connection failed"))
-
 
 @app.get("/api/admin/onestream/packages")
 async def sync_onestream_packages(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
@@ -5017,7 +5002,6 @@ async def sync_onestream_packages(panel_index: int = 0, current_user: dict = Dep
         "trial_count": result.get("trial_count", 0),
         "panel_name": panel.get("name", f"1-Stream Panel {panel_index + 1}")
     }
-
 
 @app.get("/api/admin/onestream/bouquets")
 async def sync_onestream_bouquets(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
@@ -5050,7 +5034,6 @@ async def sync_onestream_bouquets(panel_index: int = 0, current_user: dict = Dep
     settings["onestream"]["panels"][panel_index]["bouquets"] = result["bouquets"]
     await db.settings.update_one({}, {"$set": {"onestream": settings["onestream"]}})
     return {"bouquets": result["bouquets"], "count": len(result["bouquets"])}
-
 
 @app.post("/api/admin/onestream/sync-users")
 async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
@@ -5098,9 +5081,16 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 updated_count += 1
             else:
                 user_doc["created_at"] = datetime.utcnow()
-                await imported_users_collection.insert_one(user_doc)
-                synced_count += 1
-
+                try:
+                    await imported_users_collection.insert_one(user_doc)
+                    synced_count += 1
+                except Exception:
+                    # Duplicate - update instead
+                    await imported_users_collection.update_one(
+                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                        {"$set": user_doc}
+                        )
+                    updated_count += 1
     # Sync sub-resellers
     resellers_result = service.get_subresellers()
     if resellers_result.get("success"):
@@ -5129,11 +5119,17 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 updated_count += 1
             else:
                 reseller_doc["created_at"] = datetime.utcnow()
-                await imported_users_collection.insert_one(reseller_doc)
-                synced_count += 1
-
+                try:
+                    await imported_users_collection.insert_one(reseller_doc)
+                    synced_count += 1
+                except Exception:
+                    # Duplicate - update instead
+                    await imported_users_collection.update_one(
+                        {"username": reseller_doc.get("username",""), "panel_type": reseller_doc.get("panel_type","xtream"), "panel_index": reseller_doc.get("panel_index",0), "account_type": reseller_doc.get("account_type","subscriber")},
+                        {"$set": reseller_doc}
+                        )
+                    updated_count += 1
     return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
-
 
 # ===== EMAIL MANAGEMENT ENDPOINTS =====
 
@@ -5246,7 +5242,6 @@ async def get_email_logs(current_user: dict = Depends(get_current_admin_user)):
         del log["_id"]
         logs.append(log)
     return logs
-
 
 # ===== EMAIL TEMPLATE ENDPOINTS =====
 
@@ -5376,9 +5371,6 @@ async def test_email_template(
         return {"message": f"Test email sent to {test_data['test_email']}"}
     else:
         raise HTTPException(status_code=500, detail="Failed to send test email")
-
-
-
 
 # ===== FILE UPLOAD ENDPOINTS =====
 
@@ -5822,8 +5814,6 @@ async def restore_template_version(
     
     return {"message": f"Template restored to version {version['version_number']}"}
 
-
-
 @app.get("/api/admin/bouquets/sync")
 async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Fetch bouquets from specific XtreamUI panel and sync to system"""
@@ -5924,7 +5914,6 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
         logger.error(f"Package sync error for panel {panel_index}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/api/admin/packages/sync-trial")
 async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Fetch trial packages from specific XtreamUI panel"""
@@ -6023,9 +6012,6 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
         {"id": 3, "name": "Sports"},
     ]
 
-
-
-
 @app.post("/api/admin/sync-all-users")
 async def sync_all_users_from_all_panels(current_user: dict = Depends(get_current_admin_user)):
     """Sync users from ALL active XtreamUI and XuiOne panels"""
@@ -6064,19 +6050,18 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     if not username:
                         continue
                     
-                    existing = await imported_users_collection.find_one({
+                    filter_query = {
                         "panel_index": panel_index,
                         "panel_type": "xtream",
                         "username": username,
                         "account_type": "subscriber"
-                    })
+                    }
                     
                     # Parse expiry date
                     expiry_str = user_data.get("expiry", "")
                     expiry_date = None
                     if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                        date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
-                        for fmt in date_formats:
+                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
                             try:
                                 expiry_date = datetime.strptime(expiry_str.strip(), fmt)
                                 break
@@ -6102,16 +6087,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    if existing:
-                        await imported_users_collection.update_one(
-                            {"_id": existing["_id"]},
-                            {"$set": user_doc}
-                        )
-                        updated_count += 1
-                    else:
-                        user_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(user_doc)
+                    result = await imported_users_collection.update_one(
+                        filter_query,
+                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
+                    if result.upserted_id:
                         synced_count += 1
+                    elif result.modified_count:
+                        updated_count += 1
             
             # Sync resellers using get_subresellers()
             resellers_result = xtream_service.get_subresellers()
@@ -6143,16 +6127,22 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    if existing:
-                        await imported_users_collection.update_one(
-                            {"_id": existing["_id"]},
-                            {"$set": reseller_doc}
-                        )
-                        updated_count += 1
-                    else:
-                        reseller_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(reseller_doc)
+                    result = await imported_users_collection.update_one(
+                        {"username": reseller_doc.get("username", ""), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "subscriber")},
+
+                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+
+                        upsert=True
+
+                    )
+
+                    if result.upserted_id:
+
                         synced_count += 1
+
+                    elif result.modified_count:
+
+                        updated_count += 1
             
             results["panels_synced"].append({
                 "name": panel_name,
@@ -6228,16 +6218,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    if existing:
-                        await imported_users_collection.update_one(
-                            {"_id": existing["_id"]},
-                            {"$set": user_doc}
-                        )
-                        updated_count += 1
-                    else:
-                        user_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(user_doc)
+                    result = await imported_users_collection.update_one(
+                        {"username": username, "panel_type": user_doc.get("panel_type", "xtream"), "panel_index": user_doc.get("panel_index", 0), "account_type": user_doc.get("account_type", "subscriber")},
+                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
+                    if result.upserted_id:
                         synced_count += 1
+                    elif result.modified_count:
+                        updated_count += 1
             
             # Sync resellers using get_subresellers()
             resellers_result = xuione_service.get_subresellers()
@@ -6269,16 +6258,22 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    if existing:
-                        await imported_users_collection.update_one(
-                            {"_id": existing["_id"]},
-                            {"$set": reseller_doc}
-                        )
-                        updated_count += 1
-                    else:
-                        reseller_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(reseller_doc)
+                    result = await imported_users_collection.update_one(
+                        {"username": reseller_doc.get("username", ""), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "subscriber")},
+
+                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+
+                        upsert=True
+
+                    )
+
+                    if result.upserted_id:
+
                         synced_count += 1
+
+                    elif result.modified_count:
+
+                        updated_count += 1
             
             results["panels_synced"].append({
                 "name": panel_name,
@@ -6336,9 +6331,16 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         updated_count += 1
                     else:
                         user_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(user_doc)
-                        synced_count += 1
-
+                        try:
+                            await imported_users_collection.insert_one(user_doc)
+                            synced_count += 1
+                        except Exception:
+                            # Duplicate - update instead
+                            await imported_users_collection.update_one(
+                                {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                                {"$set": user_doc}
+                                )
+                            updated_count += 1
             # Sync sub-resellers
             resellers_result = os_service.get_subresellers()
             if resellers_result.get("success"):
@@ -6362,13 +6364,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "account_type": "reseller",
                         "last_synced": datetime.utcnow()
                     }
-                    if existing:
-                        await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": reseller_doc})
-                        updated_count += 1
-                    else:
-                        reseller_doc["created_at"] = datetime.utcnow()
-                        await imported_users_collection.insert_one(reseller_doc)
+                    result = await imported_users_collection.update_one(
+                        {"username": reseller_doc.get("username", username), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "reseller")},
+                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True
+                    )
+                    if result.upserted_id:
                         synced_count += 1
+                    elif result.modified_count:
+                        updated_count += 1
 
             results["panels_synced"].append({"name": panel_name, "type": "onestream", "synced": synced_count, "updated": updated_count})
             results["total_synced"] += synced_count
@@ -6419,7 +6423,6 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
     logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated, {results['total_removed']} removed")
     
     return results
-
 
 @app.post("/api/admin/xtream/sync-users")
 async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
@@ -6512,9 +6515,16 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
             else:
                 user_doc["created_at"] = datetime.utcnow()
                 user_doc["xtream_user_id"] = user_data.get("user_id", 0)
-                await imported_users_collection.insert_one(user_doc)
-                synced_count += 1
-    
+                try:
+                    await imported_users_collection.insert_one(user_doc)
+                    synced_count += 1
+                except Exception:
+                    # Duplicate - update instead
+                    await imported_users_collection.update_one(
+                        {"username": user_doc.get("username",""), "panel_type": user_doc.get("panel_type","xtream"), "panel_index": user_doc.get("panel_index",0), "account_type": user_doc.get("account_type","subscriber")},
+                        {"$set": user_doc}
+                        )
+                    updated_count += 1
     # === SYNC SUBRESELLERS (reg_users table) ===
     reseller_result = xtream_service.get_subresellers()
     reseller_synced = 0
@@ -6861,8 +6871,6 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
-
-
 class AddCreditsRequest(BaseModel):
     credits: float
 
@@ -6933,8 +6941,6 @@ async def add_credits_to_imported_user(user_id: str, data: AddCreditsRequest, cu
     else:
         raise HTTPException(status_code=400, detail=f"Credits not supported for {panel_type} panels")
 
-
-
 # ===== UPDATE SYSTEM ENDPOINTS =====
 
 from update_manager import update_manager
@@ -6991,7 +6997,6 @@ async def apply_update(current_user: dict = Depends(get_current_admin_user)):
         logger.error(f"Update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.delete("/api/admin/updates/backups/{backup_name}")
 async def delete_backup(backup_name: str, current_user: dict = Depends(get_current_admin_user)):
     """Delete a backup"""
@@ -7014,7 +7019,6 @@ async def delete_backup(backup_name: str, current_user: dict = Depends(get_curre
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to delete backup: {e}")
-
 
 @app.get("/api/admin/updates/backups")
 async def list_backups(current_user: dict = Depends(get_current_admin_user)):
@@ -7219,11 +7223,9 @@ async def delete_imported_user(user_id: str, current_user: dict = Depends(get_cu
     
     return {"message": f"User '{user.get('username')}' removed from billing panel"}
 
-
 # Pydantic model for extending imported users
 class ExtendImportedUserRequest(BaseModel):
     package_id: int  # Required - the package to extend by
-
 
 @app.post("/api/admin/imported-users/{user_id}/extend")
 async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, current_user: dict = Depends(get_current_admin_user)):
@@ -7462,7 +7464,6 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
         "panel_extended": True
     }
 
-
 # Pydantic model for creating imported users
 class CreateImportedUserRequest(BaseModel):
     panel_type: str = "xtream"  # 'xtream', 'xuione', or 'onestream'
@@ -7477,7 +7478,6 @@ class CreateImportedUserRequest(BaseModel):
     # For resellers
     credits: Optional[float] = 0.0
     member_group_id: Optional[int] = 2
-
 
 @app.post("/api/admin/imported-users/create")
 async def create_imported_user(data: CreateImportedUserRequest, current_user: dict = Depends(get_current_admin_user)):
@@ -8001,7 +8001,6 @@ async def test_xtreamui_connection(current_user: dict = Depends(get_current_admi
     # Test first active panel
     panel = panels[0]
 
-
 # ===== REFERRAL SYSTEM ENDPOINTS =====
 
 @app.get("/api/referral/my-code")
@@ -8164,7 +8163,6 @@ async def admin_deduct_credits(
     )
     return {"message": f"${amount} credits deducted", "new_balance": new_balance}
 
-
 # ===== DOWNLOADS SYSTEM ENDPOINTS =====
 
 class DownloadCreate(BaseModel):
@@ -8308,7 +8306,6 @@ async def track_download(
     
     return {"file_url": download.get("file_url"), "file_name": download.get("name")}
 
-
 # Note: License generation is done on the separate license server (license.synapse.watch)
 # This billing panel only has license STATUS checking and ACTIVATION
 # Customers cannot generate their own licenses
@@ -8343,7 +8340,6 @@ async def get_license_status():
         "expiry_date": validation.get("expiry_date"),
         "customer": validation.get("customer_name")
     }
-
 
 @app.post("/api/admin/activate-license")
 async def save_license_key_endpoint(request: dict):
@@ -8389,9 +8385,6 @@ async def save_license_key_endpoint(request: dict):
         "expiry_date": validation.get("expiry_date")
     }
 
-
-
-
 @app.post("/api/admin/upload/download")
 async def upload_download_file(
     file: UploadFile = File(...),
@@ -8427,8 +8420,6 @@ async def upload_download_file(
         "path": file_path,
         "url": f"{os.getenv('BACKEND_PUBLIC_URL', '')}/api/uploads/downloads/{unique_filename}"
     }
-
-
 
 # ===== REFUND SYSTEM ENDPOINTS =====
 
@@ -8562,8 +8553,6 @@ async def reject_refund_endpoint(
     await refund_service.reject_refund(refund_id, current_user["sub"], notes)
     return {"message": "Refund rejected"}
 
-
-    
     xtream_service = XtreamUIService(
         panel_url=panel["panel_url"],
         admin_username=panel["admin_username"],
@@ -8578,7 +8567,6 @@ async def reject_refund_endpoint(
     else:
         return {"message": "Connection failed", "error": result.get("error")}
 
-
 # ============ USER GUIDE PDF ============
 @app.get("/api/admin/user-guide")
 async def download_user_guide(current_user=Depends(get_current_admin_user)):
@@ -8592,7 +8580,6 @@ async def download_user_guide(current_user=Depends(get_current_admin_user)):
         media_type="application/pdf",
         filename="IPTV_Billing_Admin_User_Guide.pdf"
     )
-
 
 if __name__ == "__main__":
     import uvicorn
