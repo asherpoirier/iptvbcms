@@ -1392,7 +1392,7 @@ async def paypal_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"PayPal webhook received: {event_type}")
         
         # Handle payment completion events
-        if event_type in ["PAYMENT.CAPTURE.COMPLETED", "CHECKOUT.ORDER.APPROVED", "PAYMENT.SALE.COMPLETED"]:
+        if event_type in ["PAYMENT.CAPTURE.COMPLETED", "PAYMENT.SALE.COMPLETED"]:
             resource = data.get("resource", {})
             
             # Try to find our order from the PayPal custom_id, reference_id, or invoice_id
