@@ -1660,6 +1660,110 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.error(f"Stripe webhook error: {str(e)}")
         return {"status": "error"}
 
+# ===== HELCIM ROUTES =====
+
+@app.post("/api/orders/{order_id}/pay/helcim")
+async def create_helcim_payment(order_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Initialize HelcimPay.js checkout session for an order"""
+    user_id = current_user["sub"]
+
+    order = await orders_collection.find_one({
+        "_id": str_to_objectid(order_id),
+        "user_id": user_id
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Order already paid")
+
+    settings = await get_settings()
+    helcim_settings = settings.get("helcim", {})
+    if not helcim_settings.get("enabled"):
+        raise HTTPException(status_code=400, detail="Helcim not enabled")
+
+    from helcim_service import get_helcim_service
+    helcim = get_helcim_service(helcim_settings)
+    if not helcim:
+        raise HTTPException(status_code=500, detail="Helcim service not available. Check your API token.")
+
+    currency = settings.get("currency", "USD")
+    result = await helcim.initialize_checkout(
+        amount=order["total"],
+        currency=currency,
+        order_id=order_id,
+        terminal_id=helcim_settings.get("terminal_id", ""),
+    )
+
+    if result["success"]:
+        await db.payment_transactions.insert_one({
+            "order_id": order_id,
+            "user_id": user_id,
+            "gateway": "helcim",
+            "checkout_token": result["checkoutToken"],
+            "secret_token": result["secretToken"],
+            "amount": order["total"],
+            "currency": currency,
+            "payment_status": "pending",
+            "created_at": datetime.utcnow()
+        })
+        return {
+            "success": True,
+            "checkoutToken": result["checkoutToken"],
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Helcim payment init failed"))
+
+
+@app.post("/api/orders/{order_id}/helcim/verify")
+async def verify_helcim_payment(order_id: str, data: dict, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """Verify a completed HelcimPay.js transaction and mark order as paid."""
+    user_id = current_user["sub"]
+
+    order = await orders_collection.find_one({
+        "_id": str_to_objectid(order_id),
+        "user_id": user_id
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        return {"success": True, "message": "Order already paid"}
+
+    transaction_id = data.get("transactionId", "")
+    card_token = data.get("cardToken", "")
+
+    if not transaction_id:
+        raise HTTPException(status_code=400, detail="Missing transactionId from Helcim response")
+
+    # Mark order as paid
+    await orders_collection.update_one(
+        {"_id": str_to_objectid(order_id)},
+        {"$set": {
+            "status": "paid",
+            "paid_at": datetime.utcnow(),
+            "payment_method": "helcim",
+            "payment_id": str(transaction_id),
+        }}
+    )
+
+    # Update payment transaction record
+    await db.payment_transactions.update_one(
+        {"order_id": order_id, "gateway": "helcim"},
+        {"$set": {
+            "payment_status": "completed",
+            "transaction_id": str(transaction_id),
+            "card_token": card_token,
+            "completed_at": datetime.utcnow(),
+        }}
+    )
+
+    logger.info(f"Helcim payment verified for order {order_id}, txn={transaction_id}")
+
+    # Provision services in background
+    background_tasks.add_task(provision_order_services, order_id, user_id)
+
+    return {"success": True, "message": "Payment verified, services being provisioned"}
+
+
 # ===== SQUARE ROUTES =====
 
 @app.post("/api/orders/{order_id}/pay/square")
@@ -1757,7 +1861,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://reseller-mgmt-pro.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://payment-gateway-test-4.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -1837,7 +1941,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://reseller-mgmt-pro.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://payment-gateway-test-4.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2832,10 +2936,29 @@ async def get_payment_config():
             "enabled": settings.get("emt", {}).get("enabled", False),
             "instructions": settings.get("emt", {}).get("instructions", "")
         },
+        "zelle": {
+            "enabled": settings.get("zelle", {}).get("enabled", False),
+            "instructions": settings.get("zelle", {}).get("instructions", "")
+        },
+        "cashapp": {
+            "enabled": settings.get("cashapp", {}).get("enabled", False),
+            "instructions": settings.get("cashapp", {}).get("instructions", "")
+        },
+        "venmo": {
+            "enabled": settings.get("venmo", {}).get("enabled", False),
+            "instructions": settings.get("venmo", {}).get("instructions", "")
+        },
+        "wise": {
+            "enabled": settings.get("wise", {}).get("enabled", False),
+            "instructions": settings.get("wise", {}).get("instructions", "")
+        },
+        "helcim": {
+            "enabled": settings.get("helcim", {}).get("enabled", False)
+        },
         "manual": {
             "enabled": True
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "stripe", "paypal", "square", "blockonomics"]),
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics"]),
         "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
     }
 

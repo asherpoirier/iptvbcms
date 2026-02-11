@@ -7,7 +7,7 @@ export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
   
   // Default payment method order
-  const defaultOrder = ['manual', 'emt', 'stripe', 'paypal', 'square', 'blockonomics'];
+  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics'];
   
   const [formData, setFormData] = useState({
     paypal_enabled: settings?.paypal?.enabled || false,
@@ -29,7 +29,20 @@ export default function PaymentGatewaySettings({ settings }) {
     blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
     emt_enabled: settings?.emt?.enabled || false,
     emt_instructions: settings?.emt?.instructions || '',
-    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); return o; })(),
+    zelle_enabled: settings?.zelle?.enabled || false,
+    zelle_instructions: settings?.zelle?.instructions || '',
+    cashapp_enabled: settings?.cashapp?.enabled || false,
+    cashapp_instructions: settings?.cashapp?.instructions || '',
+    venmo_enabled: settings?.venmo?.enabled || false,
+    venmo_instructions: settings?.venmo?.instructions || '',
+    wise_enabled: settings?.wise?.enabled || false,
+    wise_api_token: settings?.wise?.api_token || '',
+    wise_profile_id: settings?.wise?.profile_id || '',
+    wise_instructions: settings?.wise?.instructions || '',
+    helcim_enabled: settings?.helcim?.enabled || false,
+    helcim_api_token: settings?.helcim?.api_token || '',
+    helcim_terminal_id: settings?.helcim?.terminal_id || '',
+    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
   });
 
   React.useEffect(() => {
@@ -54,7 +67,20 @@ export default function PaymentGatewaySettings({ settings }) {
         blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
         emt_enabled: settings?.emt?.enabled || false,
         emt_instructions: settings?.emt?.instructions || '',
-        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); return o; })(),
+        zelle_enabled: settings?.zelle?.enabled || false,
+        zelle_instructions: settings?.zelle?.instructions || '',
+        cashapp_enabled: settings?.cashapp?.enabled || false,
+        cashapp_instructions: settings?.cashapp?.instructions || '',
+        venmo_enabled: settings?.venmo?.enabled || false,
+        venmo_instructions: settings?.venmo?.instructions || '',
+        wise_enabled: settings?.wise?.enabled || false,
+        wise_api_token: settings?.wise?.api_token || '',
+        wise_profile_id: settings?.wise?.profile_id || '',
+        wise_instructions: settings?.wise?.instructions || '',
+        helcim_enabled: settings?.helcim?.enabled || false,
+        helcim_api_token: settings?.helcim?.api_token || '',
+        helcim_terminal_id: settings?.helcim?.terminal_id || '',
+        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
       });
     }
   }, [settings]);
@@ -94,6 +120,29 @@ export default function PaymentGatewaySettings({ settings }) {
           enabled: data.emt_enabled,
           instructions: data.emt_instructions
         },
+        zelle: {
+          enabled: data.zelle_enabled,
+          instructions: data.zelle_instructions
+        },
+        cashapp: {
+          enabled: data.cashapp_enabled,
+          instructions: data.cashapp_instructions
+        },
+        venmo: {
+          enabled: data.venmo_enabled,
+          instructions: data.venmo_instructions
+        },
+        wise: {
+          enabled: data.wise_enabled,
+          api_token: data.wise_api_token,
+          profile_id: data.wise_profile_id,
+          instructions: data.wise_instructions
+        },
+        helcim: {
+          enabled: data.helcim_enabled,
+          api_token: data.helcim_api_token,
+          terminal_id: data.helcim_terminal_id
+        },
         payment_method_order: data.payment_method_order
       };
       return adminAPI.updateSettings(settingsUpdate);
@@ -128,6 +177,11 @@ export default function PaymentGatewaySettings({ settings }) {
     stripe: { name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
     paypal: { name: 'PayPal', icon: CreditCard, color: 'text-blue-600' },
     square: { name: 'Square', icon: CreditCard, color: 'text-indigo-600' },
+    zelle: { name: 'Zelle', icon: DollarSign, color: 'text-purple-600' },
+    cashapp: { name: 'Cash App', icon: DollarSign, color: 'text-green-500' },
+    venmo: { name: 'Venmo', icon: DollarSign, color: 'text-blue-500' },
+    wise: { name: 'Wise', icon: DollarSign, color: 'text-green-600' },
+    helcim: { name: 'Helcim', icon: CreditCard, color: 'text-teal-600' },
     blockonomics: { name: 'Bitcoin (Blockonomics)', icon: Bitcoin, color: 'text-orange-500' },
   };
 
@@ -521,6 +575,161 @@ export default function PaymentGatewaySettings({ settings }) {
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 These instructions will be shown to customers who select EMT at checkout. Include your e-Transfer email, any security question, and how to reference their order.
               </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Zelle */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-6 h-6 text-purple-600" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Zelle</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept payments via Zelle</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.zelle_enabled} onChange={(e) => setFormData({ ...formData, zelle_enabled: e.target.checked })} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-purple-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+        {formData.zelle_enabled && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Zelle Instructions</label>
+            <textarea rows={4} value={formData.zelle_instructions} onChange={(e) => setFormData({ ...formData, zelle_instructions: e.target.value })} placeholder={"Send via Zelle to: payments@yourdomain.com\nAmount: (shown at checkout)\nMemo: Your Order ID"} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+        )}
+      </div>
+
+      {/* Cash App */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-6 h-6 text-green-500" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Cash App</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept payments via Cash App</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.cashapp_enabled} onChange={(e) => setFormData({ ...formData, cashapp_enabled: e.target.checked })} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-green-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+        {formData.cashapp_enabled && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cash App Instructions</label>
+            <textarea rows={4} value={formData.cashapp_instructions} onChange={(e) => setFormData({ ...formData, cashapp_instructions: e.target.value })} placeholder={"Send to $YourCashTag\nAmount: (shown at checkout)\nNote: Your Order ID"} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+        )}
+      </div>
+
+      {/* Venmo */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-6 h-6 text-blue-500" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Venmo</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept payments via Venmo</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.venmo_enabled} onChange={(e) => setFormData({ ...formData, venmo_enabled: e.target.checked })} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-blue-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+        {formData.venmo_enabled && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Venmo Instructions</label>
+            <textarea rows={4} value={formData.venmo_instructions} onChange={(e) => setFormData({ ...formData, venmo_instructions: e.target.value })} placeholder={"Send to @YourVenmoUsername\nAmount: (shown at checkout)\nNote: Your Order ID"} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          </div>
+        )}
+      </div>
+
+      {/* Helcim */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <CreditCard className="w-6 h-6 text-teal-600" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Helcim</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Accept cards &amp; ACH with low interchange-plus rates</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.helcim_enabled} onChange={(e) => setFormData({ ...formData, helcim_enabled: e.target.checked })} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+          </label>
+        </div>
+        {formData.helcim_enabled && (
+          <div className="space-y-4 mt-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">API Token *</label>
+              <input
+                type="password"
+                value={formData.helcim_api_token}
+                onChange={(e) => setFormData({ ...formData, helcim_api_token: e.target.value })}
+                placeholder="Your Helcim API token"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Create an API Access Configuration in your <a href="https://hub.helcim.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">Helcim Dashboard</a> under All Tools &rarr; Integrations
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Terminal ID *</label>
+              <input
+                type="text"
+                value={formData.helcim_terminal_id}
+                onChange={(e) => setFormData({ ...formData, helcim_terminal_id: e.target.value })}
+                placeholder="e.g. 12345"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Find your Terminal ID in Helcim Dashboard &rarr; All Tools &rarr; Payments &rarr; Terminals. Each terminal is tied to a specific currency (CAD/USD).
+              </p>
+            </div>
+            <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700 rounded-lg p-4">
+              <p className="text-sm text-teal-800 dark:text-teal-200">
+                <strong>How it works:</strong> Customers pay via a secure HelcimPay.js modal (PCI-compliant). No monthly fees, interchange-plus pricing. Supports credit, debit &amp; ACH.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Wise */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-6 h-6 text-green-600" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">Wise</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept international payments via Wise</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.wise_enabled} onChange={(e) => setFormData({ ...formData, wise_enabled: e.target.checked })} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-green-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+        {formData.wise_enabled && (
+          <div className="space-y-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Wise API Token</label>
+              <input type="password" value={formData.wise_api_token} onChange={(e) => setFormData({ ...formData, wise_api_token: e.target.value })} placeholder="Your Wise API token" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+              <p className="text-xs text-gray-500 mt-1">Settings &gt; API tokens in your Wise Business account</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Profile ID</label>
+              <input type="text" value={formData.wise_profile_id} onChange={(e) => setFormData({ ...formData, wise_profile_id: e.target.value })} placeholder="Your Wise business profile ID" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Payment Instructions (shown at checkout)</label>
+              <textarea rows={4} value={formData.wise_instructions} onChange={(e) => setFormData({ ...formData, wise_instructions: e.target.value })} placeholder={"Send to: your@email.com via Wise\nAmount: (shown at checkout)\nReference: Your Order ID\n\nPayment will be auto-detected via Wise API."} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
             </div>
           </div>
         )}

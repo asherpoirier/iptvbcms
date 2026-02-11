@@ -36,6 +36,9 @@ export default function CheckoutPage() {
   const [btcPolling, setBtcPolling] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
+  // Helcim payment state
+  const [helcimLoading, setHelcimLoading] = useState(false);
+
   // Check if cart has reseller products
   const hasResellerProduct = items.some(item => item.account_type === 'reseller');
   
@@ -75,12 +78,10 @@ export default function CheckoutPage() {
       const orderId = response.data.order_id;
       setCurrentOrderId(orderId);
       
-      if (paymentMethod === 'manual' || paymentMethod === 'emt') {
+      if (['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise'].includes(paymentMethod)) {
         clearCart();
         navigate('/orders');
-        alert(paymentMethod === 'emt' 
-          ? 'Order placed! Please send your Interac e-Transfer now. Include your Order ID in the message.'
-          : 'Order placed successfully! Please wait for admin to confirm payment.');
+        alert(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
       }
       // For PayPal, buttons will handle the flow
     },
@@ -320,6 +321,100 @@ export default function CheckoutPage() {
       navigator.clipboard.writeText(btcPaymentData.btc_address);
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
+    }
+  };
+
+  // ===== HELCIM PAYMENT =====
+  const handleHelcimPay = async () => {
+    try {
+      setError('');
+      setHelcimLoading(true);
+
+      // Create order first
+      const orderData = { items, total: getTotal() };
+      if (appliedCouponCode) orderData.coupon_code = appliedCouponCode;
+      if (creditsUsed > 0) orderData.use_credits = creditsUsed;
+
+      const orderResponse = await ordersAPI.create(orderData);
+      const orderId = orderResponse.data.order_id;
+      setCurrentOrderId(orderId);
+
+      // Initialize Helcim checkout
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      const helcimResponse = await axios.post(
+        `${API_URL}/api/orders/${orderId}/pay/helcim`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!helcimResponse.data.success || !helcimResponse.data.checkoutToken) {
+        throw new Error('Failed to initialize Helcim checkout');
+      }
+
+      const checkoutToken = helcimResponse.data.checkoutToken;
+
+      // Load HelcimPay.js script if not already loaded
+      if (!document.querySelector('script[src*="helcim-pay"]')) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://secure.helcim.app/helcim-pay/services/start.js';
+          script.type = 'text/javascript';
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('Failed to load HelcimPay.js'));
+          document.head.appendChild(script);
+        });
+      }
+
+      // Listen for iFrame events
+      const messageHandler = async (event) => {
+        const key = 'helcim-pay-js-' + checkoutToken;
+        if (event.data.eventName !== key) return;
+
+        window.removeEventListener('message', messageHandler);
+
+        if (event.data.eventStatus === 'SUCCESS') {
+          try {
+            const txnData = typeof event.data.eventMessage === 'string'
+              ? JSON.parse(event.data.eventMessage)
+              : event.data.eventMessage;
+            const txn = txnData?.data || txnData;
+
+            // Verify payment on backend
+            await axios.post(
+              `${API_URL}/api/orders/${orderId}/helcim/verify`,
+              { transactionId: txn.transactionId || '', cardToken: txn.cardToken || '' },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            clearCart();
+            alert('Payment successful! Your services are being provisioned.');
+            navigate('/orders');
+          } catch (verifyErr) {
+            console.error('Helcim verify error:', verifyErr);
+            setError('Payment completed but verification failed. Please contact support.');
+          }
+        } else if (event.data.eventStatus === 'ABORTED') {
+          setError('Payment was declined. Please try again.');
+        }
+        // HIDE = user closed modal, do nothing special
+        setHelcimLoading(false);
+      };
+
+      window.addEventListener('message', messageHandler);
+
+      // Open the HelcimPay.js modal
+      if (typeof window.appendHelcimPayIframe === 'function') {
+        window.appendHelcimPayIframe(checkoutToken);
+      } else {
+        throw new Error('HelcimPay.js not loaded');
+      }
+
+      setHelcimLoading(false);
+    } catch (err) {
+      console.error('Helcim payment error:', err);
+      setError(`Helcim payment failed: ${err.response?.data?.detail || err.message}`);
+      setHelcimLoading(false);
     }
   };
 
@@ -639,7 +734,7 @@ export default function CheckoutPage() {
                 
                 <div className="space-y-3 mb-6">
                   {/* Render payment methods in order from settings */}
-                  {(settings?.payment_method_order || ['manual', 'emt', 'stripe', 'paypal', 'square', 'blockonomics']).map((method) => {
+                  {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics']).map((method) => {
                     // Manual Payment
                     if (method === 'manual') {
                       return (
@@ -758,19 +853,92 @@ export default function CheckoutPage() {
                     if (method === 'emt' && settings?.emt?.enabled) {
                       return (
                         <label key="emt" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-emerald-500 transition bg-white dark:bg-gray-800">
-                          <input
-                            type="radio"
-                            name="payment"
-                            value="emt"
-                            checked={paymentMethod === 'emt'}
-                            onChange={(e) => setPaymentMethod(e.target.value)}
-                            className="w-4 h-4 text-emerald-600"
-                          />
+                          <input type="radio" name="payment" value="emt" checked={paymentMethod === 'emt'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-emerald-600" />
                           <div className="ml-3 flex items-center gap-2">
                             <DollarSign className="w-5 h-5 text-emerald-600" />
                             <div>
                               <p className="font-semibold text-gray-900 dark:text-white">Interac e-Transfer</p>
                               <p className="text-sm text-gray-600 dark:text-gray-400">Pay via EMT (Canadian banks)</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    // Zelle
+                    if (method === 'zelle' && settings?.zelle?.enabled) {
+                      return (
+                        <label key="zelle" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-purple-500 transition bg-white dark:bg-gray-800">
+                          <input type="radio" name="payment" value="zelle" checked={paymentMethod === 'zelle'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-purple-600" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-purple-600" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Zelle</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay via Zelle bank transfer</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    // Cash App
+                    if (method === 'cashapp' && settings?.cashapp?.enabled) {
+                      return (
+                        <label key="cashapp" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-green-500 transition bg-white dark:bg-gray-800">
+                          <input type="radio" name="payment" value="cashapp" checked={paymentMethod === 'cashapp'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-green-500" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-green-500" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Cash App</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay via Cash App</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    // Venmo
+                    if (method === 'venmo' && settings?.venmo?.enabled) {
+                      return (
+                        <label key="venmo" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-blue-500 transition bg-white dark:bg-gray-800">
+                          <input type="radio" name="payment" value="venmo" checked={paymentMethod === 'venmo'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-blue-500" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-blue-500" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Venmo</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay via Venmo</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    // Wise
+                    if (method === 'wise' && settings?.wise?.enabled) {
+                      return (
+                        <label key="wise" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-green-600 transition bg-white dark:bg-gray-800">
+                          <input type="radio" name="payment" value="wise" checked={paymentMethod === 'wise'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-green-600" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <DollarSign className="w-5 h-5 text-green-600" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Wise</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">International bank transfer via Wise</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    // Helcim
+                    if (method === 'helcim' && settings?.helcim?.enabled) {
+                      return (
+                        <label key="helcim" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-teal-500 transition bg-white dark:bg-gray-800" data-testid="helcim-payment-option">
+                          <input type="radio" name="payment" value="helcim" checked={paymentMethod === 'helcim'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-teal-600" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <CreditCard className="w-5 h-5 text-teal-600" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Helcim</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay with credit/debit card or ACH</p>
                             </div>
                           </div>
                         </label>
@@ -822,6 +990,115 @@ export default function CheckoutPage() {
                       Send your e-Transfer after placing the order. Include your Order ID in the message.
                     </p>
                   </div>
+                                ) : paymentMethod === 'zelle' ? (
+                  <div>
+                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-5 mb-4">
+                      <h4 className="font-semibold text-purple-900 dark:text-purple-200 mb-3 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
+                        Zelle Payment Instructions
+                      </h4>
+                      <div className="text-sm text-purple-800 dark:text-purple-300 whitespace-pre-line">
+                        {settings?.zelle?.instructions || 'Please contact support for Zelle payment details.'}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-700">
+                        <p className="text-sm font-medium text-purple-900 dark:text-purple-200">
+                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={handleCheckout} disabled={createOrderMutation.isPending}
+                      className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50">
+                      {createOrderMutation.isPending ? 'Processing...' : 'Place Order (Zelle)'}
+                    </button>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
+                      Send your Zelle payment after placing the order. Include your Order ID.
+                    </p>
+                  </div>
+                                ) : paymentMethod === 'cashapp' ? (
+                  <div>
+                    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5 mb-4">
+                      <h4 className="font-semibold text-green-900 dark:text-green-200 mb-3 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
+                        Cash App Payment Instructions
+                      </h4>
+                      <div className="text-sm text-green-800 dark:text-green-300 whitespace-pre-line">
+                        {settings?.cashapp?.instructions || 'Please contact support for Cash App payment details.'}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
+                        <p className="text-sm font-medium text-green-900 dark:text-green-200">
+                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={handleCheckout} disabled={createOrderMutation.isPending}
+                      className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50">
+                      {createOrderMutation.isPending ? 'Processing...' : 'Place Order (Cash App)'}
+                    </button>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
+                      Send your Cash App payment after placing the order. Include your Order ID.
+                    </p>
+                  </div>
+                                ) : paymentMethod === 'venmo' ? (
+                  <div>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-5 mb-4">
+                      <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-3 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
+                        Venmo Payment Instructions
+                      </h4>
+                      <div className="text-sm text-blue-800 dark:text-blue-300 whitespace-pre-line">
+                        {settings?.venmo?.instructions || 'Please contact support for Venmo payment details.'}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
+                        <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={handleCheckout} disabled={createOrderMutation.isPending}
+                      className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
+                      {createOrderMutation.isPending ? 'Processing...' : 'Place Order (Venmo)'}
+                    </button>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
+                      Send your Venmo payment after placing the order. Include your Order ID.
+                    </p>
+                  </div>
+                                ) : paymentMethod === 'wise' ? (
+                  <div>
+                    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-5 mb-4">
+                      <h4 className="font-semibold text-green-900 dark:text-green-200 mb-3 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
+                        Wise Payment Instructions
+                      </h4>
+                      <div className="text-sm text-green-800 dark:text-green-300 whitespace-pre-line">
+                        {settings?.wise?.instructions || 'Please contact support for Wise payment details.'}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
+                        <p className="text-sm font-medium text-green-900 dark:text-green-200">
+                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={handleCheckout} disabled={createOrderMutation.isPending}
+                      className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50">
+                      {createOrderMutation.isPending ? 'Processing...' : 'Place Order (Wise)'}
+                    </button>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-3 text-center">
+                      Send your Wise payment after placing the order. Include your Order ID.
+                    </p>
+                  </div>
+                ) : paymentMethod === 'helcim' && settings?.helcim?.enabled ? (
+                  <button
+                    onClick={handleHelcimPay}
+                    disabled={helcimLoading}
+                    data-testid="helcim-pay-button"
+                    className="w-full bg-teal-600 text-white py-4 rounded-lg font-semibold text-lg hover:bg-teal-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {helcimLoading ? (
+                      <><Loader2 className="w-5 h-5 animate-spin" /> Initializing...</>
+                    ) : (
+                      <><CreditCard className="w-6 h-6" /> Pay with Helcim</>
+                    )}
+                  </button>
                 ) : paymentMethod === 'paypal' && settings?.paypal?.client_id ? (
                   <PayPalScriptProvider options={{ "client-id": settings.paypal.client_id, currency: settings?.currency?.code || "USD" }}>
                     <PayPalButtons

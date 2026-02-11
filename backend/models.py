@@ -341,6 +341,29 @@ class EMTSettings(BaseModel):
     enabled: bool = False
     instructions: str = ""
 
+class ZelleSettings(BaseModel):
+    enabled: bool = False
+    instructions: str = ""
+
+class CashAppSettings(BaseModel):
+    enabled: bool = False
+    instructions: str = ""
+
+class VenmoSettings(BaseModel):
+    enabled: bool = False
+    instructions: str = ""
+
+class HelcimSettings(BaseModel):
+    enabled: bool = False
+    api_token: str = ""
+    terminal_id: str = ""
+
+class WiseSettings(BaseModel):
+    enabled: bool = False
+    api_token: str = ""
+    profile_id: str = ""
+    instructions: str = ""
+
 class InvoiceSettings(BaseModel):
     company_name: str = ""
     company_address: str = ""
@@ -373,6 +396,11 @@ class Settings(BaseModel):
     credit: CreditSettings = Field(default_factory=CreditSettings)
     recaptcha: RecaptchaSettings = Field(default_factory=RecaptchaSettings)
     emt: EMTSettings = Field(default_factory=EMTSettings)
+    zelle: ZelleSettings = Field(default_factory=ZelleSettings)
+    cashapp: CashAppSettings = Field(default_factory=CashAppSettings)
+    venmo: VenmoSettings = Field(default_factory=VenmoSettings)
+    wise: WiseSettings = Field(default_factory=WiseSettings)
+    helcim: HelcimSettings = Field(default_factory=HelcimSettings)
     invoice: InvoiceSettings = Field(default_factory=InvoiceSettings)
     currency: str = "USD"
     refunds_enabled: bool = True  # Enable/disable refund feature
@@ -380,7 +408,7 @@ class Settings(BaseModel):
     company_email: str = ""
     support_email: str = ""
     license_key: str = ""
-    payment_method_order: List[str] = Field(default_factory=lambda: ["manual", "emt", "stripe", "paypal", "square", "blockonomics"])
+    payment_method_order: List[str] = Field(default_factory=lambda: ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics"])
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
