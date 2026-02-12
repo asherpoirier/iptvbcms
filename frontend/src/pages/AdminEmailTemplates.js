@@ -5,6 +5,7 @@ import { adminAPI } from '../api/api';
 import { ArrowLeft, Mail, Eye, Send, Save, AlertCircle, CheckCircle, History, RotateCcw } from 'lucide-react';
 import RichTextEditor from '../components/RichTextEditor';
 import EmailPreview from '../components/EmailPreview';
+import { toast } from 'sonner';
 
 export default function AdminEmailTemplates() {
   const queryClient = useQueryClient();
@@ -29,7 +30,7 @@ export default function AdminEmailTemplates() {
     onSuccess: () => {
       queryClient.invalidateQueries(['email-templates']);
       setIsEditing(false);
-      alert('Template updated successfully!');
+      toast.success('Template updated successfully!');
     },
   });
 
@@ -38,11 +39,11 @@ export default function AdminEmailTemplates() {
       return await adminAPI.testEmailTemplate(templateId, data);
     },
     onSuccess: () => {
-      alert('Test email sent successfully!');
+      toast.success('Test email sent successfully!');
       setTestEmail('');
     },
     onError: (error) => {
-      alert('Failed to send test email: ' + error.response?.data?.detail);
+      toast.error('Failed to send test email: ' + error.response?.data?.detail);
     },
   });
 

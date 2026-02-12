@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, Plus, Trash2, Server, X, Check, Package, Users } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function OneStreamPanelManagement({ settings }) {
   const queryClient = useQueryClient();
@@ -28,26 +29,26 @@ export default function OneStreamPanelManagement({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('1-Stream panels saved successfully!');
+      toast.success('1-Stream panels saved successfully!');
     },
     onError: (error) => {
-      alert('Failed to save: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save: ' + (error.response?.data?.detail || error.message));
     },
   });
 
   const testMutation = useMutation({
     mutationFn: () => adminAPI.testOneStream(),
     onSuccess: (response) => {
-      alert(response.data?.message || 'Connection successful!');
+      toast.success(response.data?.message || 'Connection successful!');
       setTestingPanelId(null);
     },
     onError: (error) => {
       const status = error.response?.status;
       const detail = error.response?.data?.detail || 'Unknown error';
       if (status === 401) {
-        alert('Session expired. Please refresh the page and log in again.');
+        toast.error('Session expired. Please refresh the page and log in again.');
       } else {
-        alert('Connection failed: ' + detail);
+        toast.error('Connection failed: ' + detail);
       }
       setTestingPanelId(null);
     },
@@ -79,9 +80,9 @@ export default function OneStreamPanelManagement({ settings }) {
       const response = await adminAPI.syncOneStreamPackages(index);
       const count = response.data?.count || 0;
       const trialCount = response.data?.trial_count || 0;
-      alert(`Synced from ${response.data?.panel_name || 'panel'}:\n${count} regular packages\n${trialCount} trial packages`);
+      toast.success(`Synced from ${response.data?.panel_name || 'panel'}:\n${count} regular packages\n${trialCount} trial packages`);
     } catch (error) {
-      alert('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
     }
     setSyncingPackages(null);
   };
@@ -90,9 +91,9 @@ export default function OneStreamPanelManagement({ settings }) {
     setSyncingBouquets(index);
     try {
       const response = await adminAPI.syncOneStreamBouquets(index);
-      alert(`Synced ${response.data?.count || 0} bouquets`);
+      toast.success(`Synced ${response.data?.count || 0} bouquets`);
     } catch (error) {
-      alert('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
     }
     setSyncingBouquets(null);
   };
@@ -101,9 +102,9 @@ export default function OneStreamPanelManagement({ settings }) {
     setSyncingUsers(index);
     try {
       const response = await adminAPI.syncOneStreamUsers(index);
-      alert(`Synced from ${response.data?.panel_name || 'panel'}:\n${response.data?.synced || 0} new users\n${response.data?.updated || 0} updated`);
+      toast.success(`Synced from ${response.data?.panel_name || 'panel'}:\n${response.data?.synced || 0} new users\n${response.data?.updated || 0} updated`);
     } catch (error) {
-      alert('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
     }
     setSyncingUsers(null);
   };
@@ -236,7 +237,7 @@ function PanelModal({ panel, onClose, onSave }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.name || !formData.panel_url || !formData.api_key || !formData.auth_user_token) {
-      alert('Panel Name, URL, API Key and Auth Token are required');
+      toast.error('Panel Name, URL, API Key and Auth Token are required');
       return;
     }
     onSave(formData);

@@ -72,6 +72,7 @@ export default function HomePage() {
     const panels = panelData?.panels || [];
     const xuionePanels = panelData?.xuione_panels || [];
     const onestreamPanels = panelData?.onestream_panels || [];
+    const nxtdashPanels = panelData?.nxtdash_panels || [];
     
     let panel;
     if (panelType === 'manual') {
@@ -82,6 +83,9 @@ export default function HomePage() {
     } else if (panelType === 'onestream') {
       panel = onestreamPanels.find(p => p.index === Number(panelIndex));
       return panel?.name || `1-Stream ${Number(panelIndex) + 1}`;
+    } else if (panelType === 'nxtdash') {
+      panel = nxtdashPanels.find(p => p.index === Number(panelIndex));
+      return panel?.name || `NXT Dash ${Number(panelIndex) + 1}`;
     } else {
       panel = panels.find(p => p.index === Number(panelIndex));
       return panel?.name || `Server ${Number(panelIndex) + 1}`;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Server, Download, Check } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function PackagesSync() {
   const queryClient = useQueryClient();
@@ -20,10 +21,10 @@ export default function PackagesSync() {
     mutationFn: () => adminAPI.syncPackagesFromPanel(),
     onSuccess: (response) => {
       setPackages(response.data.packages || []);
-      alert(`Success! Fetched ${response.data.packages?.length || 0} packages from XtreamUI panel!`);
+      toast.success(`Success! Fetched ${response.data.packages?.length || 0} packages from XtreamUI panel!`);
     },
     onError: (error) => {
-      alert('Sync failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -63,7 +64,7 @@ export default function PackagesSync() {
       queryClient.invalidateQueries(['admin-products']);
       const success = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
-      alert(`Import complete! ${success} packages imported successfully${failed > 0 ? `, ${failed} failed` : ''}.`);
+      toast.info(`Import complete! ${success} packages imported successfully${failed > 0 ? `, ${failed} failed` : ''}.`);
       setSelectedPackages([]);
     },
   });
@@ -84,7 +85,7 @@ export default function PackagesSync() {
     const packagesToImport = packages.filter(pkg => selectedPackages.includes(pkg.id));
     
     if (packagesToImport.length === 0) {
-      alert('Please select at least one package to import');
+      toast.error('Please select at least one package to import');
       return;
     }
     

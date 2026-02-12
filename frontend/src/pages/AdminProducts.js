@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users, LinkIcon, Check } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
+import { toast } from 'sonner';
 
 export default function AdminProducts() {
   const queryClient = useQueryClient();
@@ -38,12 +39,14 @@ export default function AdminProducts() {
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
+  const nxtdashPanels = settings?.nxtdash?.panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index })),
     ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index })),
-    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index }))
+    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index })),
+    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index }))
   ];
   
   // For components that need just XtreamUI panels (like ResellerPackageModal)
@@ -57,6 +60,9 @@ export default function AdminProducts() {
     }
     if (panelType === 'onestream') {
       return onestreamPanels[panelIndex]?.name || `1-Stream Panel ${panelIndex}`;
+    }
+    if (panelType === 'nxtdash') {
+      return nxtdashPanels[panelIndex]?.name || `NXT Dash Panel ${panelIndex}`;
     }
     return xtreamPanels[panelIndex]?.name || `Panel ${panelIndex}`;
   };
@@ -106,7 +112,7 @@ export default function AdminProducts() {
     mutationFn: (id) => adminAPI.deleteProduct(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-products']);
-      alert('Product deleted successfully!');
+      toast.success('Product deleted successfully!');
     },
   });
 
@@ -151,10 +157,10 @@ export default function AdminProducts() {
                 if (window.confirm('Fix display order for all products? This will reorganize products into sequential order within each panel.')) {
                   try {
                     await adminAPI.fixProductDisplayOrder();
-                    alert('Display order fixed! Products have been reorganized.');
+                    toast.success('Display order fixed! Products have been reorganized.');
                     queryClient.invalidateQueries(['admin-products']);
                   } catch (error) {
-                    alert('Failed to fix display order: ' + (error.response?.data?.detail || error.message));
+                    toast.error('Failed to fix display order: ' + (error.response?.data?.detail || error.message));
                   }
                 }
               }}
@@ -254,7 +260,7 @@ export default function AdminProducts() {
                     <option value="all">All Panels</option>
                     {allPanels.map((panel, idx) => (
                       <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
-                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : panel.type === 'onestream' ? '1-Stream' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
+                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : panel.type === 'onestream' ? '1-Stream' : panel.type === 'nxtdash' ? 'NXT Dash' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
                       </option>
                     ))}
                   </select>
@@ -510,12 +516,14 @@ function ProductFormModal({ product, onClose, onSuccess }) {
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
+  const nxtdashPanels = settings?.nxtdash?.panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index, label: `${panel.name} (XtreamUI)` })),
     ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index, label: `${panel.name} (XuiOne)` })),
-    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index, label: `${panel.name} (1-Stream)` }))
+    ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index, label: `${panel.name} (1-Stream)` })),
+    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index, label: `${panel.name} (NXT Dash)` }))
   ];
   
   const panels = allPanels;
@@ -553,6 +561,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       } else if (selectedPanelInfo.type === 'onestream') {
         const response = await adminAPI.syncOneStreamPackages(selectedPanelInfo.index);
         return response.data.packages || [];
+      } else if (selectedPanelInfo.type === 'nxtdash') {
+        const response = await adminAPI.getNxtDashPackages(selectedPanelInfo.index);
+        return response.data.packages || [];
       } else {
         const response = await adminAPI.syncPackagesFromPanel(selectedPanelInfo.index);
         return response.data.packages || [];
@@ -561,7 +572,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     enabled: !isEditing && panels.length > 0 && packageType === 'regular',
   });
 
-  // Fetch trial packages from selected panel (XtreamUI, XuiOne, or 1-Stream)
+  // Fetch trial packages from selected panel (XtreamUI, XuiOne, 1-Stream, or NXT Dash)
   const { data: trialPackagesData, isLoading: trialPackagesLoading } = useQuery({
     queryKey: [`${selectedPanelInfo.type}-trial-packages`, selectedPanelInfo.index],
     queryFn: async () => {
@@ -570,6 +581,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         return response.data.trial_packages || [];
       } else if (selectedPanelInfo.type === 'onestream') {
         const response = await adminAPI.syncOneStreamPackages(selectedPanelInfo.index);
+        return response.data.trial_packages || [];
+      } else if (selectedPanelInfo.type === 'nxtdash') {
+        const response = await adminAPI.getNxtDashPackages(selectedPanelInfo.index);
         return response.data.trial_packages || [];
       } else {
         const response = await adminAPI.syncTrialPackagesFromPanel(selectedPanelInfo.index);
@@ -590,14 +604,24 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     if (pkg) {
       setSelectedPackage(pkg);
       
-      // Convert duration to months
-      const durationMonths = convertDurationToMonths(pkg.duration, pkg.duration_unit);
+      // NXT Dash uses duration_in, others use duration_unit
+      const durationUnit = pkg.duration_unit || pkg.duration_in || 'months';
+      const maxConn = pkg.max_connections || pkg.connections || 1;
       
-      // Extract all bouquet IDs from package (ensure integers)
-      const packageBouquetIds = pkg.bouquets.map(b => {
-        const id = parseInt(b.id);
+      // Convert duration to months
+      const durationMonths = convertDurationToMonths(pkg.duration, durationUnit);
+      
+      // Extract bouquet IDs — XtreamUI has objects with .id, NXT Dash may not have bouquets
+      const bouquets = pkg.bouquets || [];
+      let packageBouquetIds = bouquets.map(b => {
+        const id = parseInt(typeof b === 'object' ? b.id : b);
         return id;
       }).filter(id => !isNaN(id));
+      
+      // For NXT Dash: packages don't carry bouquets — auto-select ALL available bouquets
+      if (selectedPanelInfo.type === 'nxtdash' && packageBouquetIds.length === 0 && availableBouquets?.length > 0) {
+        packageBouquetIds = availableBouquets.map(b => parseInt(b.id)).filter(id => !isNaN(id));
+      }
       
       console.log('Package bouquet IDs:', packageBouquetIds);
       
@@ -605,13 +629,12 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       setFormData(prev => ({
         ...prev,
         name: pkg.name,
-        description: `${pkg.name} - ${pkg.max_connections} connection(s), ${pkg.duration} ${pkg.duration_unit}`,
-        max_connections: parseInt(pkg.max_connections),
-        bouquets: packageBouquetIds, // Set all bouquets from package
-        is_trial: pkg.is_trial || packageType === 'trial', // Set trial flag
-        trial_duration: pkg.duration, // Store actual trial duration
-        trial_duration_unit: pkg.duration_unit, // Store actual unit (days, hours, etc.)
-        // For trial packages, default price to 0 (FREE)
+        description: `${pkg.name} - ${maxConn} connection(s), ${pkg.duration} ${durationUnit}`,
+        max_connections: parseInt(maxConn),
+        bouquets: packageBouquetIds,
+        is_trial: pkg.is_trial || packageType === 'trial',
+        trial_duration: pkg.duration,
+        trial_duration_unit: durationUnit,
         [`price_${durationMonths}`]: pkg.is_trial || packageType === 'trial' ? '0' : '',
       }));
     }
@@ -619,10 +642,11 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   const convertDurationToMonths = (duration, unit) => {
     switch (unit) {
+      case 'hours': return Math.max(1, Math.ceil(duration / 720));
       case 'days': return Math.max(1, Math.ceil(duration / 30));
       case 'months': return duration;
       case 'years': return duration * 12;
-      default: return duration;
+      default: return duration || 1;
     }
   };
 
@@ -631,7 +655,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       // Only save ONE price entry based on the package duration
       const prices = {};
       const pkg = selectedPackage || product;
-      const durationMonths = pkg ? convertDurationToMonths(pkg.duration || 1, pkg.duration_unit || 'months') : 1;
+      const durationMonths = pkg ? convertDurationToMonths(pkg.duration || 1, pkg.duration_unit || pkg.duration_in || 'months') : 1;
       
       // Find the price value from whichever field has it
       const priceValue = data[`price_${durationMonths}`] || data.price_1 || data.price_3 || data.price_6 || data.price_12 || '0';
@@ -664,11 +688,11 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       }
     },
     onSuccess: () => {
-      alert(isEditing ? 'Product updated successfully!' : 'Product created successfully!');
+      toast.success(isEditing ? 'Product updated successfully!' : 'Product created successfully!');
       onSuccess();
     },
     onError: (error) => {
-      alert('Failed to save product: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save product: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -1109,11 +1133,11 @@ function ResellerPackageModal({ onClose, onSuccess, panels, xtreamPanels, xuione
       }
     },
     onSuccess: () => {
-      alert(isEditing ? 'Reseller package updated successfully!' : 'Reseller package created successfully!');
+      toast.success(isEditing ? 'Reseller package updated successfully!' : 'Reseller package created successfully!');
       onSuccess();
     },
     onError: (error) => {
-      alert('Error: ' + (error.response?.data?.detail || error.message));
+      toast.error('Error: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -1277,7 +1301,7 @@ function ManualProductModal({ onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.price) {
-      alert('Name and price are required');
+      toast.error('Name and price are required');
       return;
     }
     setSaving(true);
@@ -1297,7 +1321,7 @@ function ManualProductModal({ onClose, onSuccess }) {
       });
       onSuccess();
     } catch (err) {
-      alert('Failed to create: ' + (err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || err.message));
+      toast.error('Failed to create: ' + (err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || err.message));
     }
     setSaving(false);
   };

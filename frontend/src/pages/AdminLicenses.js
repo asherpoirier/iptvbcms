@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Plus, Key, Check, X, Calendar, Globe, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminLicenses() {
   const queryClient = useQueryClient();
@@ -30,7 +31,7 @@ export default function AdminLicenses() {
       queryClient.invalidateQueries(['licenses']);
       setShowModal(false);
       resetForm();
-      alert(`License created!\n\nKey: ${response.data.license_key}\n\nShare this key with the customer.`);
+      toast.success(`License created!\n\nKey: ${response.data.license_key}\n\nShare this key with the customer.`);
     },
   });
 
@@ -38,7 +39,7 @@ export default function AdminLicenses() {
     mutationFn: ({ key, reason }) => adminAPI.revokeLicense(key, reason),
     onSuccess: () => {
       queryClient.invalidateQueries(['licenses']);
-      alert('License revoked');
+      toast.success('License revoked');
     },
   });
 
@@ -46,7 +47,7 @@ export default function AdminLicenses() {
     mutationFn: (key) => adminAPI.activateLicense(key),
     onSuccess: () => {
       queryClient.invalidateQueries(['licenses']);
-      alert('License activated');
+      toast.success('License activated');
     },
   });
 
@@ -131,7 +132,7 @@ export default function AdminLicenses() {
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(license.license_key);
-                          alert('License key copied!');
+                          toast.success('License key copied!');
                         }}
                         className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                       >

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Check, Search, Filter, ChevronLeft, ChevronRight, X, CheckSquare, Square, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminOrders() {
   const queryClient = useQueryClient();
@@ -110,7 +111,7 @@ export default function AdminOrders() {
 
   const handleBulkMarkPaid = async () => {
     if (selectedPendingOrders.length === 0) {
-      alert('No pending orders selected');
+      toast.info('No pending orders selected');
       return;
     }
     
@@ -137,15 +138,15 @@ export default function AdminOrders() {
     setSelectedOrders(new Set());
     
     if (failCount > 0) {
-      alert(`Completed: ${successCount} successful, ${failCount} failed`);
+      toast.info(`Completed: ${successCount} successful, ${failCount} failed`);
     } else {
-      alert(`Successfully marked ${successCount} order(s) as paid!`);
+      toast.success(`Successfully marked ${successCount} order(s) as paid!`);
     }
   };
 
   const handleBulkCancel = async () => {
     if (selectedPendingOrders.length === 0) {
-      alert('No pending orders selected');
+      toast.info('No pending orders selected');
       return;
     }
     
@@ -172,9 +173,9 @@ export default function AdminOrders() {
     setSelectedOrders(new Set());
     
     if (failCount > 0) {
-      alert(`Completed: ${successCount} cancelled, ${failCount} failed`);
+      toast.info(`Completed: ${successCount} cancelled, ${failCount} failed`);
     } else {
-      alert(`Successfully cancelled ${successCount} order(s)!`);
+      toast.success(`Successfully cancelled ${successCount} order(s)!`);
     }
   };
 

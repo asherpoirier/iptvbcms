@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Shield, Copy, Check, X, Download } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function TwoFactorSetup() {
   const [step, setStep] = useState('initial'); // initial, setup, verify, complete
@@ -32,7 +33,7 @@ export default function TwoFactorSetup() {
       setStep('setup');
     },
     onError: (error) => {
-      alert('Failed to setup 2FA: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to setup 2FA: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -50,7 +51,7 @@ export default function TwoFactorSetup() {
       refetch();
     },
     onError: (error) => {
-      alert('Invalid code. Please try again.');
+      toast.error('Invalid code. Please try again.');
     },
   });
 
@@ -63,12 +64,12 @@ export default function TwoFactorSetup() {
       return response.data;
     },
     onSuccess: () => {
-      alert('2FA disabled successfully');
+      toast.success('2FA disabled successfully');
       setStep('initial');
       refetch();
     },
     onError: (error) => {
-      alert('Failed to disable 2FA: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to disable 2FA: ' + (error.response?.data?.detail || error.message));
     },
   });
 

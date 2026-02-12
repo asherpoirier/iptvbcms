@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Lock, Save } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function AdminPasswordChange() {
   const [formData, setFormData] = useState({
@@ -16,13 +17,13 @@ export default function AdminPasswordChange() {
       new_password: data.new_password
     }),
     onSuccess: () => {
-      alert('Password changed successfully! Please login again.');
+      toast.info('Password changed successfully! Please login again.');
       // Logout and redirect to login
       localStorage.removeItem('auth-storage');
       window.location.href = '/login';
     },
     onError: (error) => {
-      alert('Failed to change password: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to change password: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -31,17 +32,17 @@ export default function AdminPasswordChange() {
     
     // Validation
     if (formData.new_password.length < 8) {
-      alert('New password must be at least 8 characters');
+      toast.error('New password must be at least 8 characters');
       return;
     }
     
     if (formData.new_password !== formData.confirm_password) {
-      alert('New passwords do not match');
+      toast.info('New passwords do not match');
       return;
     }
     
     if (formData.current_password === formData.new_password) {
-      alert('New password must be different from current password');
+      toast.error('New password must be different from current password');
       return;
     }
     

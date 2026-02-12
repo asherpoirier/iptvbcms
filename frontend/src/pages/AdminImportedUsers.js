@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Users, Filter, Ban, CheckCircle, Server, UserCog, CreditCard, Search, ChevronLeft, ChevronRight, Trash2, Plus, X, RefreshCw, Clock, Download, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminImportedUsers() {
   const queryClient = useQueryClient();
@@ -42,6 +43,7 @@ export default function AdminImportedUsers() {
   const xtreamPanels = settings?.xtream?.panels || [];
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
+  const nxtdashPanels = settings?.nxtdash?.panels || [];
   
   // Combine all panel types for filter dropdown
   const allPanels = [
@@ -65,6 +67,13 @@ export default function AdminImportedUsers() {
       index: index,
       value: `onestream-${index}`,
       label: `${panel.name} (1-Stream)`
+    })),
+    ...nxtdashPanels.map((panel, index) => ({ 
+      ...panel, 
+      type: 'nxtdash', 
+      index: index,
+      value: `nxtdash-${index}`,
+      label: `${panel.name} (NXT Dash)`
     }))
   ];
   
@@ -72,23 +81,33 @@ export default function AdminImportedUsers() {
 
   const suspendMutation = useMutation({
     mutationFn: (id) => adminAPI.suspendImportedUser(id),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries(['imported-users']);
-      alert('User suspended successfully!');
+      const msg = response?.data?.message || 'User suspended successfully!';
+      if (msg.includes('NXT Dash')) {
+        toast.warning(msg, { duration: 6000 });
+      } else {
+        toast.success(msg);
+      }
     },
     onError: (error) => {
-      alert('Failed to suspend user: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to suspend user: ' + (error.response?.data?.detail || error.message));
     },
   });
 
   const activateMutation = useMutation({
     mutationFn: (id) => adminAPI.activateImportedUser(id),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries(['imported-users']);
-      alert('User activated successfully!');
+      const msg = response?.data?.message || 'User activated successfully!';
+      if (msg.includes('NXT Dash')) {
+        toast.warning(msg, { duration: 6000 });
+      } else {
+        toast.success(msg);
+      }
     },
     onError: (error) => {
-      alert('Failed to activate user: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to activate user: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -96,10 +115,10 @@ export default function AdminImportedUsers() {
     mutationFn: (id) => adminAPI.deleteImportedUser(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['imported-users']);
-      alert('User removed from billing panel');
+      toast.success('User removed from billing panel');
     },
     onError: (error) => {
-      alert('Failed to remove user: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to remove user: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -283,7 +302,7 @@ export default function AdminImportedUsers() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Imported Users</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Users and resellers synced from XtreamUI, XuiOne, and 1-Stream panels
+              Users and resellers synced from XtreamUI, XuiOne, 1-Stream, and NXT Dash panels
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -883,6 +902,8 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
       return settings?.xtream?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (XtreamUI)` })) || [];
     } else if (formData.panel_type === 'onestream') {
       return settings?.onestream?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (1-Stream)` })) || [];
+    } else if (formData.panel_type === 'nxtdash') {
+      return settings?.nxtdash?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (NXT Dash)` })) || [];
     } else {
       return settings?.xuione?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (XuiOne)` })) || [];
     }
@@ -920,8 +941,19 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
     enabled: formData.panel_type === 'onestream' && formData.account_type === 'subscriber',
   });
 
+  // Fetch packages for NXT Dash
+  const { data: nxtdashPackages } = useQuery({
+    queryKey: ['nxtdash-packages', formData.panel_index],
+    queryFn: async () => {
+      const response = await adminAPI.getNxtDashPackages(formData.panel_index);
+      return response.data;
+    },
+    enabled: formData.panel_type === 'nxtdash' && formData.account_type === 'subscriber',
+  });
+
   const packages = formData.panel_type === 'xtream' ? (xtreamPackages?.packages || []) 
     : formData.panel_type === 'onestream' ? (onestreamPackages?.packages || [])
+    : formData.panel_type === 'nxtdash' ? (nxtdashPackages?.packages || [])
     : (xuionePackages?.packages || []);
 
   const handleSubmit = async (e) => {
@@ -950,7 +982,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
       setCreatedUser(response.data.user);
       
     } catch (error) {
-      alert('Failed to create user: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to create user: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsSubmitting(false);
     }
@@ -1060,6 +1092,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
               <option value="xtream">XtreamUI</option>
               <option value="xuione">XuiOne</option>
               <option value="onestream">1-Stream</option>
+              <option value="nxtdash">NXT Dash</option>
             </select>
           </div>
 
@@ -1098,9 +1131,9 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
               <option value="subscriber">Subscriber</option>
               {(formData.panel_type === 'xtream' || formData.panel_type === 'onestream') && <option value="reseller">Reseller</option>}
             </select>
-            {formData.panel_type === 'xuione' && (
+            {(formData.panel_type === 'xuione' || formData.panel_type === 'nxtdash') && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Note: XuiOne reseller creation is not supported via API
+                Note: {formData.panel_type === 'xuione' ? 'XuiOne' : 'NXT Dash'} reseller creation is not supported via API
               </p>
             )}
           </div>
@@ -1290,7 +1323,7 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedPackageId) {
-      alert('Please select a package');
+      toast.error('Please select a package');
       return;
     }
     setIsSubmitting(true);
@@ -1301,7 +1334,7 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
       });
       setResult(response.data);
     } catch (error) {
-      alert('Failed to extend user: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to extend user: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsSubmitting(false);
     }
@@ -1495,7 +1528,7 @@ function AddCreditsModal({ user, onClose, onSuccess }) {
     e.preventDefault();
     const amount = parseFloat(credits);
     if (!amount || amount <= 0) {
-      alert('Please enter a valid credit amount');
+      toast.error('Please enter a valid credit amount');
       return;
     }
     setIsSubmitting(true);
@@ -1503,7 +1536,7 @@ function AddCreditsModal({ user, onClose, onSuccess }) {
       const response = await adminAPI.addCreditsToImportedUser(user.id, amount);
       setResult(response.data);
     } catch (error) {
-      alert('Failed to add credits: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to add credits: ' + (error.response?.data?.detail || error.message));
     } finally {
       setIsSubmitting(false);
     }

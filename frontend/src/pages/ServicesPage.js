@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { servicesAPI, productsAPI } from '../api/api';
 import { useCartStore } from '../store/store';
 import { ArrowLeft, Tv, Copy, Check, Eye, EyeOff, Package, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function ServicesPage() {
   const navigate = useNavigate();
@@ -111,7 +112,7 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
       // Redirect to checkout
       navigate('/checkout');
     } else {
-      alert('Product not found. Please contact support.');
+      toast.error('Product not found. Please contact support.');
     }
   };
 
@@ -331,7 +332,7 @@ function RefundRequestModal({ service, onClose }) {
     e.preventDefault();
     
     if (!reason.trim()) {
-      alert('Please provide a reason for the refund request');
+      toast.error('Please provide a reason for the refund request');
       return;
     }
 
@@ -344,12 +345,12 @@ function RefundRequestModal({ service, onClose }) {
       const refundAmount = 10.00; // Default amount, backend will validate against actual order
       
       await servicesAPI.requestRefund(service.order_id, refundAmount, reason);
-      alert('Refund request submitted successfully! Our team will review it shortly.');
+      toast.success('Refund request submitted successfully! Our team will review it shortly.');
       onClose();
       window.location.reload(); // Refresh to show updated status
     } catch (error) {
       const errorMsg = error.response?.data?.detail || error.message;
-      alert('Failed to submit refund request: ' + errorMsg);
+      toast.error('Failed to submit refund request: ' + errorMsg);
     } finally {
       setSubmitting(false);
     }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, Eye, EyeOff } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function RecaptchaSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -24,10 +25,10 @@ export default function RecaptchaSettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('reCAPTCHA settings saved successfully!');
+      toast.success('reCAPTCHA settings saved successfully!');
     },
     onError: (error) => {
-      alert('Failed to save settings: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save settings: ' + (error.response?.data?.detail || error.message));
     },
   });
 

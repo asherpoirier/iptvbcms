@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import api from '../api/api';
 import { Shield, Key, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function LicenseActivationRequired() {
   const [licenseKey, setLicenseKey] = useState('');
@@ -29,7 +30,7 @@ export default function LicenseActivationRequired() {
       });
 
       if (response.data.valid) {
-        alert('✅ License activated successfully!\n\nReloading application...');
+        toast.success('✅ License activated successfully!\n\nReloading application...');
         window.location.reload();
       } else {
         setError(response.data.reason || 'Invalid license key');

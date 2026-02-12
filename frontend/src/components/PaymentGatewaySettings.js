@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, CreditCard, DollarSign, Bitcoin, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
@@ -149,7 +150,7 @@ export default function PaymentGatewaySettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('Payment gateway settings saved!');
+      toast.success('Payment gateway settings saved!');
     },
   });
 

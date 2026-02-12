@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, MessageSquare, X, Send, Search } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminTickets() {
   const queryClient = useQueryClient();
@@ -149,7 +150,7 @@ function AdminTicketModal({ ticket, onClose }) {
   const replyMutation = useMutation({
     mutationFn: (data) => adminAPI.replyToTicket(ticket.id, data),
     onSuccess: () => {
-      alert('Reply sent successfully!');
+      toast.success('Reply sent successfully!');
       setReplyMessage('');
       queryClient.invalidateQueries(['admin-tickets']);
     },

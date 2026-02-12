@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { toast } from 'sonner';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -107,7 +108,7 @@ export default function AdminDashboard() {
                     link.remove();
                     window.URL.revokeObjectURL(url);
                   } catch (err) {
-                    alert('Failed to download user guide');
+                    toast.error('Failed to download user guide');
                   }
                 }}
                 className="flex items-center gap-2 text-gray-600 hover:text-blue-600 transition-colors text-sm"

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, DollarSign, Gift } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function CreditReferralSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -57,7 +58,7 @@ export default function CreditReferralSettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('Settings saved successfully!');
+      toast.success('Settings saved successfully!');
     },
   });
 

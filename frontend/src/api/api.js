@@ -205,6 +205,12 @@ export const adminAPI = {
   syncOneStreamPackages: (panelIndex = 0) => api.get(`/api/admin/onestream/packages?panel_index=${panelIndex}`),
   syncOneStreamBouquets: (panelIndex = 0) => api.get(`/api/admin/onestream/bouquets?panel_index=${panelIndex}`),
   syncOneStreamUsers: (panelIndex = 0) => api.post(`/api/admin/onestream/sync-users?panel_index=${panelIndex}`),
+  // NXT Dash
+  testNxtDash: () => api.post('/api/admin/nxtdash/test'),
+  getNxtDashPackages: (panelIndex = 0) => api.get(`/api/admin/nxtdash/packages?panel_index=${panelIndex}`),
+  getNxtDashBouquets: (panelIndex = 0) => api.get(`/api/admin/nxtdash/bouquets?panel_index=${panelIndex}`),
+  updateNxtDashBouquetNames: (bouquets, panelIndex = 0) => api.put(`/api/admin/nxtdash/bouquets?panel_index=${panelIndex}`, { bouquets }),
+  syncNxtDashUsers: (panelIndex = 0) => api.post(`/api/admin/nxtdash/sync-users?panel_index=${panelIndex}`),
   // Maintenance
   deduplicateImportedUsers: () => api.post('/api/admin/imported-users/deduplicate'),
 };

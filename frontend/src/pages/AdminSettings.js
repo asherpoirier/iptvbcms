@@ -18,7 +18,9 @@ import BackupManager from '../components/BackupManager';
 import RecaptchaSettings from '../components/RecaptchaSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import OneStreamPanelManagement from '../components/OneStreamPanelManagement';
+import NxtDashPanelManagement from '../components/NxtDashPanelManagement';
 import InvoiceSettings from '../components/InvoiceSettings';
+import { toast } from 'sonner';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('panels');
@@ -80,9 +82,17 @@ export default function AdminSettings() {
                 }`}
               >
                 1-Stream Panels
+              </button>
+              <button
+                onClick={() => setActiveTab('nxtdash')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                  activeTab === 'nxtdash' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                NXT Dash Panels
                 <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'onestream' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                }`}>Beta</span>
+                  activeTab === 'nxtdash' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                }`}>New</span>
               </button>
               <button
                 onClick={() => setActiveTab('branding')}
@@ -217,6 +227,11 @@ export default function AdminSettings() {
               <OneStreamPanelManagement settings={settings} />
             )}
 
+            {/* NXT Dash Panels Tab */}
+            {activeTab === 'nxtdash' && (
+              <NxtDashPanelManagement settings={settings} />
+            )}
+
             {/* Branding Tab */}
             {activeTab === 'branding' && (
               <BrandingSettings settings={settings} />
@@ -321,13 +336,13 @@ function CurrencySettings({ settings }) {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`${data.message}\n\nConversion factor: ${data.conversion_factor}`);
+        toast.info(`${data.message}\n\nConversion factor: ${data.conversion_factor}`);
         window.location.reload();
       } else {
-        alert('Error: ' + (data.detail || 'Failed'));
+        toast.error('Error: ' + (data.detail || 'Failed'));
       }
     } catch (e) {
-      alert('Error: ' + e.message);
+      toast.error('Error: ' + e.message);
     }
     setLoading(false);
   };

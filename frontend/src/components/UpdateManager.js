@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, RefreshCw, AlertTriangle, CheckCircle, History, Upload } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function UpdateManager() {
   const queryClient = useQueryClient();
@@ -41,17 +42,17 @@ export default function UpdateManager() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(data.message || 'Update applied successfully! Page will reload in 7 seconds.');
+      toast.success(data.message || 'Update applied successfully! Page will reload in 7 seconds.');
       setTimeout(() => window.location.reload(), 7000);
     },
     onError: (error) => {
       setUpdating(false);
       // Check if it's a 502 error during restart (update might have succeeded)
       if (error.response?.status === 502 || error.code === 'ERR_BAD_RESPONSE') {
-        alert('Update completed! Services are restarting. Page will reload in 10 seconds.');
+        toast.success('Update completed! Services are restarting. Page will reload in 10 seconds.');
         setTimeout(() => window.location.reload(), 10000);
       } else {
-        alert('Update failed: ' + (error.response?.data?.detail || error.message));
+        toast.error('Update failed: ' + (error.response?.data?.detail || error.message));
       }
     },
   });
@@ -63,11 +64,11 @@ export default function UpdateManager() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(data.message || 'Rollback successful! Page will reload in 5 seconds.');
+      toast.success(data.message || 'Rollback successful! Page will reload in 5 seconds.');
       setTimeout(() => window.location.reload(), 5000);
     },
     onError: (error) => {
-      alert('Rollback failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Rollback failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -80,10 +81,10 @@ export default function UpdateManager() {
     onSuccess: () => {
       queryClient.invalidateQueries(['backups-list']);
       refetchBackups(); // Manually refetch to update UI immediately
-      alert('Backup deleted successfully');
+      toast.success('Backup deleted successfully');
     },
     onError: (error) => {
-      alert('Delete failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Delete failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 

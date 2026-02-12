@@ -52,6 +52,7 @@ from auth import (
 from xtreamui_service import get_xtream_service, XtreamUIService
 from xtream_session_client import XtreamUISessionClient
 from onestream_service import OneStreamService, get_onestream_service
+from nxtdash_service import NxtDashService, get_nxtdash_service
 from email_service import get_email_service
 from email_logger import EmailLogger
 from unsubscribe_manager import UnsubscribeManager
@@ -3132,6 +3133,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                 await provision_xuione_service(order_id, order, user, item, product, settings, email_service)
             elif panel_type == "onestream":
                 await provision_onestream_service(order_id, order, user, item, product, settings, email_service)
+            elif panel_type == "nxtdash":
+                await provision_nxtdash_service(order_id, order, user, item, product, settings, email_service)
             else:
                 await provision_xtream_service(order_id, order, user, item, product, settings, email_service)
                 
@@ -3379,12 +3382,37 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         # Extract user ID from result if available
                         xtream_user_id = result.get("user_id")
                         
+                        # Try to get actual expiry from panel instead of pre-calculated
+                        actual_expiry = expiry_date
+                        try:
+                            from xtreamui_session_client import XtreamUISessionClient
+                            fetch_client = XtreamUISessionClient(
+                                panel_url=panel["panel_url"],
+                                username=panel["admin_username"],
+                                password=panel["admin_password"]
+                            )
+                            user_info = fetch_client.get_user_info(username)
+                            if user_info and user_info.get("exp_date"):
+                                exp_str = user_info["exp_date"]
+                                if str(exp_str).isdigit():
+                                    actual_expiry = datetime.fromtimestamp(int(exp_str))
+                                else:
+                                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                                        try:
+                                            actual_expiry = datetime.strptime(str(exp_str).strip(), fmt)
+                                            break
+                                        except ValueError:
+                                            continue
+                                logger.info(f"Actual panel expiry for {username}: {actual_expiry}")
+                        except Exception as e:
+                            logger.warning(f"Could not fetch actual expiry from panel: {e}")
+                        
                         service_dict.update({
                             "bouquets": product["bouquets"],
                             "max_connections": product["max_connections"],
                             "status": "active",
                             "start_date": datetime.utcnow(),
-                            "expiry_date": expiry_date,
+                            "expiry_date": actual_expiry,
                             "dedicatedip": xtream_user_id  # Store XtreamUI user ID for suspend/terminate
                         })
                     
@@ -3401,14 +3429,14 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             password=password,
                             streaming_url=panel.get("streaming_url", panel["panel_url"]),
                             max_connections=product["max_connections"],
-                            expiry_date=expiry_date.strftime("%Y-%m-%d"),
+                            expiry_date=actual_expiry.strftime("%Y-%m-%d"),
                             customer_id=order["user_id"]
                         )
                         
                         # Send "Service Activated" Telegram notification  
                         await send_telegram_notification(
                             "service_activated",
-                            f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
+                            f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {actual_expiry.strftime('%Y-%m-%d')}"
                         )
                         
                         logger.info(f"Subscriber provisioned: {username}")
@@ -3849,12 +3877,33 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                             # Store the line ID for future renewals
                             line_id = result.get('data', {}).get('id')
                             
+                            # Try to get actual expiry from response
+                            actual_expiry = expiry_date
+                            resp_data = result.get('data', {})
+                            if resp_data.get('exp_date'):
+                                exp_val = resp_data['exp_date']
+                                try:
+                                    if str(exp_val).isdigit():
+                                        actual_expiry = datetime.fromtimestamp(int(exp_val))
+                                    else:
+                                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                            try:
+                                                actual_expiry = datetime.strptime(str(exp_val).strip(), fmt)
+                                                break
+                                            except ValueError:
+                                                continue
+                                    logger.info(f"Actual XuiOne expiry: {actual_expiry}")
+                                except Exception:
+                                    pass
+                            expiry_date = actual_expiry
+                            expiry_date_str = actual_expiry.strftime("%Y-%m-%d")
+                            
                             service_dict.update({
                                 "bouquets": product["bouquets"],
                                 "max_connections": product["max_connections"],
                                 "status": "active",
                                 "start_date": datetime.utcnow(),
-                                "expiry_date": expiry_date,
+                                "expiry_date": actual_expiry,
                                 "dedicatedip": line_id,  # Store XuiOne line ID for renewals
                                 "xuione_line_id": line_id,  # Alternative field name
                                 "panel_url": panel.get("panel_url", "")  # Store panel URL for customer display
@@ -4355,6 +4404,135 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
         import traceback
         logger.error(traceback.format_exc())
 
+
+async def provision_nxtdash_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
+    """Provision NXT Dash service via API"""
+    try:
+        nd_panels = settings.get("nxtdash", {}).get("panels", [])
+        panel_index = product.get("panel_index", 0)
+
+        if not nd_panels or panel_index >= len(nd_panels):
+            logger.error("NXT Dash panel not configured")
+            return
+
+        panel = nd_panels[panel_index]
+        panel_name = panel.get("name", f"NXT Dash Panel {panel_index + 1}")
+
+        nd_service = get_nxtdash_service(panel)
+        if not nd_service:
+            logger.error("NXT Dash service not available")
+            return
+
+        account_type = product.get("account_type", "subscriber")
+        is_trial = product.get("is_trial", False)
+        package_id = product.get("panel_package_id") or product.get("xtream_package_id") or product.get("package_id", 0)
+        action_type = item.get("action_type", "create_new")
+        renewal_service_id = item.get("renewal_service_id")
+
+        # Generate or reuse credentials
+        import random, string
+        username = item.get("reseller_username", "")
+        password = item.get("reseller_password", "")
+        if not username:
+            username = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        if not password:
+            password = "".join(random.choices(string.ascii_letters + string.digits, k=10))
+
+        if renewal_service_id and action_type == "extend" and account_type == "subscriber":
+            # Find existing service to extend
+            existing = await services_collection.find_one({
+                "_id": str_to_objectid(renewal_service_id),
+                "user_id": order["user_id"],
+            })
+            if existing:
+                line_id = existing.get("nxtdash_line_id", "")
+                if not line_id:
+                    line_id = await nd_service.get_line_id(existing.get("username", ""), existing.get("password", ""))
+                if line_id:
+                    result = await nd_service.extend_line(str(line_id), int(package_id))
+                    if result.get("success"):
+                        expire_ts = result.get("expire_date")
+                        expiry_str = ""
+                        if expire_ts:
+                            from datetime import timezone
+                            expiry_str = datetime.fromtimestamp(int(expire_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                        await services_collection.update_one(
+                            {"_id": existing["_id"]},
+                            {"$set": {"expiry_date": expiry_str, "status": "active", "updated_at": datetime.utcnow()}}
+                        )
+                        logger.info(f"NXT Dash line extended: {existing.get('username')} -> {expiry_str}")
+                    else:
+                        logger.error(f"NXT Dash extend failed: {result.get('error')}")
+                return
+
+        if account_type == "subscriber":
+            description = f"Billing:{order_id[:8]}"
+            result = await nd_service.create_line(
+                username=username,
+                password=password,
+                package_id=int(package_id),
+                description=description,
+                is_trial=is_trial,
+            )
+            if result.get("success"):
+                api_user = result.get("username", username)
+                api_pass = result.get("password", password)
+                expire_ts = result.get("expire_date")
+                expiry_str = ""
+                if expire_ts:
+                    from datetime import timezone
+                    expiry_str = datetime.fromtimestamp(int(expire_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+                portal_url = panel.get("portal_url", "")
+
+                service_doc = {
+                    "user_id": order["user_id"],
+                    "order_id": order_id,
+                    "product_id": str(product.get("_id", item.get("product_id", ""))),
+                    "product_name": product.get("name", "NXT Dash Service"),
+                    "username": api_user,
+                    "password": api_pass,
+                    "xtream_username": api_user,
+                    "xtream_password": api_pass,
+                    "panel_type": "nxtdash",
+                    "panel_name": panel_name,
+                    "panel_index": panel_index,
+                    "nxtdash_line_id": result.get("line_id", ""),
+                    "account_type": "subscriber",
+                    "max_connections": product.get("max_connections", 1),
+                    "streaming_url": portal_url,
+                    "expiry_date": expiry_str,
+                    "status": "active",
+                    "created_at": datetime.utcnow(),
+                }
+                await services_collection.insert_one(service_doc)
+                logger.info(f"NXT Dash subscriber provisioned: {api_user}")
+
+                # Send activation email
+                if email_service:
+                    try:
+                        await email_service.send_service_activated(
+                            customer_email=user["email"],
+                            customer_name=user.get("name", "Customer"),
+                            service_name=product.get("name", "NXT Dash Service"),
+                            username=api_user,
+                            password=api_pass,
+                            streaming_url=portal_url,
+                            max_connections=product.get("max_connections", 1),
+                            expiry_date=expiry_str.split(" ")[0] if expiry_str else "N/A",
+                            customer_id=order["user_id"]
+                        )
+                    except Exception as email_err:
+                        logger.warning(f"NXT Dash activation email failed: {email_err}")
+            else:
+                logger.error(f"NXT Dash create line failed: {result.get('error')}")
+
+    except Exception as e:
+        logger.error(f"NXT Dash provisioning error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 @app.post("/api/admin/services/{service_id}/suspend")
 async def suspend_service(service_id: str, current_user: dict = Depends(get_current_admin_user)):
     """Suspend a service"""
@@ -4457,11 +4635,20 @@ async def get_panel_names():
             "index": i,
             "name": panel.get("name", f"1-Stream Panel {i + 1}")
         })
+
+    nxtdash_panels = settings.get("nxtdash", {}).get("panels", [])
+    nxtdash_info = []
+    for i, panel in enumerate(nxtdash_panels):
+        nxtdash_info.append({
+            "index": i,
+            "name": panel.get("name", f"NXT Dash Panel {i + 1}")
+        })
     
     return {
         "panels": panel_info,
         "xuione_panels": xuione_info,
-        "onestream_panels": onestream_info
+        "onestream_panels": onestream_info,
+        "nxtdash_panels": nxtdash_info
     }
 
     if not service:
@@ -5387,6 +5574,195 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                     updated_count += 1
     return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
 
+# ===== NXT DASH PANEL ROUTES =====
+
+@app.post("/api/admin/nxtdash/test")
+async def test_nxtdash_connection(current_user: dict = Depends(get_current_admin_user)):
+    """Test connection to NXT Dash panel"""
+    settings = await get_settings()
+    panels = settings.get("nxtdash", {}).get("panels", [])
+    if not panels:
+        raise HTTPException(status_code=400, detail="No NXT Dash panels configured")
+    panel = panels[0]
+    service = get_nxtdash_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="NXT Dash service not available - check panel_url, token, username and password")
+    result = await service.test_connection()
+    if result.get("success"):
+        data = result.get("data", {})
+        credits = data.get("credits", "N/A")
+        return {"success": True, "message": f"Connected! Credits: {credits}", "data": data}
+    raise HTTPException(status_code=500, detail=result.get("error", "Connection failed"))
+
+
+@app.get("/api/admin/nxtdash/packages")
+async def get_nxtdash_packages(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Fetch packages from NXT Dash panel"""
+    settings = await get_settings()
+    panels = settings.get("nxtdash", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    service = get_nxtdash_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="NXT Dash service not available")
+
+    regular = await service.get_packages(trial=False)
+    trial = await service.get_packages(trial=True)
+
+    return {
+        "packages": regular.get("packages", []),
+        "trial_packages": trial.get("packages", []),
+        "count": len(regular.get("packages", [])),
+        "trial_count": len(trial.get("packages", [])),
+        "panel_name": panel.get("name", f"NXT Dash Panel {panel_index + 1}")
+    }
+
+
+@app.get("/api/admin/nxtdash/bouquets")
+async def get_nxtdash_bouquets(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Extract bouquets from NXT Dash lines data and store in panel settings."""
+    settings = await get_settings()
+    panels = settings.get("nxtdash", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    service = get_nxtdash_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="NXT Dash service not available")
+
+    # Get existing custom names (handle both int and string keys)
+    existing_bouquets = {}
+    for b in panel.get("bouquets", []):
+        existing_bouquets[int(b.get("id", 0))] = b.get("name", "")
+
+    # Extract unique bouquet IDs from lines data
+    all_bouquet_ids = set()
+    result = await service.get_lines()
+    if result.get("success"):
+        for line in result.get("lines", []):
+            bouquet_raw = line.get("bouquet", "[]")
+            if isinstance(bouquet_raw, str):
+                import ast
+                try:
+                    bouquet_ids = ast.literal_eval(bouquet_raw)
+                except Exception:
+                    bouquet_ids = []
+            elif isinstance(bouquet_raw, list):
+                bouquet_ids = bouquet_raw
+            else:
+                bouquet_ids = []
+            for bid in bouquet_ids:
+                all_bouquet_ids.add(int(bid))
+
+    # Build bouquets list preserving any custom names
+    bouquets = []
+    for bid in sorted(all_bouquet_ids):
+        existing_name = existing_bouquets.get(bid, "")
+        # Only use default if no custom name exists or name is still the generic default
+        name = existing_name if existing_name and not existing_name.startswith("Bouquet ") else existing_name or f"Bouquet {bid}"
+        bouquets.append({"id": bid, "name": name})
+
+    # Save bouquets to panel settings
+    panels[panel_index]["bouquets"] = bouquets
+    await db.settings.update_one({}, {"$set": {f"nxtdash.panels.{panel_index}.bouquets": bouquets}})
+
+    return {"bouquets": bouquets, "count": len(bouquets)}
+
+
+@app.put("/api/admin/nxtdash/bouquets")
+async def update_nxtdash_bouquet_names(data: dict, panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Update bouquet names for a NXT Dash panel."""
+    settings = await get_settings()
+    panels = settings.get("nxtdash", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    bouquets = data.get("bouquets", [])
+    await db.settings.update_one({}, {"$set": {f"nxtdash.panels.{panel_index}.bouquets": bouquets}})
+    return {"success": True, "count": len(bouquets)}
+
+
+@app.post("/api/admin/nxtdash/sync-users")
+async def sync_nxtdash_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Sync all subscriber lines from NXT Dash panel."""
+    settings = await get_settings()
+    panels = settings.get("nxtdash", {}).get("panels", [])
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="Invalid panel index")
+    panel = panels[panel_index]
+    panel_name = panel.get("name", f"NXT Dash Panel {panel_index + 1}")
+    service = get_nxtdash_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="NXT Dash service not available")
+
+    synced_count = 0
+    updated_count = 0
+
+    # Paginate through all lines
+    page = 1
+    while True:
+        result = await service.get_lines(page=page)
+        if not result.get("success"):
+            break
+        lines = result.get("lines", [])
+        if not lines:
+            break
+
+        for line in lines:
+            username = line.get("username", "")
+            if not username:
+                continue
+
+            expire_ts = line.get("expire_date")
+            expiry_str = ""
+            if expire_ts:
+                try:
+                    from datetime import timezone
+                    expiry_str = datetime.fromtimestamp(int(expire_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    expiry_str = line.get("exp_date", "")
+
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "nxtdash",
+                "panel_name": panel_name,
+                "nxtdash_line_id": str(line.get("id", "")),
+                "username": username,
+                "password": line.get("password", ""),
+                "expiry_date": expiry_str,
+                "status": "active" if line.get("enabled") == 1 and line.get("admin_enabled") == 1 else "disabled",
+                "max_connections": line.get("user_connection", 1),
+                "account_type": "subscriber",
+                "is_trial": line.get("is_trial", 0),
+                "owner": line.get("owner", ""),
+                "last_synced": datetime.utcnow(),
+            }
+
+            try:
+                result_db = await imported_users_collection.update_one(
+                    {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                    {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                    upsert=True,
+                )
+                if result_db.upserted_id:
+                    synced_count += 1
+                else:
+                    updated_count += 1
+            except Exception:
+                await imported_users_collection.update_one(
+                    {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                    {"$set": user_doc},
+                )
+                updated_count += 1
+
+        last_page = result.get("last_page", 1)
+        if page >= last_page:
+            break
+        page += 1
+
+    return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
+
+
 # ===== EMAIL MANAGEMENT ENDPOINTS =====
 
 class TestEmailRequest(BaseModel):
@@ -6243,6 +6619,34 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
                             bouquet_ids.add(b_id)
                     return [{"id": b_id, "name": f"Bouquet {b_id}"} for b_id in sorted(bouquet_ids)]
         return []  # Don't fall through to XtreamUI fallback
+    elif panel_type == 'nxtdash':
+        # Get NXT Dash bouquets from stored panel settings (with custom names)
+        nd_panels = settings.get("nxtdash", {}).get("panels", [])
+        if panel_id < len(nd_panels):
+            panel = nd_panels[panel_id]
+            stored = panel.get("bouquets", [])
+            if stored:
+                return stored
+            # Not synced yet — extract from lines
+            nd_service = get_nxtdash_service(panel)
+            if nd_service:
+                import ast
+                all_bouquet_ids = set()
+                result = await nd_service.get_lines()
+                if result.get("success"):
+                    for line in result.get("lines", []):
+                        bouquet_raw = line.get("bouquet", "[]")
+                        if isinstance(bouquet_raw, str):
+                            try: bouquet_ids = ast.literal_eval(bouquet_raw)
+                            except: bouquet_ids = []
+                        elif isinstance(bouquet_raw, list):
+                            bouquet_ids = bouquet_raw
+                        else:
+                            bouquet_ids = []
+                        for bid in bouquet_ids:
+                            all_bouquet_ids.add(int(bid))
+                return [{"id": bid, "name": f"Bouquet {bid}"} for bid in sorted(all_bouquet_ids)]
+        return []
     else:
         # Get XtreamUI panel bouquets (existing logic)
         xtream_panels = settings.get("xtream", {}).get("panels", [])
@@ -6702,12 +7106,92 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         except Exception as e:
             logger.error(f"Error syncing from {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
+
+    # Sync NXT Dash panels
+    nxtdash_panels = settings.get("nxtdash", {}).get("panels", [])
+    for panel_index, panel in enumerate(nxtdash_panels):
+        panel_name = panel.get("name", f"NXT Dash Panel {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from NXT Dash panel: {panel_name}")
+            nd_service = get_nxtdash_service(panel)
+            if not nd_service:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+
+            synced_count = 0
+            updated_count = 0
+
+            # Paginate through all lines
+            page = 1
+            while True:
+                lines_result = await nd_service.get_lines(page=page)
+                if not lines_result.get("success"):
+                    break
+                lines = lines_result.get("lines", [])
+                if not lines:
+                    break
+
+                for line in lines:
+                    username = line.get("username", "")
+                    if not username:
+                        continue
+
+                    expire_ts = line.get("expire_date")
+                    expiry_date = None
+                    if expire_ts:
+                        try:
+                            expiry_date = datetime.utcfromtimestamp(int(expire_ts))
+                        except Exception:
+                            pass
+
+                    status = "active" if line.get("enabled") == 1 and line.get("admin_enabled") == 1 else "disabled"
+                    if expiry_date and expiry_date < datetime.utcnow():
+                        status = "expired"
+
+                    user_doc = {
+                        "panel_index": panel_index,
+                        "panel_type": "nxtdash",
+                        "panel_name": panel_name,
+                        "nxtdash_line_id": str(line.get("id", "")),
+                        "username": username,
+                        "password": line.get("password", ""),
+                        "expiry_date": expiry_date,
+                        "status": status,
+                        "max_connections": line.get("user_connection", 1),
+                        "account_type": "subscriber",
+                        "is_trial": line.get("is_trial", 0),
+                        "owner": line.get("owner", ""),
+                        "last_synced": datetime.utcnow(),
+                    }
+
+                    result = await imported_users_collection.update_one(
+                        {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        upsert=True,
+                    )
+                    if result.upserted_id:
+                        synced_count += 1
+                    elif result.modified_count:
+                        updated_count += 1
+
+                last_page = lines_result.get("last_page", 1)
+                if page >= last_page:
+                    break
+                page += 1
+
+            results["panels_synced"].append({"name": panel_name, "type": "nxtdash", "synced": synced_count, "updated": updated_count})
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
     
     # Clean up users from removed panels
     # Get list of active panel names
     active_xtream_panel_names = [p.get("name") for p in xtream_panels]
     active_xuione_panel_names = [p.get("name") for p in xuione_panels]
     active_onestream_panel_names = [p.get("name") for p in onestream_panels]
+    active_nxtdash_panel_names = [p.get("name") for p in nxtdash_panels]
     
     # Remove users from XtreamUI panels that no longer exist
     removed_xtream = await imported_users_collection.delete_many({
@@ -6726,9 +7210,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         "panel_type": "onestream",
         "panel_name": {"$nin": active_onestream_panel_names}
     })
+
+    # Remove users from NXT Dash panels that no longer exist
+    removed_nxtdash = await imported_users_collection.delete_many({
+        "panel_type": "nxtdash",
+        "panel_name": {"$nin": active_nxtdash_panel_names}
+    })
     
     # Also remove users with null panel_type whose panel_name doesn't exist in any active panel
-    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names
+    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names
     removed_orphans = await imported_users_collection.delete_many({
         "$or": [
             {"panel_type": None, "panel_name": {"$nin": all_active_panel_names}},
@@ -6736,7 +7226,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         ]
     })
     
-    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_onestream.deleted_count + removed_orphans.deleted_count
+    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_onestream.deleted_count + removed_nxtdash.deleted_count + removed_orphans.deleted_count
     results["total_removed"] = total_removed
     
     if total_removed > 0:
@@ -7059,6 +7549,15 @@ async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_c
             return {"message": "User suspended successfully on 1-Stream panel"}
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to suspend"))
 
+    elif panel_type == "nxtdash":
+        # NXT Dash reseller API cannot disable lines - only panel admins can
+        # Update local status for tracking, but warn the admin
+        await imported_users_collection.update_one(
+            {"_id": str_to_objectid(user_id)},
+            {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+        )
+        return {"message": "User marked as suspended locally. Note: NXT Dash reseller API cannot disable lines — please disable the line directly in the NXT Dash admin panel."}
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
@@ -7169,6 +7668,15 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
             )
             return {"message": "User activated successfully on 1-Stream panel"}
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to activate"))
+
+    elif panel_type == "nxtdash":
+        # NXT Dash reseller API cannot enable lines - only panel admins can
+        # Update local status for tracking, but warn the admin
+        await imported_users_collection.update_one(
+            {"_id": str_to_objectid(user_id)},
+            {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
+        )
+        return {"message": "User marked as active locally. Note: NXT Dash reseller API cannot enable lines — please enable the line directly in the NXT Dash admin panel."}
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
@@ -7722,6 +8230,26 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
                 raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error')}")
             logger.info(f"✓ 1-Stream extension successful")
 
+        elif panel_type == "nxtdash":
+            nd_panels = settings.get("nxtdash", {}).get("panels", [])
+            if not nd_panels or panel_index >= len(nd_panels):
+                raise HTTPException(status_code=400, detail="Panel configuration not found")
+            panel = nd_panels[panel_index]
+            nd_service = get_nxtdash_service(panel)
+            if not nd_service:
+                raise HTTPException(status_code=500, detail="NXT Dash service not available")
+
+            line_id = user.get("nxtdash_line_id", "")
+            if not line_id:
+                line_id = await nd_service.get_line_id(username, password)
+            if not line_id:
+                raise HTTPException(status_code=400, detail="Could not find line_id for this user on NXT Dash panel")
+
+            panel_extend_result = await nd_service.extend_line(str(line_id), int(data.package_id))
+            if not panel_extend_result.get("success"):
+                raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error')}")
+            logger.info(f"✓ NXT Dash extension successful")
+
         else:
             raise HTTPException(status_code=400, detail="Invalid panel type")
         
@@ -7771,6 +8299,12 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
                                 except ValueError:
                                     continue
                         break
+        elif panel_type == "nxtdash" and panel_extend_result and panel_extend_result.get("expire_date"):
+            try:
+                from datetime import timezone
+                new_expiry = datetime.fromtimestamp(int(panel_extend_result["expire_date"]), tz=timezone.utc).replace(tzinfo=None)
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Could not fetch panel expiry after extend: {e}")
     
@@ -7809,7 +8343,7 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
 
 # Pydantic model for creating imported users
 class CreateImportedUserRequest(BaseModel):
-    panel_type: str = "xtream"  # 'xtream', 'xuione', or 'onestream'
+    panel_type: str = "xtream"  # 'xtream', 'xuione', 'onestream', or 'nxtdash'
     panel_index: int = 0
     account_type: str = "subscriber"  # 'subscriber' or 'reseller'
     username: Optional[str] = None  # Auto-generate if not provided
@@ -8202,8 +8736,69 @@ async def create_imported_user(data: CreateImportedUserRequest, current_user: di
                          "credits": data.credits, "account_type": "reseller"}
             }
 
+    elif panel_type == "nxtdash":
+        nd_panels = settings.get("nxtdash", {}).get("panels", [])
+        if not nd_panels or panel_index >= len(nd_panels):
+            raise HTTPException(status_code=400, detail="Invalid NXT Dash panel index")
+        panel = nd_panels[panel_index]
+        panel_name = panel.get("name", f"NXT Dash Panel {panel_index + 1}")
+        nd_service = get_nxtdash_service(panel)
+        if not nd_service:
+            raise HTTPException(status_code=500, detail="NXT Dash service not available")
+
+        if data.account_type != "subscriber":
+            raise HTTPException(status_code=400, detail="NXT Dash only supports subscriber creation via API")
+
+        if not data.package_id:
+            raise HTTPException(status_code=400, detail="package_id is required for subscriber creation")
+
+        is_trial = False
+        # Check if this is a trial package
+        trial_result = await nd_service.get_packages(trial=True)
+        if trial_result.get("success"):
+            for pkg in trial_result.get("packages", []):
+                if str(pkg.get("id")) == str(data.package_id):
+                    is_trial = True
+                    break
+
+        result = await nd_service.create_line(
+            username=username, password=password,
+            package_id=int(data.package_id),
+            description=f"Manual - {current_user.get('email', 'Admin')}",
+            is_trial=is_trial,
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to create line on NXT Dash"))
+
+        expire_ts = result.get("expire_date")
+        expiry_str = ""
+        if expire_ts:
+            try:
+                from datetime import timezone
+                expiry_str = datetime.fromtimestamp(int(expire_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                expiry_str = ""
+
+        user_doc = {
+            "panel_index": panel_index, "panel_type": "nxtdash", "panel_name": panel_name,
+            "nxtdash_line_id": result.get("line_id", ""),
+            "username": result.get("username", username),
+            "password": result.get("password", password),
+            "expiry_date": expiry_str, "status": "active",
+            "max_connections": data.max_connections or 1, "account_type": "subscriber",
+            "last_synced": datetime.utcnow(), "created_at": datetime.utcnow()
+        }
+        await imported_users_collection.insert_one(user_doc)
+        return {
+            "success": True,
+            "message": f"Subscriber '{result.get('username', username)}' created on {panel_name}",
+            "user": {"username": result.get("username", username), "password": result.get("password", password),
+                     "panel_name": panel_name, "expiry_date": expiry_str, "account_type": "subscriber",
+                     "max_connections": data.max_connections or 1}
+        }
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream', 'xuione', or 'onestream'")
+        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream', 'xuione', 'onestream', or 'nxtdash'")
 
 @app.get("/api/products/{product_id}/channels")
 async def get_product_channels(product_id: str):

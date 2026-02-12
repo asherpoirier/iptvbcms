@@ -3,6 +3,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, Key, CheckCircle, XCircle, AlertCircle, Shield } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function LicenseSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -28,7 +29,7 @@ export default function LicenseSettings({ settings }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
       queryClient.invalidateQueries(['license-status']);
-      alert('License key saved! Please restart the application for changes to take effect.');
+      toast.info('License key saved! Please restart the application for changes to take effect.');
     },
   });
 

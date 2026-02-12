@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Plus, Download, Trash2, Monitor, Smartphone, Book, FileText } from 'lucide-react';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
@@ -47,7 +48,7 @@ export default function AdminDownloads() {
       queryClient.invalidateQueries(['admin-downloads']);
       setShowModal(false);
       resetForm();
-      alert('Download created successfully!');
+      toast.success('Download created successfully!');
     },
   });
 
@@ -107,9 +108,9 @@ export default function AdminDownloads() {
         name: formData.name || file.name
       });
 
-      alert('File uploaded successfully!');
+      toast.success('File uploaded successfully!');
     } catch (error) {
-      alert('Upload failed');
+      toast.error('Upload failed');
     } finally {
       setUploading(false);
     }

@@ -9,6 +9,7 @@ import SquarePaymentForm from '../components/SquarePaymentForm';
 import CheckoutCouponCredits from '../components/CheckoutCouponCredits';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
@@ -81,7 +82,7 @@ export default function CheckoutPage() {
       if (['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise'].includes(paymentMethod)) {
         clearCart();
         navigate('/orders');
-        alert(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
+        toast.error(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
       }
       // For PayPal, buttons will handle the flow
     },
@@ -122,7 +123,7 @@ export default function CheckoutPage() {
       setTimeout(() => {
         clearCart();
         navigate('/orders');
-        alert('Order completed! Paid with credits.');
+        toast.success('Order completed! Paid with credits.');
       }, 1000);
     }
   };
@@ -178,7 +179,7 @@ export default function CheckoutPage() {
       console.log('Capture response:', response.data);
       
       clearCart();
-      alert('Payment successful! Your services are being provisioned.');
+      toast.success('Payment successful! Your services are being provisioned.');
       navigate('/orders');
       return response.data;
     } catch (error) {
@@ -235,7 +236,7 @@ export default function CheckoutPage() {
   const handleSquareSuccess = (paymentId) => {
     console.log('Square payment successful:', paymentId);
     clearCart();
-    alert('Payment successful! Your services are being provisioned.');
+    toast.success('Payment successful! Your services are being provisioned.');
     navigate('/orders');
   };
 
@@ -301,7 +302,7 @@ export default function CheckoutPage() {
       if (response.data.payment_status === 'confirmed') {
         setBtcPolling(false);
         clearCart();
-        alert('Bitcoin payment confirmed! Your services are being provisioned.');
+        toast.info('Bitcoin payment confirmed! Your services are being provisioned.');
         navigate('/orders');
       } else if (response.data.payment_status === 'unconfirmed') {
         // Payment received but waiting for confirmations
@@ -388,7 +389,7 @@ export default function CheckoutPage() {
             );
 
             clearCart();
-            alert('Payment successful! Your services are being provisioned.');
+            toast.success('Payment successful! Your services are being provisioned.');
             navigate('/orders');
           } catch (verifyErr) {
             console.error('Helcim verify error:', verifyErr);
@@ -443,7 +444,7 @@ export default function CheckoutPage() {
     if (attempt >= 5) {
       console.log('Max polling attempts reached');
       // Even if polling times out, redirect to orders page
-      alert('Payment processing. Please check your orders page for status.');
+      toast.error('Payment processing. Please check your orders page for status.');
       navigate('/orders');
       return;
     }
@@ -459,14 +460,14 @@ export default function CheckoutPage() {
       
       if (response.data.success && response.data.payment_status === 'paid') {
         clearCart();
-        alert('Payment successful! Your services are being provisioned.');
+        toast.success('Payment successful! Your services are being provisioned.');
         navigate('/orders');
       } else if (attempt < 4) {
         console.log('Payment not confirmed yet, retrying...');
         setTimeout(() => pollPaymentStatus(sessionId, orderId, attempt + 1), 2000);
       } else {
         console.log('Payment not confirmed after 5 attempts');
-        alert('Payment status unclear. Please check your orders page.');
+        toast.error('Payment status unclear. Please check your orders page.');
         navigate('/orders');
       }
     } catch (error) {
@@ -474,7 +475,7 @@ export default function CheckoutPage() {
       if (attempt < 4) {
         setTimeout(() => pollPaymentStatus(sessionId, orderId, attempt + 1), 2000);
       } else {
-        alert('Unable to verify payment. Please check your orders page.');
+        toast.error('Unable to verify payment. Please check your orders page.');
         navigate('/orders');
       }
     }

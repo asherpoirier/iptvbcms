@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Users, Eye, Edit, Trash2, X, Mail, Calendar, ShoppingBag, Server as ServiceIcon, Search, ChevronLeft, ChevronRight, Plus, RefreshCw, CheckCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminCustomers() {
   const queryClient = useQueryClient();
@@ -54,10 +55,10 @@ export default function AdminCustomers() {
     mutationFn: (id) => adminAPI.deleteCustomer(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-customers']);
-      alert('Customer deleted successfully!');
+      toast.success('Customer deleted successfully!');
     },
     onError: (error) => {
-      alert('Delete failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Delete failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -384,10 +385,10 @@ function CustomerDetailsModal({ customer, onClose }) {
                     const newPassword = prompt('Enter new password for customer:');
                     if (newPassword && newPassword.length >= 6) {
                       adminAPI.changeCustomerPassword(customer.id, newPassword)
-                        .then(() => alert('Password changed successfully!'))
-                        .catch(err => alert('Failed to change password: ' + (err.response?.data?.detail || err.message)));
+                        .then(() => toast.success('Password changed successfully!'))
+                        .catch(err => toast.error('Failed to change password: ' + (err.response?.data?.detail || err.message)));
                     } else if (newPassword) {
-                      alert('Password must be at least 6 characters');
+                      toast.error('Password must be at least 6 characters');
                     }
                   }}
                   className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold"
@@ -502,11 +503,11 @@ function EditCustomerModal({ customer, onClose, onSuccess }) {
   const updateMutation = useMutation({
     mutationFn: (data) => adminAPI.updateCustomer(customer.id, data),
     onSuccess: () => {
-      alert('Customer updated successfully!');
+      toast.success('Customer updated successfully!');
       onSuccess();
     },
     onError: (error) => {
-      alert('Update failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Update failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -634,11 +635,11 @@ function ManualServiceModal({ customer, onClose, onSuccess }) {
   const createMutation = useMutation({
     mutationFn: (data) => adminAPI.createManualService(data),
     onSuccess: () => {
-      alert('Service created successfully! Provisioning in background...');
+      toast.success('Service created successfully! Provisioning in background...');
       onSuccess();
     },
     onError: (error) => {
-      alert('Failed to create service: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to create service: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -646,7 +647,7 @@ function ManualServiceModal({ customer, onClose, onSuccess }) {
     e.preventDefault();
     
     if (!selectedProduct) {
-      alert('Please select a product');
+      toast.error('Please select a product');
       return;
     }
     
@@ -784,7 +785,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
       setCreatedCustomer(response.data.customer);
     },
     onError: (error) => {
-      alert('Failed to create customer: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to create customer: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -792,7 +793,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
     e.preventDefault();
     
     if (formData.password.length < 6) {
-      alert('Password must be at least 6 characters');
+      toast.error('Password must be at least 6 characters');
       return;
     }
     

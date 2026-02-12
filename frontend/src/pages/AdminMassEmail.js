@@ -7,6 +7,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import FileUploader from '../components/FileUploader';
 import EmailPreview from '../components/EmailPreview';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 export default function AdminMassEmail() {
   const [subject, setSubject] = useState('');
@@ -60,7 +61,7 @@ export default function AdminMassEmail() {
   const scheduleMutation = useMutation({
     mutationFn: (scheduledFor) => adminAPI.scheduleEmail(subject, content, recipientFilter, scheduledFor),
     onSuccess: () => {
-      alert('Email scheduled successfully!');
+      toast.success('Email scheduled successfully!');
       setSubject('');
       setContent('');
       setIsScheduling(false);
@@ -69,7 +70,7 @@ export default function AdminMassEmail() {
       refetchScheduled();
     },
     onError: (error) => {
-      alert('Failed to schedule email: ' + error.response?.data?.detail);
+      toast.error('Failed to schedule email: ' + error.response?.data?.detail);
     },
   });
 
@@ -101,7 +102,7 @@ export default function AdminMassEmail() {
         uploaded.push(response.data);
       } catch (error) {
         console.error('Upload failed:', error);
-        alert(`Failed to upload ${file.name}`);
+        toast.error(`Failed to upload ${file.name}`);
       }
     }
     
@@ -110,7 +111,7 @@ export default function AdminMassEmail() {
 
   const handleSend = () => {
     if (!subject.trim() || !content.trim()) {
-      alert('Please fill in both subject and content');
+      toast.error('Please fill in both subject and content');
       return;
     }
     
@@ -123,12 +124,12 @@ export default function AdminMassEmail() {
 
   const handleSchedule = () => {
     if (!subject.trim() || !content.trim()) {
-      alert('Please fill in both subject and content');
+      toast.error('Please fill in both subject and content');
       return;
     }
     
     if (!scheduledDate || !scheduledTime) {
-      alert('Please select date and time');
+      toast.error('Please select date and time');
       return;
     }
     
@@ -138,7 +139,7 @@ export default function AdminMassEmail() {
 
   const handlePreview = () => {
     if (!content.trim()) {
-      alert('Please add some content first');
+      toast.error('Please add some content first');
       return;
     }
     setShowPreview(true);

@@ -269,6 +269,19 @@ class XuiOnePanel(BaseModel):
 class XuiOneSettings(BaseModel):
     panels: List[XuiOnePanel] = []  # Array of XuiOne panels
 
+class NxtDashPanel(BaseModel):
+    id: Optional[str] = None
+    name: str = ""
+    panel_url: str = ""      # DNS / API base URL
+    token: str = ""           # Bearer token
+    username: str = ""        # Reseller username
+    password: str = ""        # Reseller password
+    portal_url: str = ""      # Customer portal URL
+    active: bool = True
+
+class NxtDashSettings(BaseModel):
+    panels: List[NxtDashPanel] = []
+
 class OneStreamPanel(BaseModel):
     id: Optional[str] = None
     name: str = ""
@@ -386,6 +399,7 @@ class Settings(BaseModel):
     xtream: XtreamSettings = Field(default_factory=XtreamSettings)
     xuione: XuiOneSettings = Field(default_factory=XuiOneSettings)
     onestream: OneStreamSettings = Field(default_factory=OneStreamSettings)
+    nxtdash: NxtDashSettings = Field(default_factory=NxtDashSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     paypal: PayPalSettings = Field(default_factory=PayPalSettings)
     stripe: StripeSettings = Field(default_factory=StripeSettings)

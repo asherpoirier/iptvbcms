@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Plus, Tag, Trash2, Calendar, TrendingUp } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminCoupons() {
   const queryClient = useQueryClient();
@@ -32,10 +33,10 @@ export default function AdminCoupons() {
       queryClient.invalidateQueries(['coupons']);
       setShowModal(false);
       resetForm();
-      alert('Coupon created successfully!');
+      toast.success('Coupon created successfully!');
     },
     onError: (error) => {
-      alert('Error: ' + (error.response?.data?.detail || 'Failed to create coupon'));
+      toast.error('Error: ' + (error.response?.data?.detail || 'Failed to create coupon'));
     },
   });
 
@@ -43,7 +44,7 @@ export default function AdminCoupons() {
     mutationFn: (id) => adminAPI.deleteCoupon(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['coupons']);
-      alert('Coupon deactivated');
+      toast.success('Coupon deactivated');
     },
   });
 

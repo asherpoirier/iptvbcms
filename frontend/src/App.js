@@ -6,6 +6,7 @@ import { useAuthStore } from './store/store';
 import { useBrandingStore } from './store/branding';
 import { useCurrencyStore } from './store/currency';
 import api from './api/api';
+import { Toaster } from 'sonner';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -365,6 +366,7 @@ function App() {
           </Routes>
         </div>
       </Router>
+      <Toaster position="top-center" richColors closeButton duration={4000} />
       </LicenseCheck>
       </GoogleReCaptchaProvider>
     </QueryClientProvider>

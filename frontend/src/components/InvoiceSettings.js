@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, FileText, Upload, X } from 'lucide-react';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
@@ -56,10 +57,10 @@ export default function InvoiceSettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('Invoice settings saved!');
+      toast.success('Invoice settings saved!');
     },
     onError: (error) => {
-      alert('Failed to save: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -83,7 +84,7 @@ export default function InvoiceSettings({ settings }) {
       });
       setFormData({ ...formData, logo_url: res.data.url });
     } catch (err) {
-      alert('Upload failed: ' + (err.response?.data?.detail || err.message));
+      toast.error('Upload failed: ' + (err.response?.data?.detail || err.message));
     }
     setUploading(false);
   };

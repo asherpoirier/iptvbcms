@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Bell, Send, MessageSquare, CheckCircle, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function NotificationSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -42,10 +43,10 @@ export default function NotificationSettings({ settings }) {
     mutationFn: (data) => adminAPI.updateTelegramSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries(['notification-settings']);
-      alert('Telegram settings saved successfully!');
+      toast.success('Telegram settings saved successfully!');
     },
     onError: (error) => {
-      alert('Failed to save settings: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save settings: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -58,7 +59,7 @@ export default function NotificationSettings({ settings }) {
     },
     onError: (error) => {
       setTestStatus('error');
-      alert('Test failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Test failed: ' + (error.response?.data?.detail || error.message));
       setTimeout(() => setTestStatus(null), 3000);
     },
   });
@@ -69,7 +70,7 @@ export default function NotificationSettings({ settings }) {
 
   const handleTest = () => {
     if (!telegramConfig.bot_token || !telegramConfig.chat_id) {
-      alert('Please enter both Bot Token and Chat ID before testing');
+      toast.error('Please enter both Bot Token and Chat ID before testing');
       return;
     }
     testMutation.mutate({

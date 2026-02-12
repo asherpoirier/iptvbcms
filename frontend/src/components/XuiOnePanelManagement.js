@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, Plus, Edit, Trash2, Server, X, Check, Package, BookOpen, Users } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function XuiOnePanelManagement({ settings }) {
   const queryClient = useQueryClient();
@@ -23,18 +24,18 @@ export default function XuiOnePanelManagement({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('XuiOne panels saved successfully!');
+      toast.success('XuiOne panels saved successfully!');
     },
   });
 
   const testMutation = useMutation({
     mutationFn: () => adminAPI.testXuiOne(),
     onSuccess: () => {
-      alert('Connection successful!');
+      toast.success('Connection successful!');
       setTestingPanelId(null);
     },
     onError: (error) => {
-      alert('Connection failed: ' + (error.response?.data?.error || 'Unknown error'));
+      toast.error('Connection failed: ' + (error.response?.data?.error || 'Unknown error'));
       setTestingPanelId(null);
     },
   });
@@ -45,11 +46,11 @@ export default function XuiOnePanelManagement({ settings }) {
       const regularCount = response.data?.count || 0;
       const trialCount = response.data?.trial_count || 0;
       const panelName = response.data?.panel_name || 'panel';
-      alert(`✓ Synced from ${panelName}:\n• ${regularCount} regular packages\n• ${trialCount} trial packages`);
+      toast.success(`✓ Synced from ${panelName}:\n• ${regularCount} regular packages\n• ${trialCount} trial packages`);
       setSyncingPackages(null);
     },
     onError: (error, panelIndex) => {
-      alert('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
       setSyncingPackages(null);
     },
   });
@@ -59,11 +60,11 @@ export default function XuiOnePanelManagement({ settings }) {
     onSuccess: (response, panelIndex) => {
       const count = response.data?.bouquets?.length || 0;
       const panelName = response.data?.panel_name || 'panel';
-      alert(`✓ Synced ${count} bouquets from ${panelName}!`);
+      toast.success(`✓ Synced ${count} bouquets from ${panelName}!`);
       setSyncingBouquets(null);
     },
     onError: (error, panelIndex) => {
-      alert('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
+      toast.error('Sync failed: ' + (error.response?.data?.detail || 'Unknown error'));
       setSyncingBouquets(null);
     },
   });
@@ -75,11 +76,11 @@ export default function XuiOnePanelManagement({ settings }) {
       const updatedCount = response.data?.updated || 0;
       const removedCount = response.data?.removed || 0;
       const panelName = response.data?.panel_name || 'panel';
-      alert(`✓ User sync from ${panelName} complete:\n• ${syncedCount} new users imported\n• ${updatedCount} existing users updated\n• ${removedCount} users removed (no longer exist on panel)`);
+      toast.success(`✓ User sync from ${panelName} complete:\n• ${syncedCount} new users imported\n• ${updatedCount} existing users updated\n• ${removedCount} users removed (no longer exist on panel)`);
       setSyncingUsers(null);
     },
     onError: (error, panelIndex) => {
-      alert(`Failed to sync users: ${error.response?.data?.detail || error.message}`);
+      toast.error(`Failed to sync users: ${error.response?.data?.detail || error.message}`);
       setSyncingUsers(null);
     },
   });

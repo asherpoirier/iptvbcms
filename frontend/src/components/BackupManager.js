@@ -5,6 +5,7 @@ import {
   AlertTriangle, FolderUp, Database, Settings as SettingsIcon 
 } from 'lucide-react';
 import api from '../api/api';
+import { toast } from 'sonner';
 
 export default function BackupManager() {
   const queryClient = useQueryClient();
@@ -47,10 +48,10 @@ export default function BackupManager() {
     onSuccess: (data) => {
       setDescription('');
       refetchBackups();
-      alert(`Backup created successfully!\n\nName: ${data.backup_name}\n\nPath: ${data.backup_path}`);
+      toast.success(`Backup created successfully!\n\nName: ${data.backup_name}\n\nPath: ${data.backup_path}`);
     },
     onError: (error) => {
-      alert('Backup creation failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Backup creation failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -62,10 +63,10 @@ export default function BackupManager() {
     },
     onSuccess: () => {
       refetchBackups();
-      alert('Backup deleted successfully');
+      toast.success('Backup deleted successfully');
     },
     onError: (error) => {
-      alert('Delete failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Delete failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -76,11 +77,11 @@ export default function BackupManager() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(data.message || 'Backup restored successfully! Page will reload in 5 seconds.');
+      toast.success(data.message || 'Backup restored successfully! Page will reload in 5 seconds.');
       setTimeout(() => window.location.reload(), 5000);
     },
     onError: (error) => {
-      alert('Restore failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Restore failed: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -92,11 +93,11 @@ export default function BackupManager() {
     },
     onSuccess: () => {
       refetchSettings();
-      alert('Settings saved successfully!');
+      toast.success('Settings saved successfully!');
       setShowCloudSettings(false);
     },
     onError: (error) => {
-      alert('Failed to save settings: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save settings: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -120,7 +121,7 @@ export default function BackupManager() {
 
   const handleTestCloudConnection = async () => {
     if (!cloudProvider) {
-      alert('Please select a cloud provider');
+      toast.error('Please select a cloud provider');
       return;
     }
 
@@ -128,13 +129,13 @@ export default function BackupManager() {
 
     if (cloudProvider === 'dropbox') {
       if (!dropboxToken) {
-        alert('Please enter Dropbox access token');
+        toast.error('Please enter Dropbox access token');
         return;
       }
       credentials = { access_token: dropboxToken };
     } else if (cloudProvider === 'google_drive') {
       if (!googleServiceAccount) {
-        alert('Please paste Google Service Account JSON');
+        toast.error('Please paste Google Service Account JSON');
         return;
       }
       try {
@@ -144,12 +145,12 @@ export default function BackupManager() {
           service_account: serviceAccountData 
         };
       } catch (e) {
-        alert('Invalid JSON format. Please paste the complete service account JSON.');
+        toast.info('Invalid JSON format. Please paste the complete service account JSON.');
         return;
       }
     } else if (cloudProvider === 'proton_drive') {
       if (!protonWebdavUrl || !protonUsername || !protonPassword) {
-        alert('Please fill in all Proton Drive fields');
+        toast.error('Please fill in all Proton Drive fields');
         return;
       }
       credentials = {
@@ -167,10 +168,10 @@ export default function BackupManager() {
       });
 
       if (response.data.success) {
-        alert(`✓ Connection successful!\n\nAccount: ${response.data.account}\nEmail: ${response.data.email}`);
+        toast.success(`✓ Connection successful!\n\nAccount: ${response.data.account}\nEmail: ${response.data.email}`);
       }
     } catch (error) {
-      alert('Connection test failed: ' + (error.response?.data?.detail || error.message));
+      toast.error('Connection test failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setTestingConnection(false);
     }
@@ -190,7 +191,7 @@ export default function BackupManager() {
         newSettings.google_drive_service_account = serviceAccountData;
         newSettings.google_drive_auth_type = 'service_account';
       } catch (e) {
-        alert('Invalid service account JSON');
+        toast.error('Invalid service account JSON');
         return;
       }
     } else if (cloudProvider === 'proton_drive') {
@@ -236,7 +237,7 @@ export default function BackupManager() {
         window.URL.revokeObjectURL(url);
       })
       .catch(error => {
-        alert('Download failed: ' + error.message);
+        toast.error('Download failed: ' + error.message);
       });
   };
 

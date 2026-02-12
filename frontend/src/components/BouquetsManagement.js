@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Server, Save, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function BouquetsManagement({ settings }) {
   const queryClient = useQueryClient();
@@ -38,7 +39,7 @@ export default function BouquetsManagement({ settings }) {
         setBouquetsList(data.bouquets);
       }
       queryClient.invalidateQueries(['bouquets']);
-      alert(`Success! Synced ${data.bouquets?.length || 0} bouquets from ${data.panel_name || 'panel'}!`);
+      toast.success(`Success! Synced ${data.bouquets?.length || 0} bouquets from ${data.panel_name || 'panel'}!`);
     },
   });
 
@@ -46,13 +47,13 @@ export default function BouquetsManagement({ settings }) {
     mutationFn: (data) => adminAPI.updateBouquets(data),
     onSuccess: () => {
       queryClient.invalidateQueries(['bouquets']);
-      alert('Bouquets saved!');
+      toast.success('Bouquets saved!');
     },
   });
 
   const handleSync = () => {
     if (panels.length === 0) {
-      alert('Please add a panel first in XtreamUI Panel tab');
+      toast.error('Please add a panel first in XtreamUI Panel tab');
       return;
     }
     syncMutation.mutate();

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { DollarSign, Save } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function RefundSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -17,10 +18,10 @@ export default function RefundSettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('Refund settings saved successfully!');
+      toast.success('Refund settings saved successfully!');
     },
     onError: (error) => {
-      alert('Failed to save settings: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to save settings: ' + (error.response?.data?.detail || error.message));
     }
   });
 

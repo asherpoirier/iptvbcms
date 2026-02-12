@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../api/api';
 import { Tag, Wallet, Check, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 const CheckoutCouponCredits = ({ subtotal, onDiscountChange, onCreditsChange }) => {
   const [couponCode, setCouponCode] = useState('');
@@ -23,13 +24,13 @@ const CheckoutCouponCredits = ({ subtotal, onDiscountChange, onCreditsChange }) 
       if (response.data.valid) {
         setAppliedCoupon(response.data);
         onDiscountChange(response.data.discount, response.data.code);
-        alert(`Coupon applied! $${response.data.discount} discount`);
+        toast.info(`Coupon applied! $${response.data.discount} discount`);
       } else {
-        alert(response.data.error || 'Invalid coupon');
+        toast.error(response.data.error || 'Invalid coupon');
       }
     },
     onError: (error) => {
-      alert('Coupon validation failed');
+      toast.error('Coupon validation failed');
     },
   });
 

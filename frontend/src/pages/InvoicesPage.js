@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { invoicesAPI } from '../api/api';
 import { ArrowLeft, FileText, Download } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function InvoicesPage() {
   const { data: invoices, isLoading } = useQuery({
@@ -25,7 +26,7 @@ export default function InvoicesPage() {
       link.remove();
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Failed to download invoice');
+      toast.error('Failed to download invoice');
     }
   };
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, Mail, Send, CheckCircle, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function EmailSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -47,7 +48,7 @@ export default function EmailSettings({ settings }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
-      alert('SMTP settings saved!');
+      toast.success('SMTP settings saved!');
     },
   });
 
@@ -59,7 +60,7 @@ export default function EmailSettings({ settings }) {
     },
     onError: (error) => {
       setTestStatus('error');
-      alert('Failed to send test email: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to send test email: ' + (error.response?.data?.detail || error.message));
     },
   });
 
@@ -70,11 +71,11 @@ export default function EmailSettings({ settings }) {
 
   const handleTestEmail = () => {
     if (!testEmail) {
-      alert('Please enter an email address');
+      toast.error('Please enter an email address');
       return;
     }
     if (!formData.smtp_host || !formData.smtp_username) {
-      alert('Please configure and save SMTP settings first');
+      toast.error('Please configure and save SMTP settings first');
       return;
     }
     testEmailMutation.mutate(testEmail);

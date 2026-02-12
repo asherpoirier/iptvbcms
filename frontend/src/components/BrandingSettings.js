@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { Save, Palette, Type, Image as ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function BrandingSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -42,7 +43,7 @@ export default function BrandingSettings({ settings }) {
       // Clear branding from localStorage to force fresh fetch
       localStorage.removeItem('app-branding');
       
-      alert('Branding settings saved! Page will refresh to apply changes.');
+      toast.success('Branding settings saved! Page will refresh to apply changes.');
       
       // Delay reload slightly to ensure cache is cleared
       setTimeout(() => {
@@ -67,7 +68,7 @@ export default function BrandingSettings({ settings }) {
       } catch (error) {
         console.error('Hero image upload error:', error);
         const errorMsg = error.response?.data?.detail || error.message || JSON.stringify(error);
-        alert('Failed to upload hero image: ' + errorMsg);
+        toast.error('Failed to upload hero image: ' + errorMsg);
         return;
       }
     }

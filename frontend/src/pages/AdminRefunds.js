@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, DollarSign, Check, X, FileText, Eye, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AdminRefunds() {
   const queryClient = useQueryClient();
@@ -25,11 +26,11 @@ export default function AdminRefunds() {
     mutationFn: ({ id, notes }) => adminAPI.approveRefund(id, notes),
     onSuccess: () => {
       queryClient.invalidateQueries(['pending-refunds']);
-      alert('Refund approved and service cancelled');
+      toast.success('Refund approved and service cancelled');
       setShowDetailsModal(false);
     },
     onError: (error) => {
-      alert('Failed to approve refund: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to approve refund: ' + (error.response?.data?.detail || error.message));
     }
   });
 
@@ -37,11 +38,11 @@ export default function AdminRefunds() {
     mutationFn: ({ id, notes }) => adminAPI.rejectRefund(id, notes),
     onSuccess: () => {
       queryClient.invalidateQueries(['pending-refunds']);
-      alert('Refund rejected');
+      toast.success('Refund rejected');
       setShowDetailsModal(false);
     },
     onError: (error) => {
-      alert('Failed to reject refund: ' + (error.response?.data?.detail || error.message));
+      toast.error('Failed to reject refund: ' + (error.response?.data?.detail || error.message));
     }
   });
 
@@ -280,7 +281,7 @@ function RefundDetailsModal({ refund, onClose, onApprove, onReject, isApproving,
 
   const handleReject = () => {
     if (!notes.trim()) {
-      alert('Please provide a reason for rejection');
+      toast.error('Please provide a reason for rejection');
       return;
     }
     if (window.confirm(`Reject refund request from ${refund.user_name}?`)) {
