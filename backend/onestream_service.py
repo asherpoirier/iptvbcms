@@ -146,43 +146,54 @@ class OneStreamService:
         if isinstance(data, dict) and "error" in data:
             return {"success": False, "error": data["error"], "users": []}
 
-        users = []
+        # Handle different response formats
+        raw_lines = []
         if isinstance(data, list):
-            for line in data:
-                expiry_str = line.get("expire_at")
-                expiry_date = None
-                if expiry_str:
-                    try:
-                        expiry_date = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
-                        # Make naive for consistent comparison
-                        if expiry_date.tzinfo is not None:
-                            expiry_date = expiry_date.replace(tzinfo=None)
-                    except Exception:
-                        pass
+            raw_lines = data
+        elif isinstance(data, dict):
+            # Try common wrapper keys
+            raw_lines = data.get("data", data.get("lines", data.get("items", [])))
+            if not isinstance(raw_lines, list):
+                raw_lines = []
+            # Log for debugging
+            if not raw_lines:
+                logger.warning(f"1-Stream get_lines: response is dict with keys {list(data.keys())}, no lines found")
 
-                status = "active"
-                if not line.get("is_enabled", True):
-                    status = "suspended"
-                elif expiry_date and expiry_date < datetime.utcnow():
-                    status = "expired"
+        users = []
+        for line in raw_lines:
+            expiry_str = line.get("expire_at")
+            expiry_date = None
+            if expiry_str:
+                try:
+                    expiry_date = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+                    if expiry_date.tzinfo is not None:
+                        expiry_date = expiry_date.replace(tzinfo=None)
+                except Exception:
+                    pass
 
-                users.append({
-                    "line_id": line.get("line_id", ""),
-                    "username": line.get("username", ""),
-                    "password": line.get("password", ""),
-                    "mac_addr": line.get("mac_addr"),
-                    "type": line.get("type", "regular"),
-                    "expiry": expiry_str,
-                    "expiry_date": expiry_date,
-                    "status": status,
-                    "is_enabled": line.get("is_enabled", True),
-                    "is_trial": line.get("is_trial", False),
-                    "package_id": line.get("package_id"),
-                    "max_connections": line.get("max_connections", 1),
-                    "bouquets": line.get("bouquets", []),
-                    "owner": line.get("owner", ""),
-                    "reseller_notes": line.get("reseller_notes", ""),
-                })
+            status = "active"
+            if not line.get("is_enabled", True):
+                status = "suspended"
+            elif expiry_date and expiry_date < datetime.utcnow():
+                status = "expired"
+
+            users.append({
+                "line_id": line.get("line_id", ""),
+                "username": line.get("username", ""),
+                "password": line.get("password", ""),
+                "mac_addr": line.get("mac_addr"),
+                "type": line.get("type", "regular"),
+                "expiry": expiry_str,
+                "expiry_date": expiry_date,
+                "status": status,
+                "is_enabled": line.get("is_enabled", True),
+                "is_trial": line.get("is_trial", False),
+                "package_id": line.get("package_id"),
+                "max_connections": line.get("max_connections", 1),
+                "bouquets": line.get("bouquets", []),
+                "owner": line.get("owner", ""),
+                "reseller_notes": line.get("reseller_notes", ""),
+            })
         return {"success": True, "users": users}
 
     # ---- Sub-resellers ----

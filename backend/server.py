@@ -5515,18 +5515,16 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": user_doc})
                 updated_count += 1
             else:
-                user_doc["created_at"] = datetime.utcnow()
                 try:
                     await imported_users_collection.update_one(
-                        {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
+                        {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
                         {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
                         upsert=True
                     )
                     synced_count += 1
                 except Exception:
-                    # Duplicate - update instead
                     await imported_users_collection.update_one(
-                        {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
+                        {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
                         {"$set": user_doc}
                         )
                     updated_count += 1
@@ -5557,18 +5555,16 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": reseller_doc})
                 updated_count += 1
             else:
-                reseller_doc["created_at"] = datetime.utcnow()
                 try:
                     await imported_users_collection.update_one(
-                        {"username": reseller_doc.get("username",""), "panel_name": reseller_doc.get("panel_name",""), "account_type": reseller_doc.get("account_type","subscriber")},
+                        {"username": username, "panel_name": panel_name, "account_type": "reseller"},
                         {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
                         upsert=True
                     )
                     synced_count += 1
                 except Exception:
-                    # Duplicate - update instead
                     await imported_users_collection.update_one(
-                        {"username": reseller_doc.get("username",""), "panel_name": reseller_doc.get("panel_name",""), "account_type": reseller_doc.get("account_type","subscriber")},
+                        {"username": username, "panel_name": panel_name, "account_type": "reseller"},
                         {"$set": reseller_doc}
                         )
                     updated_count += 1
@@ -7025,11 +7021,32 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
 
             # Sync lines (subscribers)
             lines_result = os_service.get_lines()
+            lines_list = lines_result.get('users', [])
+            # Count lines with actual usernames vs empty
+            lines_with_username = sum(1 for l in lines_list if l.get("username"))
+            lines_without_username = len(lines_list) - lines_with_username
+            logger.info(f"1-Stream lines sync: success={lines_result.get('success')}, total={len(lines_list)}, with_username={lines_with_username}, without_username={lines_without_username}")
+            if lines_with_username == 0 and len(lines_list) > 0:
+                # Log sample line to debug format
+                sample = lines_list[0] if lines_list else {}
+                logger.info(f"1-Stream sample line keys: {list(sample.keys())}, username='{sample.get('username','')}', mac='{sample.get('mac_addr','')}'")
+            if not lines_result.get("success"):
+                logger.warning(f"1-Stream lines sync failed: {lines_result.get('error', 'unknown')}")
             if lines_result.get("success"):
+                saved_count = 0
+                skipped_count = 0
                 for line in lines_result.get("users", []):
                     username = line.get("username", "")
+                    # For MAG/STB lines without username, use mac_addr or line_id as identifier
                     if not username:
-                        continue
+                        mac = line.get("mac_addr", "")
+                        if mac:
+                            username = f"MAC:{mac}"
+                        elif line.get("line_id"):
+                            username = f"LINE:{line['line_id']}"
+                        else:
+                            skipped_count += 1
+                            continue
                     existing = await imported_users_collection.find_one({
                         "panel_index": panel_index, "panel_type": "onestream",
                         "username": username, "account_type": "subscriber"
@@ -7052,21 +7069,25 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         await imported_users_collection.update_one({"_id": existing["_id"]}, {"$set": user_doc})
                         updated_count += 1
                     else:
-                        user_doc["created_at"] = datetime.utcnow()
                         try:
-                            await imported_users_collection.update_one(
-                                {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
+                            result = await imported_users_collection.update_one(
+                                {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
                                 {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
                                 upsert=True
                             )
-                            synced_count += 1
-                        except Exception:
-                            # Duplicate - update instead
+                            if result.upserted_id:
+                                synced_count += 1
+                            else:
+                                updated_count += 1
+                            saved_count += 1
+                        except Exception as e:
+                            logger.warning(f"1-Stream line upsert error for {username}: {e}")
                             await imported_users_collection.update_one(
-                                {"username": user_doc.get("username",""), "panel_name": user_doc.get("panel_name",""), "account_type": user_doc.get("account_type","subscriber")},
+                                {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
                                 {"$set": user_doc}
-                                )
+                            )
                             updated_count += 1
+                logger.info(f"1-Stream subscriber sync done: saved={saved_count}, skipped={skipped_count}, synced={synced_count}, updated={updated_count}")
             # Sync sub-resellers
             resellers_result = os_service.get_subresellers()
             if resellers_result.get("success"):
@@ -7210,6 +7231,8 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         "panel_type": "onestream",
         "panel_name": {"$nin": active_onestream_panel_names}
     })
+    if removed_onestream.deleted_count > 0:
+        logger.info(f"Cleanup: removed {removed_onestream.deleted_count} onestream users from deleted panels. Active panels: {active_onestream_panel_names}")
 
     # Remove users from NXT Dash panels that no longer exist
     removed_nxtdash = await imported_users_collection.delete_many({
