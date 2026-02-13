@@ -49,11 +49,9 @@ export default function LoginPage() {
     mutationFn: (data) => authAPI.login(data),
     onSuccess: (response) => {
       if (response.data.requires_2fa) {
-        // Show 2FA input
         setRequires2FA(true);
         setError('');
       } else {
-        // Normal login success
         setAuth(response.data.user, response.data.access_token);
         const params = new URLSearchParams(window.location.search);
         const redirectTo = params.get('redirect');
@@ -61,6 +59,8 @@ export default function LoginPage() {
           navigate(redirectTo);
         } else if (response.data.user.role === 'admin') {
           navigate('/admin');
+        } else if (response.data.needs_email_link) {
+          navigate('/link-email');
         } else {
           navigate('/dashboard');
         }
@@ -205,15 +205,15 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email Address
+                  Email Address or Username
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-                  placeholder="you@example.com"
+                  placeholder="you@example.com or username"
                 />
               </div>
 

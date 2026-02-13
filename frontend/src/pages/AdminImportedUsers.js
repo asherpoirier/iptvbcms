@@ -361,6 +361,11 @@ export default function AdminImportedUsers() {
                         Warnings: {syncResult.errors.join(', ')}
                       </p>
                     )}
+                    {syncResult.accounts_created > 0 && (
+                      <p className="text-sm text-blue-600 dark:text-blue-300 mt-1">
+                        Customer accounts created: {syncResult.accounts_created}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p className="font-semibold text-red-800 dark:text-red-200">
@@ -374,6 +379,51 @@ export default function AdminImportedUsers() {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Orphaned Users Warning */}
+        {syncResult?.orphaned_users > 0 && (
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-semibold text-amber-800 dark:text-amber-200">
+                  {syncResult.orphaned_users} imported users from removed panels detected
+                </p>
+                <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                  Panels: {syncResult.orphaned_panels?.map(p => `${p.panel_name} (${p.panel_type}, ${p.user_count} users)`).join(', ')}
+                </p>
+                <div className="flex gap-3 mt-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const resp = await adminAPI.cleanupOrphanedUsers(false);
+                        toast.success(`Removed ${resp.data.removed_imported_users} imported users. Customer accounts kept.`);
+                        setSyncResult(null);
+                        queryClient.invalidateQueries(['imported-users']);
+                      } catch (err) { toast.error('Cleanup failed: ' + (err.response?.data?.detail || err.message)); }
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 font-medium"
+                  >
+                    Remove Imported Users Only
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('This will also delete linked customer accounts and their services. Are you sure?')) return;
+                      try {
+                        const resp = await adminAPI.cleanupOrphanedUsers(true);
+                        toast.success(`Removed ${resp.data.removed_imported_users} imported users, ${resp.data.removed_customers} customers, ${resp.data.removed_services} services.`);
+                        setSyncResult(null);
+                        queryClient.invalidateQueries(['imported-users']);
+                      } catch (err) { toast.error('Cleanup failed: ' + (err.response?.data?.detail || err.message)); }
+                    }}
+                    className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 font-medium"
+                  >
+                    Remove Users + Linked Customers
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

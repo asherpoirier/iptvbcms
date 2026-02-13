@@ -233,6 +233,24 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                   </button>
                 </div>
               </div>
+
+              {/* Streaming Server URL */}
+              {service.streaming_url && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Server URL</label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded text-sm font-mono break-all">
+                      {service.streaming_url}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(service.streaming_url, 'serverurl')}
+                      className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600"
+                    >
+                      {copied === 'serverurl' ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

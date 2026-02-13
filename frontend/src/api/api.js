@@ -213,6 +213,8 @@ export const adminAPI = {
   syncNxtDashUsers: (panelIndex = 0) => api.post(`/api/admin/nxtdash/sync-users?panel_index=${panelIndex}`),
   // Maintenance
   deduplicateImportedUsers: () => api.post('/api/admin/imported-users/deduplicate'),
+  createAccountsForImportedUsers: () => api.post('/api/admin/imported-users/create-accounts'),
+  cleanupOrphanedUsers: (deleteCustomers = false) => api.post('/api/admin/imported-users/cleanup-orphans', { delete_customers: deleteCustomers }),
 };
 
 export default api;

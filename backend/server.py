@@ -229,6 +229,125 @@ def generate_password(length: int = 9) -> str:
     characters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
     return ''.join(random.choices(characters, k=length))
 
+
+async def create_customer_for_imported_user(imported_user: dict) -> Optional[str]:
+    """Create or link a billing customer account for an imported panel user.
+    Returns the user_id of the created/existing customer account."""
+    username = imported_user.get("username", "")
+    password = imported_user.get("password", "")
+    if not username:
+        return None
+
+    # Check if customer already exists with this panel_username
+    existing = await users_collection.find_one({"panel_username": username})
+    if existing:
+        # Link the imported user to the existing customer
+        user_id = str(existing["_id"])
+        if not imported_user.get("user_id"):
+            await imported_users_collection.update_one(
+                {"_id": imported_user["_id"]},
+                {"$set": {"user_id": user_id}}
+            )
+        return user_id
+
+    # Create new customer account
+    # Use a placeholder email since most panel users don't have one
+    placeholder_email = f"{username}@panel.local"
+
+    # Check if placeholder email collides
+    email_exists = await users_collection.find_one({"email": placeholder_email})
+    if email_exists:
+        # Link to existing account with same placeholder email
+        user_id = str(email_exists["_id"])
+        # Add panel_username if missing
+        if not email_exists.get("panel_username"):
+            await users_collection.update_one({"_id": email_exists["_id"]}, {"$set": {"panel_username": username}})
+        await imported_users_collection.update_one(
+            {"_id": imported_user["_id"]},
+            {"$set": {"user_id": user_id}}
+        )
+        return user_id
+
+    import secrets
+    try:
+        customer_doc = {
+            "email": placeholder_email,
+            "password": get_password_hash(password),
+            "name": username,
+            "role": "user",
+            "panel_username": username,
+            "email_verified": False,
+            "credit_balance": 0.0,
+            "referral_code": secrets.token_hex(4),
+            "created_at": datetime.utcnow(),
+            "created_via": "panel_sync",
+        }
+        result = await users_collection.insert_one(customer_doc)
+        user_id = str(result.inserted_id)
+    except Exception as dup_err:
+        # Duplicate email - find and link
+        existing_by_email = await users_collection.find_one({"email": placeholder_email})
+        if existing_by_email:
+            user_id = str(existing_by_email["_id"])
+        else:
+            raise dup_err
+
+    # Link the imported user
+    await imported_users_collection.update_one(
+        {"_id": imported_user["_id"]},
+        {"$set": {"user_id": user_id}}
+    )
+
+    # Auto-create a service record so "My Services" works
+    panel_type = imported_user.get("panel_type", "")
+    panel_name = imported_user.get("panel_name", "")
+    streaming_url = ""
+    settings = await get_settings()
+    panels_key = panel_type if panel_type != "xtream" else "xtream"
+    panels_list = settings.get(panels_key, {}).get("panels", [])
+    panel_index = imported_user.get("panel_index", 0)
+    if panel_index < len(panels_list):
+        p = panels_list[panel_index]
+        streaming_url = p.get("portal_url", p.get("streaming_url", p.get("panel_url", "")))
+
+    service_exists = await services_collection.find_one({
+        "user_id": user_id,
+        "xtream_username": username,
+        "panel_type": panel_type,
+    })
+    if not service_exists:
+        service_doc = {
+            "user_id": user_id,
+            "product_id": "",
+            "product_name": f"{panel_name} - {imported_user.get('account_type', 'subscriber').title()}",
+            "xtream_username": username,
+            "xtream_password": password,
+            "username": username,
+            "password": password,
+            "panel_type": panel_type,
+            "panel_name": panel_name,
+            "panel_index": panel_index,
+            "account_type": imported_user.get("account_type", "subscriber"),
+            "max_connections": imported_user.get("max_connections", 1),
+            "streaming_url": streaming_url,
+            "expiry_date": imported_user.get("expiry_date"),
+            "status": imported_user.get("status", "active"),
+            "created_at": datetime.utcnow(),
+            "created_via": "panel_sync",
+        }
+        # Add panel-specific IDs
+        if imported_user.get("nxtdash_line_id"):
+            service_doc["nxtdash_line_id"] = imported_user["nxtdash_line_id"]
+        if imported_user.get("onestream_line_id"):
+            service_doc["onestream_line_id"] = imported_user["onestream_line_id"]
+        if imported_user.get("xtream_user_id"):
+            service_doc["dedicatedip"] = imported_user["xtream_user_id"]
+
+        await services_collection.insert_one(service_doc)
+
+    return user_id
+
+
 async def get_settings() -> dict:
     """Get system settings"""
     settings = await settings_collection.find_one()
@@ -247,6 +366,7 @@ async def startup_event():
     
     # Create indexes
     await users_collection.create_index("email", unique=True)
+    await users_collection.create_index("panel_username", sparse=True)
     await products_collection.create_index("name")
     await orders_collection.create_index("user_id")
     await services_collection.create_index("user_id")
@@ -828,7 +948,7 @@ async def register(user_data: UserCreate):
     
     # Send verification email
     # Use frontend route for verification to avoid redirect issues
-    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/verify-email?token={verification_token}"
+    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
     
     email_service = await get_configured_email_service()
     if email_service and email_service.enabled:
@@ -862,11 +982,13 @@ async def register(user_data: UserCreate):
     }
 
 @app.get("/api/verify-email")
-async def verify_email_api(token: str):
+async def verify_email_api(token: str, redirect: bool = False):
     """API endpoint for email verification"""
     user = await users_collection.find_one({"verification_token": token})
     
     if not user:
+        if redirect:
+            return RedirectResponse(url="/?error=invalid_token")
         raise HTTPException(status_code=404, detail="Invalid or expired verification token")
     
     # Check if already verified
@@ -909,6 +1031,8 @@ async def verify_email_api(token: str):
             except Exception as e:
                 logger.error(f"Failed to award signup bonus: {e}")
     
+    if redirect:
+        return RedirectResponse(url="/?message=email_verified")
     return {"message": "Email verified successfully", "verified": True}
 
 @app.get("/verify-email")
@@ -928,7 +1052,11 @@ class ResendVerificationRequest(BaseModel):
 @app.post("/api/auth/resend-verification")
 async def resend_verification(data: ResendVerificationRequest):
     """Resend verification email, optionally update email address"""
-    user = await users_collection.find_one({"email": data.email})
+    login_id = data.email.strip()
+    if "@" in login_id:
+        user = await users_collection.find_one({"email": login_id})
+    else:
+        user = await users_collection.find_one({"panel_username": login_id})
     if not user:
         raise HTTPException(status_code=404, detail="Account not found")
     
@@ -957,7 +1085,7 @@ async def resend_verification(data: ResendVerificationRequest):
         {"$set": {"verification_token": verification_token}}
     )
     
-    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/verify-email?token={verification_token}"
+    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
     logger.info(f"Resend verification: new token generated for {target_email}, link={verification_link[:80]}...")
     
     email_service = await get_configured_email_service()
@@ -1017,14 +1145,24 @@ async def login(credentials: UserLogin):
             detail="Security verification required. Please refresh and try again."
         )
     
-    # Step 2: Verify credentials
-    user = await users_collection.find_one({"email": credentials.email})
+    # Step 2: Verify credentials (support both email and username login)
+    login_id = credentials.email.strip()
+    if "@" in login_id:
+        user = await users_collection.find_one({"email": login_id})
+    else:
+        # Username login — check panel_username field
+        user = await users_collection.find_one({"panel_username": login_id})
     
     if not user or not verify_password(credentials.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid email/username or password")
     
-    # Step 3: Check email verification (except for admin)
-    if user.get("role") != "admin" and not user.get("email_verified", False):
+    # Step 3: Check email verification (except for admin and panel-synced users)
+    has_real_email = bool(user.get("email")) and "@" in user.get("email", "") and not user["email"].endswith("@panel.local")
+    is_panel_user = user.get("created_via") == "panel_sync"
+    needs_email_link = (not has_real_email or not user.get("email_verified", False)) and is_panel_user and user.get("role") != "admin"
+    
+    # Only block login for email verification if user registered normally (not panel-synced)
+    if user.get("role") != "admin" and not is_panel_user and has_real_email and not user.get("email_verified", False):
         raise HTTPException(
             status_code=403, 
             detail="Email not verified. Please check your inbox for the verification link."
@@ -1060,15 +1198,52 @@ async def login(credentials: UserLogin):
         "access_token": access_token,
         "token_type": "bearer",
         "requires_2fa": False,
+        "needs_email_link": needs_email_link,
         "user": {
             "id": str(user["_id"]),
-            "email": user["email"],
-            "name": user["name"],
+            "email": user.get("email", ""),
+            "name": user.get("name", user.get("panel_username", "")),
             "role": user.get("role", "user"),
             "email_verified": user.get("email_verified", False),
-            "totp_enabled": user.get("totp_enabled", False)
+            "totp_enabled": user.get("totp_enabled", False),
+            "panel_username": user.get("panel_username", ""),
+            "needs_email_link": needs_email_link,
         }
     }
+
+@app.post("/api/auth/link-email")
+async def link_email_to_account(data: dict, current_user: dict = Depends(get_current_user)):
+    """Link an email address to a panel-imported account and send verification"""
+    email = data.get("email", "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email address required")
+
+    # Check email not already used
+    existing = await users_collection.find_one({"email": email})
+    if existing and str(existing["_id"]) != current_user["sub"]:
+        raise HTTPException(status_code=400, detail="Email already in use by another account")
+
+    # Generate verification token
+    import secrets
+    verification_token = secrets.token_urlsafe(32)
+
+    await users_collection.update_one(
+        {"_id": str_to_objectid(current_user["sub"])},
+        {"$set": {"email": email, "email_verified": False, "verification_token": verification_token}}
+    )
+
+    # Send verification email
+    email_service = await get_configured_email_service()
+    if email_service:
+        try:
+            user = await users_collection.find_one({"_id": str_to_objectid(current_user["sub"])})
+            customer_name = user.get("name", user.get("panel_username", "Customer"))
+            verify_url = f"{os.getenv('BACKEND_PUBLIC_URL', os.getenv('PUBLIC_URL', ''))}/api/verify-email?redirect=true&token={verification_token}"
+            await email_service.send_email_verification(email, customer_name, verify_url, customer_id=current_user["sub"])
+        except Exception as e:
+            logger.warning(f"Failed to send verification email: {e}")
+
+    return {"success": True, "message": "Verification email sent. Please check your inbox."}
 
 @app.get("/api/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -1077,11 +1252,16 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    has_email = bool(user.get("email")) and "@" in user.get("email", "") and not user["email"].endswith("@panel.local")
+    
     return {
         "id": str(user["_id"]),
-        "email": user["email"],
-        "name": user["name"],
-        "role": user.get("role", "user")
+        "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        "role": user.get("role", "user"),
+        "panel_username": user.get("panel_username", ""),
+        "needs_email_link": not has_email and user.get("role") != "admin",
+        "email_verified": user.get("email_verified", False),
     }
 
 # ===== 2FA ROUTES (Admin Only) =====
@@ -6668,6 +6848,107 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
         {"id": 3, "name": "Sports"},
     ]
 
+@app.post("/api/admin/imported-users/create-accounts")
+async def create_accounts_for_imported_users(current_user: dict = Depends(get_current_admin_user)):
+    """Create billing customer accounts for all imported users that don't have one yet."""
+    cursor = imported_users_collection.find({"user_id": {"$exists": False}})
+    imported_users = await cursor.to_list(length=10000)
+    
+    # Also include users with empty user_id
+    cursor2 = imported_users_collection.find({"user_id": ""})
+    imported_users += await cursor2.to_list(length=10000)
+    
+    created = 0
+    linked = 0
+    errors = 0
+    
+    for iu in imported_users:
+        try:
+            user_id = await create_customer_for_imported_user(iu)
+            if user_id:
+                # Check if this was a new creation or existing link
+                existing = await users_collection.find_one({"_id": str_to_objectid(user_id), "created_via": "panel_sync"})
+                if existing and (datetime.utcnow() - existing.get("created_at", datetime.utcnow())).total_seconds() < 5:
+                    created += 1
+                else:
+                    linked += 1
+        except Exception as e:
+            logger.warning(f"Failed to create account for {iu.get('username')}: {e}")
+            errors += 1
+    
+    return {"success": True, "created": created, "linked": linked, "errors": errors, "total_processed": len(imported_users)}
+
+
+@app.post("/api/admin/imported-users/cleanup-orphans")
+async def cleanup_orphaned_imported_users(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Remove imported users from panels that no longer exist. Optionally delete linked customer accounts."""
+    delete_customers = data.get("delete_customers", False)
+    
+    settings = await get_settings()
+    active_names = {
+        "xtream": [p.get("name") for p in settings.get("xtream", {}).get("panels", [])],
+        "xuione": [p.get("name") for p in settings.get("xuione", {}).get("panels", [])],
+        "onestream": [p.get("name") for p in settings.get("onestream", {}).get("panels", [])],
+        "nxtdash": [p.get("name") for p in settings.get("nxtdash", {}).get("panels", [])],
+    }
+    all_active = sum(active_names.values(), [])
+
+    removed_users = 0
+    removed_customers = 0
+    removed_services = 0
+
+    for ptype, names in active_names.items():
+        orphans = await imported_users_collection.find({"panel_type": ptype, "panel_name": {"$nin": names}}).to_list(length=50000)
+        if not orphans:
+            continue
+
+        if delete_customers:
+            for orphan in orphans:
+                uid = orphan.get("user_id")
+                if uid:
+                    # Only delete customer accounts created via panel_sync (not manually registered)
+                    del_result = await users_collection.delete_one({"_id": str_to_objectid(uid), "created_via": "panel_sync"})
+                    removed_customers += del_result.deleted_count
+                    # Remove their services too
+                    svc_del = await services_collection.delete_many({"user_id": uid})
+                    removed_services += svc_del.deleted_count
+
+        del_result = await imported_users_collection.delete_many({"panel_type": ptype, "panel_name": {"$nin": names}})
+        removed_users += del_result.deleted_count
+
+    # Also clean null panel_type orphans
+    null_orphans = await imported_users_collection.find({
+        "$or": [
+            {"panel_type": None, "panel_name": {"$nin": all_active}},
+            {"panel_type": {"$exists": False}, "panel_name": {"$nin": all_active}}
+        ]
+    }).to_list(length=10000)
+    
+    if delete_customers:
+        for orphan in null_orphans:
+            uid = orphan.get("user_id")
+            if uid:
+                del_r = await users_collection.delete_one({"_id": str_to_objectid(uid), "created_via": "panel_sync"})
+                removed_customers += del_r.deleted_count
+                svc_del = await services_collection.delete_many({"user_id": uid})
+                removed_services += svc_del.deleted_count
+
+    null_del = await imported_users_collection.delete_many({
+        "$or": [
+            {"panel_type": None, "panel_name": {"$nin": all_active}},
+            {"panel_type": {"$exists": False}, "panel_name": {"$nin": all_active}}
+        ]
+    })
+    removed_users += null_del.deleted_count
+
+    return {
+        "success": True,
+        "removed_imported_users": removed_users,
+        "removed_customers": removed_customers,
+        "removed_services": removed_services,
+    }
+
+
 @app.post("/api/admin/imported-users/deduplicate")
 async def deduplicate_imported_users(current_user: dict = Depends(get_current_admin_user)):
     """Remove duplicate imported users, keeping the most recent"""
@@ -7207,55 +7488,63 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             logger.error(f"Error syncing from {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
     
-    # Clean up users from removed panels
-    # Get list of active panel names
+    # Check for orphaned users from removed panels (don't auto-delete — let admin decide)
     active_xtream_panel_names = [p.get("name") for p in xtream_panels]
     active_xuione_panel_names = [p.get("name") for p in xuione_panels]
     active_onestream_panel_names = [p.get("name") for p in onestream_panels]
     active_nxtdash_panel_names = [p.get("name") for p in nxtdash_panels]
-    
-    # Remove users from XtreamUI panels that no longer exist
-    removed_xtream = await imported_users_collection.delete_many({
-        "panel_type": "xtream",
-        "panel_name": {"$nin": active_xtream_panel_names}
-    })
-    
-    # Remove users from XuiOne panels that no longer exist
-    removed_xuione = await imported_users_collection.delete_many({
-        "panel_type": "xuione",
-        "panel_name": {"$nin": active_xuione_panel_names}
-    })
-
-    # Remove users from 1-Stream panels that no longer exist
-    removed_onestream = await imported_users_collection.delete_many({
-        "panel_type": "onestream",
-        "panel_name": {"$nin": active_onestream_panel_names}
-    })
-    if removed_onestream.deleted_count > 0:
-        logger.info(f"Cleanup: removed {removed_onestream.deleted_count} onestream users from deleted panels. Active panels: {active_onestream_panel_names}")
-
-    # Remove users from NXT Dash panels that no longer exist
-    removed_nxtdash = await imported_users_collection.delete_many({
-        "panel_type": "nxtdash",
-        "panel_name": {"$nin": active_nxtdash_panel_names}
-    })
-    
-    # Also remove users with null panel_type whose panel_name doesn't exist in any active panel
     all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names
-    removed_orphans = await imported_users_collection.delete_many({
+
+    orphaned_count = 0
+    orphaned_panels = []
+    for ptype, active_names in [("xtream", active_xtream_panel_names), ("xuione", active_xuione_panel_names), ("onestream", active_onestream_panel_names), ("nxtdash", active_nxtdash_panel_names)]:
+        count = await imported_users_collection.count_documents({
+            "panel_type": ptype,
+            "panel_name": {"$nin": active_names}
+        })
+        if count > 0:
+            # Get the orphaned panel names
+            orphan_names = await imported_users_collection.distinct("panel_name", {
+                "panel_type": ptype,
+                "panel_name": {"$nin": active_names}
+            })
+            orphaned_count += count
+            for name in orphan_names:
+                orphaned_panels.append({"panel_name": name, "panel_type": ptype, "user_count": await imported_users_collection.count_documents({"panel_type": ptype, "panel_name": name})})
+
+    # Also count null panel_type orphans
+    orphan_null = await imported_users_collection.count_documents({
         "$or": [
             {"panel_type": None, "panel_name": {"$nin": all_active_panel_names}},
             {"panel_type": {"$exists": False}, "panel_name": {"$nin": all_active_panel_names}}
         ]
     })
+    orphaned_count += orphan_null
+
+    results["total_removed"] = 0
+    results["orphaned_users"] = orphaned_count
+    results["orphaned_panels"] = orphaned_panels
     
-    total_removed = removed_xtream.deleted_count + removed_xuione.deleted_count + removed_onestream.deleted_count + removed_nxtdash.deleted_count + removed_orphans.deleted_count
-    results["total_removed"] = total_removed
+    logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated, {orphaned_count} orphaned from removed panels")
     
-    if total_removed > 0:
-        logger.info(f"Removed {total_removed} users from deleted panels")
-    
-    logger.info(f"Sync all users complete: {results['total_synced']} new, {results['total_updated']} updated, {results['total_removed']} removed")
+    # Auto-create customer accounts for newly synced users
+    try:
+        unlinked = imported_users_collection.find({"$or": [{"user_id": {"$exists": False}}, {"user_id": ""}]})
+        unlinked_list = await unlinked.to_list(length=10000)
+        accounts_created = 0
+        for iu in unlinked_list:
+            try:
+                uid = await create_customer_for_imported_user(iu)
+                if uid:
+                    accounts_created += 1
+            except Exception:
+                pass
+        if accounts_created > 0:
+            logger.info(f"Auto-created {accounts_created} customer accounts from synced users")
+        results["accounts_created"] = accounts_created
+    except Exception as e:
+        logger.warning(f"Account creation after sync failed: {e}")
+        results["accounts_created"] = 0
     
     return results
 
