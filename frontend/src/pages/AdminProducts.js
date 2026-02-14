@@ -580,7 +580,7 @@ export default function AdminProducts() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <button onClick={() => { window.open(`/order/${product.id}`, '_blank'); }} className="text-xs text-blue-600 hover:underline">Link</button>
+                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/order/${product.id}`); toast.success('Link copied to clipboard!'); }} className="text-xs text-blue-600 hover:underline">Link</button>
                                 <button onClick={() => handleEdit(product)} className="text-xs text-gray-600 hover:text-blue-600">Edit</button>
                                 <button onClick={() => handleDelete(product)} className="text-xs text-red-600 hover:text-red-800">Delete</button>
                               </div>
@@ -1522,4 +1522,3 @@ function ManualProductModal({ onClose, onSuccess }) {
     </div>
   );
 }
-
