@@ -29,12 +29,30 @@ class BackgroundJobScheduler:
             replace_existing=True
         )
         
-        # Job 2: Send expiry warnings (daily at 9 AM)
+        # Job 2: Send expiry warnings - 7 days (daily at 9 AM)
         self.scheduler.add_job(
-            self.job_send_expiry_warnings,
+            self.job_send_expiry_warnings_7d,
             trigger=CronTrigger(hour=9, minute=0),
-            id="send_expiry_warnings",
-            name="Send Expiry Warnings",
+            id="send_expiry_warnings_7d",
+            name="Send Expiry Warnings (7 days)",
+            replace_existing=True
+        )
+        
+        # Job 2b: Send expiry warnings - 3 days (daily at 9 AM)
+        self.scheduler.add_job(
+            self.job_send_expiry_warnings_3d,
+            trigger=CronTrigger(hour=9, minute=15),
+            id="send_expiry_warnings_3d",
+            name="Send Expiry Warnings (3 days)",
+            replace_existing=True
+        )
+        
+        # Job 2c: Send expiry warnings - 1 day (daily at 9 AM)
+        self.scheduler.add_job(
+            self.job_send_expiry_warnings_1d,
+            trigger=CronTrigger(hour=9, minute=30),
+            id="send_expiry_warnings_1d",
+            name="Send Expiry Warnings (1 day)",
             replace_existing=True
         )
         
@@ -74,6 +92,15 @@ class BackgroundJobScheduler:
             replace_existing=True
         )
         
+        # Job 7: Check panel credits (every 4 hours)
+        self.scheduler.add_job(
+            self.job_check_panel_credits,
+            trigger=IntervalTrigger(hours=4),
+            id="check_panel_credits",
+            name="Check Panel Credits",
+            replace_existing=True
+        )
+        
         self.scheduler.start()
         logger.info("Background jobs started successfully")
     
@@ -86,21 +113,45 @@ class BackgroundJobScheduler:
         except Exception as e:
             logger.error(f"Error in suspend_expired_services job: {str(e)}")
     
-    async def job_send_expiry_warnings(self):
-        """Send warnings for services expiring soon"""
+    async def job_send_expiry_warnings_7d(self):
+        """Send 7-day expiry warnings"""
         try:
             if self.lifecycle_manager:
-                # Send 7-day warnings
-                count_7 = await self.lifecycle_manager.send_expiry_warnings(7)
-                # Send 3-day warnings
-                count_3 = await self.lifecycle_manager.send_expiry_warnings(3)
-                # Send 1-day warnings
-                count_1 = await self.lifecycle_manager.send_expiry_warnings(1)
-                
-                total = count_7 + count_3 + count_1
-                logger.info(f"Sent {total} expiry warnings (7d:{count_7}, 3d:{count_3}, 1d:{count_1})")
+                count = await self.lifecycle_manager.send_expiry_warnings(7)
+                if count > 0:
+                    logger.info(f"Sent {count} expiry warnings (7 days)")
         except Exception as e:
-            logger.error(f"Error in send_expiry_warnings job: {str(e)}")
+            logger.error(f"Error in 7-day expiry warnings: {str(e)}")
+
+    async def job_send_expiry_warnings_3d(self):
+        """Send 3-day expiry warnings"""
+        try:
+            if self.lifecycle_manager:
+                count = await self.lifecycle_manager.send_expiry_warnings(3)
+                if count > 0:
+                    logger.info(f"Sent {count} expiry warnings (3 days)")
+        except Exception as e:
+            logger.error(f"Error in 3-day expiry warnings: {str(e)}")
+
+    async def job_send_expiry_warnings_1d(self):
+        """Send 1-day expiry warnings"""
+        try:
+            if self.lifecycle_manager:
+                count = await self.lifecycle_manager.send_expiry_warnings(1)
+                if count > 0:
+                    logger.info(f"Sent {count} expiry warnings (1 day)")
+        except Exception as e:
+            logger.error(f"Error in 1-day expiry warnings: {str(e)}")
+
+    async def job_check_panel_credits(self):
+        """Check panel credit balances and alert if low"""
+        try:
+            if self.lifecycle_manager:
+                settings = await self.db.settings.find_one()
+                threshold = settings.get("credit_alert_threshold", 10) if settings else 10
+                await self.lifecycle_manager.check_panel_credits(low_threshold=threshold)
+        except Exception as e:
+            logger.error(f"Error in credit check job: {str(e)}")
     
     async def job_cancel_suspended_services(self):
         """Cancel services suspended for 30+ days"""

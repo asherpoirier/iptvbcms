@@ -89,6 +89,7 @@ export default function XuiOnePanelManagement({ settings }) {
     setEditingPanel({
       name: '',
       panel_url: '',
+      streaming_url: '',
       api_key: '',
       admin_username: '',
       admin_password: '',
@@ -189,6 +190,7 @@ export default function XuiOnePanelManagement({ settings }) {
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
                   <p><strong>Panel URL:</strong> {panel.panel_url}</p>
+                  {panel.streaming_url && <p><strong>Streaming DNS:</strong> {panel.streaming_url}</p>}
                   <p><strong>API Access Code:</strong> {panel.api_access_code || 'Not set'}</p>
                   <p><strong>API Key:</strong> {panel.api_key ? '••••••••' + panel.api_key.slice(-4) : 'Not set'}</p>
                   <p><strong>Username:</strong> {panel.admin_username || 'Not set'}</p>
@@ -295,6 +297,7 @@ function XuiOnePanelFormModal({ panel, onClose, onSave }) {
   const [formData, setFormData] = useState(panel || {
     name: '',
     panel_url: '',
+    streaming_url: '',
     api_access_code: '',
     api_key: '',
     admin_username: '',
@@ -351,6 +354,22 @@ function XuiOnePanelFormModal({ panel, onClose, onSave }) {
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               API endpoint for XuiOne panel management
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Streaming DNS / Server URL
+            </label>
+            <input
+              type="text"
+              value={formData.streaming_url || ''}
+              onChange={(e) => setFormData({ ...formData, streaming_url: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              placeholder="http://stream.yourdomain.com:8080"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              The URL customers use to connect their IPTV player (shown on service cards)
             </p>
           </div>
 

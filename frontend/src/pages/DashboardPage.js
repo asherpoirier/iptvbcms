@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { servicesAPI, ordersAPI } from '../api/api';
-import { useAuthStore } from '../store/store';
+import { useAuthStore, useCartStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
-import { Server, ShoppingBag, FileText, LogOut, User, Tv, MessageSquare, Gift, Wallet, Download, ShoppingCart } from 'lucide-react';
+import { useCurrencyStore } from '../store/currency';
+import { Server, ShoppingBag, FileText, LogOut, Tv, MessageSquare, Gift, Download, ShoppingCart, Clock, AlertTriangle, RefreshCw, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import CreditBalance from '../components/CreditBalance';
+import CurrencySwitcher from '../components/CurrencySwitcher';
+import { toast } from 'sonner';
+import api from '../api/api';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -41,13 +45,14 @@ export default function DashboardPage() {
     navigate('/login');
   };
 
-  const activeServices = services?.filter((s) => s.status === 'active') || [];
+  const allServices = services?.filter((s) => !s.is_credit_addon) || [];
+  const activeServices = allServices.filter((s) => s.status === 'active');
+  const expiredServices = allServices.filter((s) => s.status !== 'active');
   const pendingOrders = orders?.filter((o) => o.status === 'pending') || [];
   const referrerReward = referralSettings?.settings?.referrer_reward || 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
-      {/* Header */}
       <header className="bg-white dark:bg-gray-900 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
@@ -60,13 +65,10 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{branding.site_name}</h1>
             </Link>
             <div className="flex items-center gap-4">
-              <span className="text-gray-700 dark:text-gray-200">Welcome, {user?.name}</span>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-gray-600 hover:text-red-600"
-              >
+              <CurrencySwitcher />
+              <span className="text-gray-700 dark:text-gray-200 hidden sm:inline">Welcome, {user?.name}</span>
+              <button onClick={handleLogout} className="flex items-center gap-2 text-gray-600 hover:text-red-600">
                 <LogOut className="w-5 h-5" />
-                Logout
               </button>
             </div>
           </div>
@@ -74,152 +76,250 @@ export default function DashboardPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Overview */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <Tv className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Active Services</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeServices.length}</p>
-              </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+              <Tv className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{activeServices.length}</p>
             </div>
           </div>
-
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <ShoppingBag className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Pending Orders</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{pendingOrders.length}</p>
-              </div>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
+              <ShoppingBag className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{pendingOrders.length}</p>
             </div>
           </div>
-
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Total Orders</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{orders?.length || 0}</p>
-              </div>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+              <FileText className="w-5 h-5 text-blue-600" />
             </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Orders</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{orders?.length || 0}</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <CreditBalance showHistory={false} />
           </div>
         </div>
 
         {/* Quick Links */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Link
-            to="/services"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-          >
-            <Tv className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">My Services</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">View credentials</p>
-          </Link>
-
-          <Link
-            to="/orders"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-          >
-            <ShoppingBag className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Orders</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Order history</p>
-          </Link>
-
-          <Link
-            to="/invoices"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-          >
-            <FileText className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Invoices</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Download PDFs</p>
-          </Link>
-
-          <Link
-            to="/tickets"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-          >
-            <MessageSquare className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Support</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get help</p>
-          </Link>
-
-          <Link
-            to="/"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-            data-testid="shop-services-link"
-          >
-            <ShoppingCart className="w-8 h-8 text-green-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Shop Services</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Browse plans</p>
-          </Link>
-
-          <Link
-            to="/downloads"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-            data-testid="downloads-link"
-          >
-            <Download className="w-8 h-8 text-indigo-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Downloads</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Client apps & guides</p>
-          </Link>
-
-          <Link
-            to="/referrals"
-            className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition text-center"
-            data-testid="referral-link"
-          >
-            <Gift className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Refer & Earn</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {referrerReward > 0 ? `Get $${referrerReward} credits` : 'Earn credits'}
-            </p>
-          </Link>
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
+          {[
+            { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
+            { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
+            { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
+            { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
+            { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
+            { to: '/referrals', icon: Gift, label: referrerReward > 0 ? `Refer ($${referrerReward})` : 'Refer', color: 'text-indigo-600' },
+          ].map((link) => (
+            <Link key={link.to} to={link.to}
+              className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 hover:shadow-md transition text-center">
+              <link.icon className={`w-6 h-6 ${link.color} mx-auto mb-1`} />
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{link.label}</p>
+            </Link>
+          ))}
         </div>
 
-        {/* Credit Balance Widget */}
-        <div className="mb-8">
-          <CreditBalance showHistory={false} />
-        </div>
-
-        {/* Recent Services */}
+        {/* Active Services - Visual Cards */}
         {activeServices.length > 0 && (
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Active Services</h2>
-            </div>
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {activeServices.slice(0, 3).map((service) => (
-                <div key={service.id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{service.product_name}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                        Expires: {new Date(service.expiry_date).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <span className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-sm rounded-full">
-                      Active
-                    </span>
-                  </div>
-                </div>
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">My Services</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              {activeServices.map((service) => (
+                <ServiceCard key={service.id} service={service} navigate={navigate} />
               ))}
-            </div>
-            <div className="p-4 bg-gray-50 dark:bg-gray-800">
-              <Link to="/services" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold text-sm">
-                View all services →
-              </Link>
             </div>
           </div>
         )}
+
+        {/* Expired/Suspended Services */}
+        {expiredServices.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-lg font-semibold text-gray-600 dark:text-gray-400 mb-3">Expired / Suspended</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              {expiredServices.map((service) => (
+                <ServiceCard key={service.id} service={service} navigate={navigate} expired />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* No Services */}
+        {allServices.length === 0 && (
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow p-12 text-center mb-8">
+            <Tv className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Services Yet</h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">Browse our plans and get started!</p>
+            <Link to="/" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
+              <ShoppingCart className="w-5 h-5" /> Browse Plans
+            </Link>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function ServiceCard({ service, navigate, expired }) {
+  const { addItem } = useCartStore();
+  const [copied, setCopied] = useState('');
+  const [showPass, setShowPass] = useState(false);
+
+  const copy = (text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    toast.success('Copied!');
+    setTimeout(() => setCopied(''), 2000);
+  };
+
+  const handleQuickRenew = () => {
+    if (service.product_id) {
+      addItem({
+        product_id: service.product_id,
+        product_name: service.product_name,
+        term_months: 1,
+        price: 0,
+        account_type: service.account_type,
+      }, service.id, 'extend');
+      navigate('/checkout');
+    } else {
+      navigate('/services');
+    }
+  };
+
+  // Countdown logic
+  const expiryDate = service.expiry_date ? new Date(service.expiry_date) : null;
+  const now = new Date();
+  const diffMs = expiryDate ? expiryDate - now : 0;
+  const daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  const hoursLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60)));
+  const isExpiringSoon = daysLeft <= 7 && daysLeft > 0;
+  const isExpired = diffMs <= 0;
+
+  const countdownText = isExpired ? 'Expired' : daysLeft > 0 ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : `${hoursLeft}h left`;
+  const countdownColor = isExpired ? 'text-red-600 bg-red-50 dark:bg-red-900/20' : isExpiringSoon ? 'text-amber-600 bg-amber-50 dark:bg-amber-900/20' : 'text-green-600 bg-green-50 dark:bg-green-900/20';
+
+  const streamUrl = service.streaming_url;
+  const user = service.xtream_username;
+  const pass = service.xtream_password;
+
+  return (
+    <div className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border overflow-hidden ${expired ? 'opacity-70 border-gray-200 dark:border-gray-700' : 'border-gray-200 dark:border-gray-700'}`}>
+      {/* Header */}
+      <div className={`px-5 py-3 flex items-center justify-between ${expired ? 'bg-gray-100 dark:bg-gray-800' : 'bg-gradient-to-r from-blue-600 to-blue-700'}`}>
+        <div>
+          <h3 className={`font-bold ${expired ? 'text-gray-700 dark:text-gray-300' : 'text-white'}`}>{service.product_name}</h3>
+          <p className={`text-xs ${expired ? 'text-gray-500' : 'text-blue-100'}`}>
+            {service.account_type === 'reseller' ? 'Reseller' : 'Subscriber'} — {service.panel_name || 'Panel'}
+          </p>
+        </div>
+        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${countdownColor}`}>
+          {countdownText}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="p-5 space-y-3">
+        {/* Credentials Row */}
+        {user && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Username</p>
+              <div className="flex items-center gap-1">
+                <code className="text-sm font-mono text-gray-900 dark:text-white truncate">{user}</code>
+                <button onClick={() => copy(user, `u-${service.id}`)} className="text-gray-400 hover:text-blue-600 shrink-0">
+                  {copied === `u-${service.id}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Password</p>
+              <div className="flex items-center gap-1">
+                <code className="text-sm font-mono text-gray-900 dark:text-white truncate">{showPass ? pass : '••••••'}</code>
+                <button onClick={() => setShowPass(!showPass)} className="text-gray-400 hover:text-blue-600 shrink-0">
+                  {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+                <button onClick={() => copy(pass, `p-${service.id}`)} className="text-gray-400 hover:text-blue-600 shrink-0">
+                  {copied === `p-${service.id}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Server URL */}
+        {streamUrl && (
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Server</p>
+            <div className="flex items-center gap-1">
+              <code className="text-sm font-mono text-gray-900 dark:text-white truncate">{streamUrl}</code>
+              <button onClick={() => copy(streamUrl, `s-${service.id}`)} className="text-gray-400 hover:text-blue-600 shrink-0">
+                {copied === `s-${service.id}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Info Row */}
+        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-800">
+          <span>{service.max_connections || '?'} connection{(service.max_connections || 0) !== 1 ? 's' : ''}</span>
+          <span>{expiryDate ? expiryDate.toLocaleDateString() : 'No expiry'}</span>
+        </div>
+
+        {/* Countdown Bar */}
+        {expiryDate && !isExpired && (
+          <CountdownBar expiryDate={expiryDate} />
+        )}
+
+        {/* Quick Renew */}
+        {service.account_type === 'subscriber' && (
+          <div className="flex gap-2 pt-1">
+            <button onClick={handleQuickRenew}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition ${
+                isExpiringSoon || isExpired
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}>
+              <RefreshCw className="w-4 h-4" />
+              {isExpired ? 'Renew Now' : isExpiringSoon ? 'Renew Soon' : 'Renew'}
+            </button>
+            <Link to="/services" className="px-4 py-2 rounded-lg text-sm bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700">
+              Details
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CountdownBar({ expiryDate }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const now = new Date();
+  const diffMs = expiryDate - now;
+  const totalDays = 30; // Assume 30-day cycle for the progress bar
+  const daysLeft = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+  const percent = Math.min(100, Math.max(0, (daysLeft / totalDays) * 100));
+
+  const barColor = percent > 50 ? 'bg-green-500' : percent > 20 ? 'bg-amber-500' : 'bg-red-500';
+
+  return (
+    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+      <div className={`h-1.5 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${percent}%` }} />
     </div>
   );
 }

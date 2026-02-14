@@ -91,6 +91,8 @@ class ProductCreate(BaseModel):
     panel_type: Optional[str] = 'xtream'  # Panel type: 'xtream' or 'xuione'
     is_trial: Optional[bool] = False  # Whether this is a trial package
     display_order: Optional[int] = 0  # Order for display (lower = appears first)
+    group_id: Optional[str] = ""  # Product group ID
+    subgroup_id: Optional[str] = ""  # Product sub-group ID
     trial_duration: Optional[int] = 0  # Trial duration (e.g., 1, 7, 30)
     trial_duration_unit: Optional[str] = 'days'  # Trial duration unit (hours, days, months)
     setup_instructions: Optional[str] = ""  # Custom setup instructions for this product
@@ -259,6 +261,7 @@ class XuiOnePanel(BaseModel):
     id: Optional[str] = None
     name: str  # Friendly name like "Main XuiOne Panel"
     panel_url: str  # Web interface URL (e.g., http://domain.com/Resellers12)
+    streaming_url: str = ""  # Streaming DNS (e.g., http://stream.domain.com:8080)
     api_access_code: str = ""  # API access code (e.g., UfPJlfai) - different from web access
     api_key: str = ""  # Optional API key for XuiOne authentication
     admin_username: str
@@ -316,6 +319,7 @@ class BrandingSettings(BaseModel):
     hero_title: str = "Premium IPTV Subscriptions"
     hero_description: str = "Access thousands of channels with our reliable IPTV service. Flexible plans, instant activation, 24/7 support."
     hero_background_image: str = ""  # Hero section background image URL
+    homepage_bg_color: str = ""  # Homepage background color (used when no image)
     footer_text: str = "Premium IPTV Services"
     # Feature sections
     feature_1_title: str = "Instant Activation"

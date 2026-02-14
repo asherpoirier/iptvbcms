@@ -15,6 +15,7 @@ export default function BrandingSettings({ settings }) {
     accent_color: settings?.branding?.accent_color || '#059669',
     product_card_color: settings?.branding?.product_card_color || '#2563eb',
     hero_background_image: settings?.branding?.hero_background_image || '',
+    homepage_bg_color: settings?.branding?.homepage_bg_color || '',
     hero_title: settings?.branding?.hero_title || 'Premium IPTV Subscriptions',
     hero_description: settings?.branding?.hero_description || 'Access thousands of channels with our reliable IPTV service. Flexible plans, instant activation, 24/7 support.',
     footer_text: settings?.branding?.footer_text || 'Premium IPTV Services',
@@ -424,6 +425,34 @@ export default function BrandingSettings({ settings }) {
                 </button>
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Homepage Background Color
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Used when no background image is set, or as an overlay tint</p>
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={formData.homepage_bg_color || '#1e3a5f'}
+                onChange={(e) => setFormData({ ...formData, homepage_bg_color: e.target.value })}
+                className="w-12 h-12 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
+              />
+              <input
+                type="text"
+                value={formData.homepage_bg_color}
+                onChange={(e) => setFormData({ ...formData, homepage_bg_color: e.target.value })}
+                placeholder="#1e3a5f"
+                className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+              />
+              <div className="h-12 flex-1 rounded-lg border border-gray-300" style={{ background: formData.homepage_bg_color || '#1e3a5f' }}></div>
+              {formData.homepage_bg_color && (
+                <button type="button" onClick={() => setFormData({ ...formData, homepage_bg_color: '' })} className="text-xs text-red-600 hover:text-red-700">
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

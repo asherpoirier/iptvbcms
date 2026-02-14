@@ -47,7 +47,7 @@ from models import (
 )
 from auth import (
     get_password_hash, verify_password, create_access_token,
-    get_current_user, get_current_admin_user
+    get_current_user, get_current_admin_user, get_current_staff_user
 )
 from xtreamui_service import get_xtream_service, XtreamUIService
 from xtream_session_client import XtreamUISessionClient
@@ -1208,6 +1208,7 @@ async def login(credentials: UserLogin):
             "totp_enabled": user.get("totp_enabled", False),
             "panel_username": user.get("panel_username", ""),
             "needs_email_link": needs_email_link,
+            "permissions": user.get("permissions", []),
         }
     }
 
@@ -2510,6 +2511,7 @@ async def get_services(current_user: dict = Depends(get_current_user)):
     """Get user services with product setup instructions"""
     user_id = current_user["sub"]
     services = []
+    settings = await get_settings()
     
     async for service in services_collection.find({"user_id": user_id}).sort("created_at", -1):
         service["id"] = str(service["_id"])
@@ -2520,6 +2522,18 @@ async def get_services(current_user: dict = Depends(get_current_user)):
             product = await products_collection.find_one({"_id": str_to_objectid(service["product_id"])})
             if product:
                 service["setup_instructions"] = product.get("setup_instructions", "")
+        
+        # Ensure streaming_url is populated from panel settings if missing
+        if not service.get("streaming_url"):
+            panel_type = service.get("panel_type") or "xtream"
+            panel_index = service.get("panel_index") or 0
+            if isinstance(panel_index, str):
+                try: panel_index = int(panel_index)
+                except: panel_index = 0
+            panels = settings.get(panel_type, {}).get("panels", [])
+            if panels and panel_index < len(panels):
+                p = panels[panel_index]
+                service["streaming_url"] = p.get("streaming_url") or p.get("portal_url") or p.get("panel_url", "")
         
         services.append(service)
     
@@ -2917,6 +2931,86 @@ class CreateCustomerRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+
+# ===== STAFF MANAGEMENT =====
+
+@app.get("/api/admin/staff")
+async def get_staff_members(current_user: dict = Depends(get_current_admin_user)):
+    """Get all staff accounts"""
+    staff = []
+    async for user in users_collection.find({"role": "staff"}):
+        staff.append({
+            "id": str(user["_id"]),
+            "email": user.get("email", ""),
+            "name": user.get("name", ""),
+            "permissions": user.get("permissions", []),
+            "created_at": user.get("created_at"),
+        })
+    return staff
+
+
+@app.post("/api/admin/staff")
+async def create_staff_account(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Create a staff account with limited permissions"""
+    email = data.get("email", "").strip().lower()
+    name = data.get("name", "").strip()
+    password = data.get("password", "")
+    permissions = data.get("permissions", [])
+
+    if not email or not password or not name:
+        raise HTTPException(status_code=400, detail="Email, name, and password required")
+
+    existing = await users_collection.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already in use")
+
+    valid_perms = ["tickets", "customers", "imported_users", "orders", "dashboard", "services"]
+    permissions = [p for p in permissions if p in valid_perms]
+
+    import secrets
+    staff_doc = {
+        "email": email,
+        "name": name,
+        "password": get_password_hash(password),
+        "role": "staff",
+        "permissions": permissions,
+        "email_verified": True,
+        "referral_code": secrets.token_hex(4),
+        "credit_balance": 0.0,
+        "created_at": datetime.utcnow(),
+    }
+    result = await users_collection.insert_one(staff_doc)
+    return {"success": True, "id": str(result.inserted_id), "message": f"Staff account '{name}' created"}
+
+
+@app.put("/api/admin/staff/{staff_id}")
+async def update_staff_account(staff_id: str, data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update staff permissions or details"""
+    staff = await users_collection.find_one({"_id": str_to_objectid(staff_id), "role": "staff"})
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff account not found")
+
+    update = {}
+    if "name" in data: update["name"] = data["name"]
+    if "permissions" in data:
+        valid_perms = ["tickets", "customers", "imported_users", "orders", "dashboard", "services"]
+        update["permissions"] = [p for p in data["permissions"] if p in valid_perms]
+    if "password" in data and data["password"]:
+        update["password"] = get_password_hash(data["password"])
+
+    if update:
+        await users_collection.update_one({"_id": str_to_objectid(staff_id)}, {"$set": update})
+    return {"success": True, "message": "Staff account updated"}
+
+
+@app.delete("/api/admin/staff/{staff_id}")
+async def delete_staff_account(staff_id: str, current_user: dict = Depends(get_current_admin_user)):
+    """Delete a staff account"""
+    result = await users_collection.delete_one({"_id": str_to_objectid(staff_id), "role": "staff"})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Staff account not found")
+    return {"success": True, "message": "Staff account deleted"}
+
 
 @app.post("/api/admin/customers/create")
 async def create_customer(data: CreateCustomerRequest, current_user: dict = Depends(get_current_admin_user)):
@@ -5014,6 +5108,46 @@ async def reorder_product(product_id: str, direction: str = Query(...), current_
     
     return {"message": "Product reordered successfully"}
 
+
+# ===== PRODUCT GROUPS =====
+
+@app.get("/api/admin/product-groups")
+async def get_product_groups(current_user: dict = Depends(get_current_admin_user)):
+    """Get all product groups"""
+    settings = await get_settings()
+    return settings.get("product_groups", [])
+
+
+@app.get("/api/product-groups")
+async def get_product_groups_public():
+    """Get product groups (public)"""
+    settings = await get_settings()
+    return settings.get("product_groups", [])
+
+
+@app.put("/api/admin/product-groups")
+async def save_product_groups(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Save all product groups (order matters)"""
+    groups = data.get("groups", [])
+    await db.settings.update_one({}, {"$set": {"product_groups": groups}})
+    return {"success": True, "count": len(groups)}
+
+
+@app.post("/api/admin/products/{product_id}/set-group")
+async def set_product_group(product_id: str, data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Assign a product to a group and/or subgroup"""
+    update = {}
+    if "group_id" in data:
+        update["group_id"] = data["group_id"]
+    if "subgroup_id" in data:
+        update["subgroup_id"] = data["subgroup_id"]
+    if update:
+        await products_collection.update_one(
+            {"_id": str_to_objectid(product_id)},
+            {"$set": update}
+        )
+    return {"success": True}
+
 @app.post("/api/admin/products/fix-display-order")
 async def fix_display_order(current_user: dict = Depends(get_current_admin_user)):
     """Fix display_order - assign sequential numbers to all products"""
@@ -5093,10 +5227,18 @@ CURRENCY_SYMBOLS = {
 
 @app.get("/api/currency")
 async def get_currency():
-    """Get current currency setting (public)"""
+    """Get current currency setting and available currencies with rates (public)"""
     settings = await get_settings()
     code = settings.get("currency", "USD")
-    return {"code": code, "symbol": CURRENCY_SYMBOLS.get(code, "$")}
+    return {
+        "code": code,
+        "symbol": CURRENCY_SYMBOLS.get(code, "$"),
+        "available": [
+            {"code": c, "symbol": CURRENCY_SYMBOLS.get(c, "$"), "rate": r}
+            for c, r in CURRENCY_RATES.items()
+        ],
+        "base_currency": code,
+    }
 
 class ChangeCurrencyRequest(BaseModel):
     currency: str
@@ -6775,6 +6917,17 @@ async def get_bouquets(panel_id: int = 0, panel_type: str = 'xtream', current_us
             bouquets = panel.get("bouquets", [])
             if bouquets:
                 return bouquets
+            # Try to fetch from XuiOne API
+            try:
+                from xuione_service import get_xuione_service
+                svc = get_xuione_service(panel)
+                if svc:
+                    result = svc.get_bouquets()
+                    if result.get("success"):
+                        return result.get("bouquets", [])
+            except Exception:
+                pass
+        return []  # Don't fall through to XtreamUI
     elif panel_type == 'onestream':
         # Get 1-Stream panel bouquets
         os_panels = settings.get("onestream", {}).get("panels", [])
@@ -8345,6 +8498,93 @@ async def delete_imported_user(user_id: str, current_user: dict = Depends(get_cu
     
     return {"message": f"User '{user.get('username')}' removed from billing panel"}
 
+
+@app.post("/api/admin/imported-users/bulk-action")
+async def bulk_action_imported_users(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Perform bulk actions on imported users: suspend, activate, delete"""
+    action = data.get("action")  # "suspend", "activate", "delete"
+    user_ids = data.get("user_ids", [])
+
+    if not action or not user_ids:
+        raise HTTPException(status_code=400, detail="action and user_ids required")
+    if action not in ("suspend", "activate", "delete"):
+        raise HTTPException(status_code=400, detail="action must be suspend, activate, or delete")
+
+    success = 0
+    failed = 0
+    settings = await get_settings()
+
+    for uid in user_ids:
+        try:
+            user = await imported_users_collection.find_one({"_id": str_to_objectid(uid)})
+            if not user:
+                failed += 1
+                continue
+
+            panel_type = user.get("panel_type", "")
+
+            if action == "delete":
+                await imported_users_collection.delete_one({"_id": str_to_objectid(uid)})
+                success += 1
+
+            elif action == "suspend":
+                if panel_type == "nxtdash":
+                    # NXT Dash can't suspend via API — local only
+                    await imported_users_collection.update_one(
+                        {"_id": str_to_objectid(uid)},
+                        {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+                    )
+                elif panel_type == "xtream":
+                    try:
+                        panels = settings.get("xtream", {}).get("panels", [])
+                        pi = user.get("panel_index", 0)
+                        if pi < len(panels):
+                            svc = XtreamUIService(
+                                panel_url=panels[pi]["panel_url"],
+                                admin_username=panels[pi]["admin_username"],
+                                admin_password=panels[pi]["admin_password"],
+                            )
+                            svc.suspend_account(user["username"], user.get("password", ""))
+                    except Exception:
+                        pass
+                    await imported_users_collection.update_one(
+                        {"_id": str_to_objectid(uid)},
+                        {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+                    )
+                else:
+                    await imported_users_collection.update_one(
+                        {"_id": str_to_objectid(uid)},
+                        {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+                    )
+                success += 1
+
+            elif action == "activate":
+                if panel_type == "xtream":
+                    try:
+                        panels = settings.get("xtream", {}).get("panels", [])
+                        pi = user.get("panel_index", 0)
+                        if pi < len(panels):
+                            svc = XtreamUIService(
+                                panel_url=panels[pi]["panel_url"],
+                                admin_username=panels[pi]["admin_username"],
+                                admin_password=panels[pi]["admin_password"],
+                            )
+                            svc.unsuspend_account(user["username"], user.get("password", ""))
+                    except Exception:
+                        pass
+                await imported_users_collection.update_one(
+                    {"_id": str_to_objectid(uid)},
+                    {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
+                )
+                success += 1
+
+        except Exception as e:
+            logger.warning(f"Bulk {action} failed for {uid}: {e}")
+            failed += 1
+
+    return {"success": True, "action": action, "processed": success, "failed": failed, "total": len(user_ids)}
+
+
 # Pydantic model for extending imported users
 class ExtendImportedUserRequest(BaseModel):
     package_id: int  # Required - the package to extend by
@@ -9138,6 +9378,21 @@ async def get_product_channels(product_id: str):
         xuione_panels = settings.get("xuione", {}).get("panels", [])
         if panel_index < len(xuione_panels):
             panel_bouquets = xuione_panels[panel_index].get("bouquets", [])
+            if not panel_bouquets:
+                # Try fetching from XuiOne API
+                try:
+                    from xuione_service import get_xuione_service
+                    svc = get_xuione_service(xuione_panels[panel_index])
+                    if svc:
+                        result = svc.get_bouquets()
+                        if result.get("success"):
+                            panel_bouquets = result.get("bouquets", [])
+                except Exception:
+                    pass
+    elif panel_type == "nxtdash":
+        nd_panels = settings.get("nxtdash", {}).get("panels", [])
+        if panel_index < len(nd_panels):
+            panel_bouquets = nd_panels[panel_index].get("bouquets", [])
     else:
         # XtreamUI - check panel-specific then legacy
         panel_bouquets_key = f"bouquets_panel_{panel_index}"
@@ -9352,8 +9607,11 @@ async def get_all_coupons(current_user: dict = Depends(get_current_admin_user)):
     return coupons
 
 @app.post("/api/coupon/validate")
-async def validate_coupon_code(code: str, order_total: float, product_ids: List[str] = []):
+async def validate_coupon_code(data: dict):
     """Validate coupon code (public endpoint for checkout)"""
+    code = data.get("code", "")
+    order_total = float(data.get("order_total", 0))
+    product_ids = data.get("product_ids", [])
     result = await coupon_service.validate_coupon(code, order_total, product_ids)
     return result
 

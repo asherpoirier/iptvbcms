@@ -70,3 +70,13 @@ async def get_current_admin_user(current_user: dict = Depends(get_current_user))
             detail="Not enough permissions"
         )
     return current_user
+
+
+async def get_current_staff_user(current_user: dict = Depends(get_current_user)):
+    """Verify user is admin or staff"""
+    if current_user.get("role") not in ("admin", "staff"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    return current_user

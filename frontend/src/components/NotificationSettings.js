@@ -16,10 +16,13 @@ export default function NotificationSettings({ settings }) {
       new_user: true,
       service_activated: true,
       service_expired: false,
+      service_expiry_warning: true,
+      credit_low_alert: true,
       ticket_created: true,
       ticket_replied: false
     }
   });
+  const [creditThreshold, setCreditThreshold] = useState(10);
   const [testStatus, setTestStatus] = useState(null);
 
   // Fetch notification settings
@@ -34,13 +37,20 @@ export default function NotificationSettings({ settings }) {
   // Update local state when settings are fetched
   useEffect(() => {
     if (notificationSettings?.telegram) {
-      setTelegramConfig(notificationSettings.telegram);
+      setTelegramConfig(prev => ({...prev, ...notificationSettings.telegram}));
     }
-  }, [notificationSettings]);
+    if (settings?.credit_alert_threshold !== undefined) {
+      setCreditThreshold(settings.credit_alert_threshold);
+    }
+  }, [notificationSettings, settings]);
 
   // Save mutation
   const saveMutation = useMutation({
-    mutationFn: (data) => adminAPI.updateTelegramSettings(data),
+    mutationFn: async (data) => {
+      await adminAPI.updateTelegramSettings(data);
+      // Also save credit threshold to main settings
+      await adminAPI.updateSettings({...settings, credit_alert_threshold: creditThreshold});
+    },
     onSuccess: () => {
       queryClient.invalidateQueries(['notification-settings']);
       toast.success('Telegram settings saved successfully!');
@@ -95,6 +105,8 @@ export default function NotificationSettings({ settings }) {
     new_user: { label: 'New User Registration', description: 'When a new user signs up' },
     service_activated: { label: 'Service Activated', description: 'When a service is activated for a customer' },
     service_expired: { label: 'Service Expired', description: 'When a service expires' },
+    service_expiry_warning: { label: 'Expiry Reminders', description: 'When a service is about to expire (7, 3, 1 day warnings)' },
+    credit_low_alert: { label: 'Low Panel Credits', description: 'When IPTV panel credits drop below threshold' },
     ticket_created: { label: 'New Support Ticket', description: 'When a customer creates a support ticket' },
     ticket_replied: { label: 'Ticket Reply', description: 'When a customer replies to a ticket' }
   };
@@ -235,6 +247,25 @@ export default function NotificationSettings({ settings }) {
             ))}
           </div>
         </div>
+
+        {/* Credit Alert Threshold */}
+        {telegramConfig.events?.credit_low_alert && (
+          <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+            <label className="block text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
+              Credit Alert Threshold
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                value={creditThreshold}
+                onChange={(e) => setCreditThreshold(parseInt(e.target.value) || 10)}
+                className="w-24 px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              <span className="text-sm text-amber-700 dark:text-amber-300">credits — alert when any panel drops below this</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Save Button */}

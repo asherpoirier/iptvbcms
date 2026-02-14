@@ -107,6 +107,9 @@ export const adminAPI = {
   updateProduct: (id, data) => api.put(`/api/admin/products/${id}`, data),
   deleteProduct: (id) => api.delete(`/api/admin/products/${id}`),
   reorderProduct: (id, direction) => api.post(`/api/admin/products/${id}/reorder?direction=${direction}`),
+  getProductGroups: () => api.get('/api/admin/product-groups'),
+  saveProductGroups: (groups) => api.put('/api/admin/product-groups', { groups }),
+  setProductGroup: (id, groupId, subgroupId) => api.post(`/api/admin/products/${id}/set-group`, { group_id: groupId, subgroup_id: subgroupId }),
   fixProductDisplayOrder: () => api.post('/api/admin/products/fix-display-order'),
   suspendService: (id) => api.post(`/api/admin/services/${id}/suspend`),
   unsuspendService: (id) => api.post(`/api/admin/services/${id}/unsuspend`),
@@ -213,8 +216,14 @@ export const adminAPI = {
   syncNxtDashUsers: (panelIndex = 0) => api.post(`/api/admin/nxtdash/sync-users?panel_index=${panelIndex}`),
   // Maintenance
   deduplicateImportedUsers: () => api.post('/api/admin/imported-users/deduplicate'),
+  // Staff management
+  getStaff: () => api.get('/api/admin/staff'),
+  createStaff: (data) => api.post('/api/admin/staff', data),
+  updateStaff: (id, data) => api.put(`/api/admin/staff/${id}`, data),
+  deleteStaff: (id) => api.delete(`/api/admin/staff/${id}`),
   createAccountsForImportedUsers: () => api.post('/api/admin/imported-users/create-accounts'),
   cleanupOrphanedUsers: (deleteCustomers = false) => api.post('/api/admin/imported-users/cleanup-orphans', { delete_customers: deleteCustomers }),
+  bulkActionImportedUsers: (action, userIds) => api.post('/api/admin/imported-users/bulk-action', { action, user_ids: userIds }),
 };
 
 export default api;

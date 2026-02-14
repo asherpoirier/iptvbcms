@@ -7,6 +7,7 @@ import { useBrandingStore } from '../store/branding';
 import { useCurrencyStore } from '../store/currency';
 import { ShoppingCart, LogIn, UserPlus, Server, Users, Info, X, Filter, Grid, Package } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
+import CurrencySwitcher from '../components/CurrencySwitcher';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
@@ -15,7 +16,7 @@ export default function HomePage() {
   const { user } = useAuthStore();
   const { items } = useCartStore();
   const { branding, fetchBranding } = useBrandingStore();
-  const { symbol: currencySymbol } = useCurrencyStore();
+  const { symbol: currencySymbol, convertPrice } = useCurrencyStore();
   
   const [selectedPanel, setSelectedPanel] = useState('all');
   const [priceFilter, setPriceFilter] = useState('all');
@@ -108,79 +109,91 @@ export default function HomePage() {
     return options;
   }, [productsByPanel, panelData]);
 
-  // Filter products based on selections
-  const filteredProducts = useMemo(() => {
-    let filtered = { ...productsByPanel };
+  // Fetch product groups
+  const { data: productGroups } = useQuery({
+    queryKey: ['product-groups-public'],
+    queryFn: async () => {
+      const r = await axios.get(`${API_URL}/api/product-groups`);
+      return r.data;
+    },
+  });
+
+  // Flat ordered products list with group support
+  const orderedProducts = useMemo(() => {
+    if (!products) return [];
+    let list = [...products];
     
-    // Filter by panel
+    // Apply filters
     if (selectedPanel !== 'all') {
-      filtered = {
-        [selectedPanel]: productsByPanel[selectedPanel]
-      };
-      
-      // If panel filter is active, ignore price filter to avoid empty results
-      return filtered;
+      const [pType, pIndex] = selectedPanel.split('-');
+      list = list.filter(p => (p.panel_type || 'xtream') === pType && (p.panel_index ?? 0) === Number(pIndex));
     }
-    
-    // Apply account type filter first (if not "all")
     if (accountTypeFilter !== 'all') {
-      Object.keys(filtered).forEach(panelKey => {
-        filtered[panelKey] = {
-          ...filtered[panelKey],
-          products: filtered[panelKey].products.filter(product => {
-            if (accountTypeFilter === 'subscriber') {
-              return product.account_type === 'subscriber' || !product.account_type;
-            } else if (accountTypeFilter === 'reseller') {
-              return product.account_type === 'reseller';
-            }
-            return true;
-          })
-        };
+      list = list.filter(p => {
+        if (accountTypeFilter === 'subscriber') return p.account_type === 'subscriber' || !p.account_type;
+        if (accountTypeFilter === 'reseller') return p.account_type === 'reseller';
+        return true;
       });
     }
-    
-    // Only apply price filter if "All Panels" is selected
     if (priceFilter !== 'all') {
-      Object.keys(filtered).forEach(panelKey => {
-        filtered[panelKey] = {
-          ...filtered[panelKey],
-          products: filtered[panelKey].products.filter(product => {
-            const prices = Object.values(product.prices);
-            const minPrice = Math.min(...prices);
-            
-            if (priceFilter === 'free') return minPrice === 0;
-            if (priceFilter === 'under10') return minPrice > 0 && minPrice < 10;
-            if (priceFilter === 'under25') return minPrice >= 10 && minPrice < 25;
-            if (priceFilter === 'over25') return minPrice >= 25;
-            return true;
-          })
-        };
+      list = list.filter(p => {
+        const prices = Object.values(p.prices || {});
+        const minPrice = prices.length ? Math.min(...prices) : 0;
+        if (priceFilter === 'free') return minPrice === 0;
+        if (priceFilter === 'under10') return minPrice > 0 && minPrice < 10;
+        if (priceFilter === 'under25') return minPrice >= 10 && minPrice < 25;
+        if (priceFilter === 'over25') return minPrice >= 25;
+        return true;
       });
     }
-    
-    // Connection filter
     if (connectionFilter !== 'all') {
       const connNum = parseInt(connectionFilter);
-      Object.keys(filtered).forEach(panelKey => {
-        filtered[panelKey] = {
-          ...filtered[panelKey],
-          products: filtered[panelKey].products.filter(product => {
-            if (product.account_type === 'reseller') return true;
-            return (product.max_connections || 1) === connNum;
-          })
-        };
-      });
+      list = list.filter(p => p.account_type === 'reseller' || (p.max_connections || 1) === connNum);
     }
-    
-    return filtered;
-  }, [productsByPanel, selectedPanel, priceFilter, accountTypeFilter, connectionFilter]);
+
+    // Build grouped structure using subgroups
+    const grps = productGroups || [];
+    const result = [];
+    const allGids = new Set(grps.map(g => g.id));
+
+    grps.forEach(g => {
+      const subs = g.subgroups || [];
+      const groupProds = list.filter(p => p.group_id === g.id);
+      if (groupProds.length === 0) return;
+
+      if (subs.length > 0) {
+        const subCards = [];
+        subs.forEach(sg => {
+          const prods = groupProds.filter(p => p.subgroup_id === sg.id).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+          if (prods.length > 0) subCards.push({ ...sg, products: prods });
+        });
+        // Products in group but no subgroup
+        const sgIds = new Set(subs.map(s => s.id));
+        const noSub = groupProds.filter(p => !p.subgroup_id || !sgIds.has(p.subgroup_id)).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        noSub.forEach(p => subCards.push({ id: p.id, name: p.name, products: [p] }));
+        if (subCards.length > 0) result.push({ ...g, subCards });
+      } else {
+        // No subgroups — each product is its own card
+        const cards = groupProds.sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+          .map(p => ({ id: p.id, name: p.name, products: [p] }));
+        result.push({ ...g, subCards: cards });
+      }
+    });
+
+    // Ungrouped products
+    const ungrouped = list.filter(p => !p.group_id || !allGids.has(p.group_id)).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    if (ungrouped.length > 0) {
+      const cards = ungrouped.map(p => ({ id: p.id, name: p.name, products: [p] }));
+      result.push({ id: '', name: '', subCards: cards });
+    }
+
+    return result;
+  }, [products, productGroups, selectedPanel, priceFilter, accountTypeFilter, connectionFilter]);
 
   return (
     <div 
-      className="min-h-screen dark:bg-gray-800"
-      style={{ 
-        backgroundColor: branding.background_color || '#f9fafb'
-      }}
+      className="min-h-screen"
+      style={{ backgroundColor: branding.homepage_bg_color || (document.documentElement.classList.contains('dark') ? '#111827' : '#ffffff') }}
     >
       {/* Navigation */}
       <nav className="bg-white dark:bg-gray-900 shadow-md sticky top-0 z-50">
@@ -192,6 +205,7 @@ export default function HomePage() {
             </Link>
             
             <div className="flex items-center gap-4">
+              <CurrencySwitcher />
               {user ? (
                 <>
                   <Link 
@@ -242,9 +256,9 @@ export default function HomePage() {
         style={{ 
           background: branding.hero_background_image 
             ? `url(${branding.hero_background_image}) center/cover no-repeat`
+            : branding.homepage_bg_color
+            ? branding.homepage_bg_color
             : `linear-gradient(135deg, ${branding.primary_color || '#3b82f6'} 0%, ${branding.secondary_color || '#1d4ed8'} 100%)`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center'
         }}
       >
         {/* Dark overlay for better text readability on images */}
@@ -265,7 +279,8 @@ export default function HomePage() {
       </section>
 
       {/* Features */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <section className="">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid md:grid-cols-3 gap-8">
           <div className="bg-white dark:bg-gray-900 p-6 rounded-lg shadow-md">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ backgroundColor: `${branding.primary_color}20` }}>
@@ -295,10 +310,12 @@ export default function HomePage() {
             </p>
           </div>
         </div>
+        </div>
       </section>
 
       {/* Products Section with Sidebar */}
-      <section id="pricing" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <section id="pricing" className="">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h2 className="text-4xl font-bold text-center mb-12 dark:text-white">Choose Your Plan</h2>
 
         {isLoading ? (
@@ -390,175 +407,47 @@ export default function HomePage() {
 
             {/* Main Content */}
             <div className="lg:col-span-3">
-              <div className="space-y-16">
-                {Object.entries(filteredProducts)
-                  .sort(([keyA], [keyB]) => {
-                    // Sort by panel type first (xtream before xuione), then by index
-                    const [typeA, indexA] = keyA.split('-');
-                    const [typeB, indexB] = keyB.split('-');
-                    if (typeA !== typeB) {
-                      return typeA === 'xtream' ? -1 : 1;
-                    }
-                    return Number(indexA) - Number(indexB);
-                  })
-                  .map(([panelKey, panelGroup]) => {
-                    const { products: panelProducts, panelType, panelIndex } = panelGroup;
-                    
-                    if (!panelProducts || panelProducts.length === 0) return null;
-                    
-                    const panelColor = getPanelColor(Number(panelIndex));
-                    const panelName = getPanelName(Number(panelIndex), panelType);
-                    
-                    return (
-                      <div key={panelKey} className="space-y-6">
-                        {/* Panel Category Header */}
-                        <div className="flex items-center gap-4">
-                          <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
-                          <div className="text-center">
-                            <h3 className={`text-2xl font-bold ${panelColor.text} dark:text-white`}>
-                              {panelName}
-                            </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {panelProducts.length} {panelProducts.length === 1 ? 'plan' : 'plans'} available
-                            </p>
-                          </div>
-                          <div className={`h-1 flex-1 bg-gradient-to-r ${panelColor.gradient}`}></div>
+              {orderedProducts.length > 0 ? (
+                <div className="space-y-10">
+                  {orderedProducts.map((group) => (
+                    <div key={group.id || 'ungrouped'}>
+                      {group.name && (
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className="h-px flex-1 bg-gray-300 dark:bg-gray-600"></div>
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white">{group.name}</h3>
+                          <div className="h-px flex-1 bg-gray-300 dark:bg-gray-600"></div>
                         </div>
-
-                        {/* Group by account type */}
-                        {(() => {
-                          const subscribers = panelProducts.filter(p => p.account_type === 'subscriber');
-                          const resellers = panelProducts.filter(p => p.account_type === 'reseller');
-                          const manualProducts = panelProducts.filter(p => p.account_type === 'manual');
-                        
-                          return (
-                            <>
-                              {/* Subscriber Packages - grouped by connections */}
-                              {subscribers.length > 0 && (
-                                <div className="space-y-4">
-                                  <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                                    <Server className="w-5 h-5" />
-                                    Subscription Plans
-                                  </h4>
-                                  <div className="space-y-4">
-                                    {(() => {
-                                      // Sort all subscribers by display_order first
-                                      const sorted = [...subscribers].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-                                      
-                                      // Build ordered render list respecting display_order
-                                      // Group consecutive non-trial products with same connections
-                                      const renderItems = [];
-                                      let currentGroup = null;
-                                      
-                                      sorted.forEach(p => {
-                                        if (p.is_trial) {
-                                          // Flush current group if exists
-                                          if (currentGroup) {
-                                            renderItems.push({ type: 'group', ...currentGroup });
-                                            currentGroup = null;
-                                          }
-                                          renderItems.push({ type: 'single', product: p });
-                                        } else {
-                                          const conns = p.max_connections || 1;
-                                          if (currentGroup && currentGroup.connections === conns) {
-                                            currentGroup.products.push(p);
-                                          } else {
-                                            if (currentGroup) {
-                                              renderItems.push({ type: 'group', ...currentGroup });
-                                            }
-                                            currentGroup = { connections: conns, products: [p] };
-                                          }
-                                        }
-                                      });
-                                      if (currentGroup) {
-                                        renderItems.push({ type: 'group', ...currentGroup });
-                                      }
-                                      
-                                      return renderItems.map((item, idx) => {
-                                        if (item.type === 'single') {
-                                          return <ProductCard key={item.product.id} product={item.product} />;
-                                        }
-                                        return item.products.length > 1 ? (
-                                          <GroupedProductCard key={`group-${idx}-${item.connections}`} products={item.products} connections={item.connections} />
-                                        ) : (
-                                          <ProductCard key={item.products[0].id} product={item.products[0]} />
-                                        );
-                                      });
-                                    })()}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Reseller Packages */}
-                              {resellers.length > 0 && (
-                                <div className="space-y-4 mt-8">
-                                  <h4 className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                                    <Users className="w-5 h-5" />
-                                    Reseller Packages
-                                  </h4>
-                                  <div className="space-y-4">
-                                    {resellers
-                                      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                      .map((product) => (
-                                        <ProductCard key={product.id} product={product} />
-                                      ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Manual Products */}
-                              {manualProducts.length > 0 && (
-                                <div className="space-y-4 mt-8">
-                                  <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                                    <Package className="w-5 h-5" />
-                                    Other Products
-                                  </h4>
-                                  <div className="space-y-4">
-                                    {manualProducts
-                                      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                                      .map((product) => (
-                                        <ProductCard key={product.id} product={product} />
-                                      ))}
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
+                      )}
+                      <div className="space-y-4">
+                        {(group.subCards || []).map((subCard) => (
+                          <GroupCard key={subCard.id} group={subCard} />
+                        ))}
                       </div>
-                    );
-                  })}
-
-                {/* Empty State */}
-                {Object.keys(filteredProducts).length === 0 && (
-                  <div className="text-center py-16">
-                    <Grid className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No products found</h3>
-                    <p className="text-gray-600 dark:text-gray-400 mb-4">
-                      Try adjusting your filters
-                    </p>
-                    <button
-                      onClick={() => {
-                        setSelectedPanel('all');
-                        setPriceFilter('all');
-                        setAccountTypeFilter('all');
-                        setConnectionFilter('all');
-                      }}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                    >
-                      Clear Filters
-                    </button>
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16">
+                  <Grid className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No products found</h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">Try adjusting your filters</p>
+                  <button
+                    onClick={() => { setSelectedPanel('all'); setPriceFilter('all'); setAccountTypeFilter('all'); setConnectionFilter('all'); }}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
 
+        </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12 mt-20">
+      <footer className="bg-gray-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h3 className="text-2xl font-bold mb-4">{branding.site_name}</h3>
@@ -577,7 +466,7 @@ function GroupedProductCard({ products, connections }) {
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
   const { branding } = useBrandingStore();
-  const { symbol: currencySymbol } = useCurrencyStore();
+  const { symbol: currencySymbol, convertPrice } = useCurrencyStore();
   const [showChannels, setShowChannels] = React.useState(false);
   const [channels, setChannels] = React.useState([]);
   const [loadingChannels, setLoadingChannels] = React.useState(false);
@@ -636,7 +525,7 @@ function GroupedProductCard({ products, connections }) {
                 >
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{product.name}</span>
                   <span className="text-lg font-bold text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">
-                    {parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${price}`}
+                    {parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${convertPrice(price).toFixed(2)}`}
                   </span>
                 </button>
               );
@@ -681,202 +570,110 @@ function GroupedProductCard({ products, connections }) {
   );
 }
 
-function ProductCard({ product }) {
+function GroupCard({ group }) {
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
   const { branding } = useBrandingStore();
-  const { symbol: currencySymbol } = useCurrencyStore();
+  const { symbol: currencySymbol, convertPrice } = useCurrencyStore();
   const [showChannels, setShowChannels] = React.useState(false);
   const [channels, setChannels] = React.useState([]);
   const [loadingChannels, setLoadingChannels] = React.useState(false);
 
-  const handleAddToCart = (termMonths, price) => {
-    if (!user) {
-      window.location.href = '/login';
-      return;
-    }
+  const products = group.products || [];
+  const firstProduct = products[0];
+  const conns = firstProduct?.max_connections || 1;
+  const isReseller = firstProduct?.account_type === 'reseller';
+  const isTrial = products.length === 1 && firstProduct?.is_trial;
 
-    addItem({
-      product_id: product.id,
-      product_name: product.name,
-      term_months: termMonths,
-      price: price,
-      account_type: product.account_type,
-    });
-
+  const handleAddToCart = (product) => {
+    if (!user) { window.location.href = '/login'; return; }
+    const [term, price] = Object.entries(product.prices || {})[0] || ['1', 0];
+    addItem({ product_id: product.id, product_name: product.name, term_months: parseInt(term), price: parseFloat(price), account_type: product.account_type });
     window.location.href = '/checkout';
   };
-  
+
   const handleShowChannels = async () => {
     setShowChannels(true);
     setLoadingChannels(true);
-    
     try {
-      const response = await axios.get(`${API_URL}/api/products/${product.id}/channels`);
+      const response = await axios.get(`${API_URL}/api/products/${firstProduct.id}/channels`);
       setChannels(response.data.channels || []);
-    } catch (error) {
-      console.error('Failed to load channels:', error);
-      setChannels([]);
-    } finally {
-      setLoadingChannels(false);
-    }
+    } catch { setChannels([]); }
+    finally { setLoadingChannels(false); }
   };
 
-  // Get custom product card color or fallback to panel color
   const cardColor = branding.product_card_color || '#2563eb';
-  
-  // Create gradient from card color (lighter to darker)
-  const lightenColor = (hex, percent) => {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = (num >> 16) + amt;
-    const G = (num >> 8 & 0x00FF) + amt;
-    const B = (num & 0x0000FF) + amt;
-    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
-      (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
-      (B < 255 ? B < 1 ? 0 : B : 255))
-      .toString(16).slice(1);
-  };
-  
-  const darkenColor = (hex, percent) => {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = (num >> 16) - amt;
-    const G = (num >> 8 & 0x00FF) - amt;
-    const B = (num & 0x0000FF) - amt;
-    return '#' + (0x1000000 + (R > 0 ? R : 0) * 0x10000 +
-      (G > 0 ? G : 0) * 0x100 +
-      (B > 0 ? B : 0))
-      .toString(16).slice(1);
+  const darken = (hex, pct) => {
+    const n = parseInt(hex.replace('#',''),16), a = Math.round(2.55*pct);
+    return '#'+(0x1000000+Math.max(0,(n>>16)-a)*0x10000+Math.max(0,(n>>8&0xFF)-a)*0x100+Math.max(0,(n&0xFF)-a)).toString(16).slice(1);
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition border border-gray-200 dark:border-gray-700">
-      <div className="flex flex-col md:flex-row">
-        {/* Left: Product Info */}
-        <div 
-          className="md:w-1/3 p-4 text-white relative"
-          style={{
-            background: `linear-gradient(135deg, ${cardColor} 0%, ${darkenColor(cardColor, 15)} 100%)`
-          }}
-        >
-          {product.is_trial && (
-            <div className="absolute top-2 right-2">
-              <span className="px-2 py-1 bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full shadow-lg">
-                TRIAL
-              </span>
+    <>
+      <div className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition ${isTrial ? 'border-yellow-300 dark:border-yellow-700' : ''}`}>
+        <div className="flex flex-col md:flex-row">
+          {/* Left Panel */}
+          <div className="md:w-56 shrink-0 p-5 text-white relative flex flex-col justify-center"
+            style={{ background: isTrial ? `linear-gradient(135deg, #d97706 0%, #92400e 100%)` : `linear-gradient(135deg, ${cardColor} 0%, ${darken(cardColor, 20)} 100%)` }}>
+            {isTrial && <span className="absolute top-2 right-2 px-2 py-0.5 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded-full">TRIAL</span>}
+            <h3 className="text-xl font-bold">{group.name || firstProduct?.name}</h3>
+            <p className="text-white/70 text-xs mt-1">{products.length} plan{products.length !== 1 ? 's' : ''} available</p>
+            <div className="mt-4 pt-3 border-t border-white/20 text-xs flex items-center gap-2">
+              <Server className="w-4 h-4" />
+              {isReseller ? <span>{firstProduct?.reseller_credits} credits</span> : <span>{conns} connection{conns !== 1 ? 's' : ''}</span>}
             </div>
-          )}
-          <h3 className="text-lg font-bold mb-1 pr-12">{product.name}</h3>
-          <p className="text-white text-xs opacity-90 line-clamp-2">{product.description}</p>
-          
-          {/* Product Details */}
-          <div className="mt-3 pt-3 border-t border-white border-opacity-20">
-            {product.account_type === 'subscriber' && (
-              <div className="flex items-center gap-2 text-xs">
-                <Server className="w-3.5 h-3.5" />
-                <span>{product.max_connections} connections</span>
-              </div>
-            )}
-            {product.account_type === 'reseller' && (
-              <div className="flex items-center gap-2 text-xs">
-                <Users className="w-3.5 h-3.5" />
-                <span>{product.reseller_credits} credits</span>
-              </div>
-            )}
           </div>
-        </div>
 
-        {/* Right: Pricing & Actions */}
-        <div className="md:w-2/3 p-4 flex flex-col justify-between">
-          <div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(product.prices).map(([term, price]) => {
-                return (
-                  <button
-                    key={term}
-                    onClick={() => handleAddToCart(parseInt(term), price)}
-                    className="flex-1 min-w-[110px] flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-gray-700 p-3 rounded-lg transition border-2 border-gray-200 dark:border-gray-600 hover:border-blue-400 group"
-                  >
-                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">
-                      {product.is_trial && parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${price}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Right: Product Rows */}
+          <div className="flex-1 divide-y divide-gray-100 dark:divide-gray-800">
+            {products.map((product) => {
+              const [term, price] = Object.entries(product.prices || {})[0] || ['1', 0];
+              const displayPrice = product.is_trial && parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${convertPrice(price).toFixed(2)}`;
+              return (
+                <button key={product.id} onClick={() => handleAddToCart(product)}
+                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-blue-50 dark:hover:bg-gray-800 transition text-left group">
+                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-blue-700">{product.name}</span>
+                  <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{displayPrice}</span>
+                </button>
+              );
+            })}
+            {/* View Channels */}
+            {firstProduct?.account_type === 'subscriber' && (
+              <button onClick={handleShowChannels}
+                className="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-xs text-gray-500 hover:text-blue-600 transition">
+                <Info className="w-3.5 h-3.5" /> View Channels
+              </button>
+            )}
           </div>
-          
-          {/* Channel List Button */}
-          {product.account_type === 'subscriber' && (
-            <button
-              onClick={handleShowChannels}
-              className="mt-3 w-full flex items-center justify-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded-lg hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition text-sm font-medium"
-            >
-              <Info className="w-4 h-4" />
-              View Channels
-            </button>
-          )}
         </div>
       </div>
-      
-      {/* Channel List Modal */}
+
       {showChannels && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowChannels(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowChannels(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <div>
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{product.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Live TV Channel Packages</p>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">{group.name}</h3>
+                <p className="text-sm text-gray-500 mt-1">Channel Packages</p>
               </div>
-              <button
-                onClick={() => setShowChannels(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <X className="w-6 h-6" />
-              </button>
+              <button onClick={() => setShowChannels(false)} className="text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
             </div>
-            
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               {loadingChannels ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="mt-4 text-gray-600 dark:text-gray-400">Loading channel packages...</p>
-                </div>
+                <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" /></div>
               ) : channels.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700 mb-4">
-                    <p className="text-sm text-blue-800 dark:text-blue-200">
-                      <strong>Included with this service:</strong> Access to {channels.length} live TV channel packages
-                    </p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                      (Movies and series on-demand content not listed here)
-                    </p>
-                  </div>
-                  
-                  <div className="grid md:grid-cols-2 gap-2">
-                    {channels.map((channel, idx) => (
-                      <div
-                        key={channel.id}
-                        className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
-                      >
-                        <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{idx + 1}</span>
-                        </div>
-                        <span className="font-medium text-gray-900 dark:text-white text-sm">{channel.name}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {channels.map(ch => <div key={ch.id} className="p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm">{ch.name}</div>)}
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-gray-600 dark:text-gray-400">Channel information not available</p>
-                </div>
-              )}
+              ) : <p className="text-center text-gray-500 py-8">Channel list not available</p>}
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
+}
+
+function ProductCard({ product }) {
+  return <GroupCard group={{ id: product.id, name: product.name, products: [product] }} />;
 }

@@ -17,6 +17,8 @@ export default function BackupManager() {
   const [protonWebdavUrl, setProtonWebdavUrl] = useState('');
   const [protonUsername, setProtonUsername] = useState('');
   const [protonPassword, setProtonPassword] = useState('');
+  const [megaEmail, setMegaEmail] = useState('');
+  const [megaPassword, setMegaPassword] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
 
   // Get backups list
@@ -148,15 +150,14 @@ export default function BackupManager() {
         toast.info('Invalid JSON format. Please paste the complete service account JSON.');
         return;
       }
-    } else if (cloudProvider === 'proton_drive') {
-      if (!protonWebdavUrl || !protonUsername || !protonPassword) {
-        toast.error('Please fill in all Proton Drive fields');
+    } else if (cloudProvider === 'mega') {
+      if (!megaEmail || !megaPassword) {
+        toast.error('Please enter MEGA email and password');
         return;
       }
       credentials = {
-        webdav_url: protonWebdavUrl,
-        username: protonUsername,
-        password: protonPassword
+        email: megaEmail,
+        password: megaPassword
       };
     }
 
@@ -194,11 +195,10 @@ export default function BackupManager() {
         toast.error('Invalid service account JSON');
         return;
       }
-    } else if (cloudProvider === 'proton_drive') {
-      newSettings.proton_drive = {
-        webdav_url: protonWebdavUrl,
-        username: protonUsername,
-        password: protonPassword
+    } else if (cloudProvider === 'mega') {
+      newSettings.mega = {
+        email: megaEmail,
+        password: megaPassword
       };
     }
 
@@ -267,7 +267,7 @@ export default function BackupManager() {
                   Provider: {
                     settings.cloud_provider === 'dropbox' ? 'Dropbox' : 
                     settings.cloud_provider === 'google_drive' ? 'Google Drive' : 
-                    settings.cloud_provider === 'proton_drive' ? 'Proton Drive' : 
+                    settings.cloud_provider === 'mega' ? 'MEGA' : 
                     'Unknown'
                   }
                 </p>
@@ -356,7 +356,8 @@ export default function BackupManager() {
                   <option value="">Select a provider</option>
                   <option value="dropbox">Dropbox</option>
                   <option value="google_drive">Google Drive (Service Account)</option>
-                  <option value="proton_drive">Proton Drive (WebDAV)</option>
+                  <option value="proton_drive" disabled>Proton Drive (No API available)</option>
+                  <option value="mega">MEGA (20GB Free)</option>
                 </select>
               </div>
 
@@ -415,57 +416,36 @@ export default function BackupManager() {
                 </div>
               )}
 
-              {/* Proton Drive Configuration */}
-              {cloudProvider === 'proton_drive' && (
+              {cloudProvider === 'mega' && (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      WebDAV URL
-                    </label>
-                    <input
-                      type="text"
-                      value={protonWebdavUrl}
-                      onChange={(e) => setProtonWebdavUrl(e.target.value)}
-                      placeholder="https://webdav.proton.me"
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Proton Email
+                      MEGA Email
                     </label>
                     <input
                       type="email"
-                      value={protonUsername}
-                      onChange={(e) => setProtonUsername(e.target.value)}
-                      placeholder="your-email@proton.me"
+                      value={megaEmail}
+                      onChange={(e) => setMegaEmail(e.target.value)}
+                      placeholder="your-email@example.com"
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      App Password
+                      MEGA Password
                     </label>
                     <input
                       type="password"
-                      value={protonPassword}
-                      onChange={(e) => setProtonPassword(e.target.value)}
-                      placeholder="Proton app-specific password"
+                      value={megaPassword}
+                      onChange={(e) => setMegaPassword(e.target.value)}
+                      placeholder="Your MEGA account password"
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     />
                   </div>
-                  <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <p className="text-xs text-purple-900 dark:text-purple-200">
-                      <strong>Proton Drive WebDAV Setup:</strong>
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                    <p className="text-xs text-red-900 dark:text-red-200">
+                      <strong>MEGA Cloud Storage:</strong> 20GB free storage. Backups are uploaded to an "IPTV_Backups" folder. Sign up at <a href="https://mega.nz" target="_blank" rel="noopener noreferrer" className="underline">mega.nz</a>
                     </p>
-                    <ol className="text-xs text-purple-800 dark:text-purple-300 mt-2 list-decimal list-inside space-y-1">
-                      <li>Login to Proton Drive web interface</li>
-                      <li>Go to Settings → Security</li>
-                      <li>Generate an app-specific password for WebDAV</li>
-                      <li>Use WebDAV URL: https://webdav.proton.me</li>
-                      <li>Username: Your Proton email</li>
-                      <li>Password: The app-specific password generated</li>
-                    </ol>
                   </div>
                 </div>
               )}
@@ -485,7 +465,7 @@ export default function BackupManager() {
                     !cloudProvider || 
                     (cloudProvider === 'dropbox' && !dropboxToken) ||
                     (cloudProvider === 'google_drive' && !googleServiceAccount) ||
-                    (cloudProvider === 'proton_drive' && (!protonWebdavUrl || !protonUsername || !protonPassword))
+                    (cloudProvider === 'mega' && (!megaEmail || !megaPassword))
                   }
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >

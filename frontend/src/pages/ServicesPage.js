@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { servicesAPI, productsAPI } from '../api/api';
 import { useCartStore } from '../store/store';
-import { ArrowLeft, Tv, Copy, Check, Eye, EyeOff, Package, X } from 'lucide-react';
+import { ArrowLeft, Tv, Copy, Check, Eye, EyeOff, Package, X, Link2, Monitor, Radio, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ServicesPage() {
@@ -328,6 +328,11 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
             )}
           </div>
         )}
+
+        {/* M3U / Playlist Links */}
+        {service.account_type === 'subscriber' && service.streaming_url && service.xtream_username && (
+          <PlaylistLinks service={service} />
+        )}
       </div>
       
       {/* Refund Request Modal */}
@@ -430,6 +435,85 @@ function RefundRequestModal({ service, onClose }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+
+function PlaylistLinks({ service }) {
+  const [copied, setCopied] = useState('');
+  const [showLinks, setShowLinks] = useState(false);
+
+  const baseUrl = service.streaming_url?.replace(/\/$/, '');
+  const fullBase = baseUrl?.startsWith('http') ? baseUrl : `http://${baseUrl}`;
+  const user = service.xtream_username;
+  const pass = service.xtream_password;
+
+  const links = [
+    {
+      key: 'm3u',
+      label: 'M3U Playlist',
+      icon: FileText,
+      url: `${fullBase}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`,
+      desc: 'For VLC, IPTV Smarters, TiviMate, GSE Smart IPTV',
+      color: 'text-green-600',
+    },
+    {
+      key: 'epg',
+      label: 'EPG / XMLTV',
+      icon: Radio,
+      url: `${fullBase}/xmltv.php?username=${user}&password=${pass}`,
+      desc: 'Electronic Program Guide for your player',
+      color: 'text-blue-600',
+    },
+  ];
+
+  const copyLink = (url, key) => {
+    navigator.clipboard.writeText(url);
+    setCopied(key);
+    toast.success('Link copied!');
+    setTimeout(() => setCopied(''), 2000);
+  };
+
+  return (
+    <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+      <button
+        onClick={() => setShowLinks(!showLinks)}
+        className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-white mb-3 hover:text-blue-600 transition"
+      >
+        <Link2 className="w-5 h-5" />
+        Playlist Links
+        <span className="text-xs font-normal text-gray-500 ml-1">{showLinks ? '(hide)' : '(show)'}</span>
+      </button>
+
+      {showLinks && (
+        <div className="space-y-3">
+          {links.map((link) => {
+            const Icon = link.icon;
+            return (
+              <div key={link.key} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <Icon className={`w-4 h-4 ${link.color}`} />
+                    <span className="font-medium text-gray-900 dark:text-white text-sm">{link.label}</span>
+                  </div>
+                  <button
+                    onClick={() => copyLink(link.url, link.key)}
+                    className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700"
+                  >
+                    {copied === link.key ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {copied === link.key ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{link.desc}</p>
+                <code className="block text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 font-mono break-all text-gray-700 dark:text-gray-300">
+                  {link.url}
+                </code>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

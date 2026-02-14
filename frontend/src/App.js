@@ -28,6 +28,7 @@ import AdminCustomers from './pages/AdminCustomers';
 import AdminOrders from './pages/AdminOrders';
 import AdminProducts from './pages/AdminProducts';
 import AdminSettings from './pages/AdminSettings';
+import StaffManagement from './pages/StaffManagement';
 import AdminTickets from './pages/AdminTickets';
 import AdminMassEmail from './pages/AdminMassEmail';
 import AdminEmailTemplates from './pages/AdminEmailTemplates';
@@ -57,8 +58,9 @@ function ProtectedRoute({ children }) {
 
 // Admin Route Component
 function AdminRoute({ children }) {
-  const { isAdmin } = useAuthStore();
-  return isAdmin() ? children : <Navigate to="/dashboard" />;
+  const { isAdmin, user } = useAuthStore();
+  const isStaff = user?.role === 'staff';
+  return (isAdmin() || isStaff) ? children : <Navigate to="/dashboard" />;
 }
 
 // License Check Component
@@ -361,6 +363,16 @@ function App() {
                 <ProtectedRoute>
                   <AdminRoute>
                     <AdminDownloads />
+                  </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/staff"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <StaffManagement />
                   </AdminRoute>
                 </ProtectedRoute>
               }

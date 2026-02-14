@@ -133,6 +133,138 @@ export default function AdminProducts() {
     reorderMutation.mutate({ id: product.id, direction });
   };
 
+  // Product Groups
+  const { data: productGroups } = useQuery({
+    queryKey: ['product-groups'],
+    queryFn: async () => { const r = await adminAPI.getProductGroups(); return r.data; },
+  });
+  const [showGroupManager, setShowGroupManager] = useState(false);
+  const [groups, setGroups] = useState([]);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newSubgroupName, setNewSubgroupName] = useState({});
+
+  React.useEffect(() => {
+    if (productGroups) setGroups(productGroups);
+  }, [productGroups]);
+
+  const saveGroups = async (updatedGroups) => {
+    try {
+      await adminAPI.saveProductGroups(updatedGroups);
+      setGroups(updatedGroups);
+      queryClient.invalidateQueries(['product-groups']);
+      toast.success('Groups saved');
+    } catch (e) { toast.error('Failed to save groups'); }
+  };
+
+  const addGroup = () => {
+    if (!newGroupName.trim()) return;
+    const id = 'grp_' + Date.now();
+    const updated = [...groups, { id, name: newGroupName.trim(), display_order: groups.length, subgroups: [] }];
+    saveGroups(updated);
+    setNewGroupName('');
+  };
+
+  const moveGroup = (index, direction) => {
+    const updated = [...groups];
+    const swapIdx = direction === 'up' ? index - 1 : index + 1;
+    if (swapIdx < 0 || swapIdx >= updated.length) return;
+    [updated[index], updated[swapIdx]] = [updated[swapIdx], updated[index]];
+    updated.forEach((g, i) => g.display_order = i);
+    saveGroups(updated);
+  };
+
+  const removeGroup = (index) => {
+    if (!window.confirm('Remove this group? Products will become ungrouped.')) return;
+    const gid = groups[index].id;
+    const sgIds = (groups[index].subgroups || []).map(s => s.id);
+    const updated = groups.filter((_, i) => i !== index);
+    products?.forEach(p => {
+      if (p.group_id === gid) adminAPI.setProductGroup(p.id, '', '');
+    });
+    saveGroups(updated);
+    queryClient.invalidateQueries(['admin-products']);
+  };
+
+  const addSubgroup = (groupIndex) => {
+    const name = (newSubgroupName[groupIndex] || '').trim();
+    if (!name) return;
+    const updated = [...groups];
+    const subs = updated[groupIndex].subgroups || [];
+    subs.push({ id: 'sg_' + Date.now(), name, display_order: subs.length });
+    updated[groupIndex].subgroups = subs;
+    saveGroups(updated);
+    setNewSubgroupName({ ...newSubgroupName, [groupIndex]: '' });
+  };
+
+  const moveSubgroup = (groupIndex, subIndex, direction) => {
+    const updated = [...groups];
+    const subs = [...(updated[groupIndex].subgroups || [])];
+    const swapIdx = direction === 'up' ? subIndex - 1 : subIndex + 1;
+    if (swapIdx < 0 || swapIdx >= subs.length) return;
+    [subs[subIndex], subs[swapIdx]] = [subs[swapIdx], subs[subIndex]];
+    subs.forEach((s, i) => s.display_order = i);
+    updated[groupIndex].subgroups = subs;
+    saveGroups(updated);
+  };
+
+  const removeSubgroup = (groupIndex, subIndex) => {
+    if (!window.confirm('Remove this sub-group?')) return;
+    const updated = [...groups];
+    const sgId = updated[groupIndex].subgroups[subIndex].id;
+    updated[groupIndex].subgroups = updated[groupIndex].subgroups.filter((_, i) => i !== subIndex);
+    products?.forEach(p => {
+      if (p.subgroup_id === sgId) adminAPI.setProductGroup(p.id, p.group_id, '');
+    });
+    saveGroups(updated);
+    queryClient.invalidateQueries(['admin-products']);
+  };
+
+  const setProductGroupAndSub = async (productId, groupId, subgroupId) => {
+    try {
+      await adminAPI.setProductGroup(productId, groupId, subgroupId);
+      queryClient.invalidateQueries(['admin-products']);
+    } catch (e) { toast.error('Failed'); }
+  };
+
+  // All subgroups flat list for the product table dropdowns
+  const allSubgroups = React.useMemo(() => {
+    const result = [];
+    (groups || []).forEach(g => {
+      (g.subgroups || []).forEach(sg => {
+        result.push({ ...sg, groupId: g.id, groupName: g.name, label: `${g.name} > ${sg.name}` });
+      });
+    });
+    return result;
+  }, [groups]);
+
+  // Group products for admin table display using subgroups
+  const groupedProducts = React.useMemo(() => {
+    if (!products) return [];
+    const result = [];
+    const groupList = groups || [];
+    groupList.forEach(g => {
+      const subs = g.subgroups || [];
+      if (subs.length > 0) {
+        subs.forEach(sg => {
+          const prods = products.filter(p => p.group_id === g.id && p.subgroup_id === sg.id).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+          result.push({ id: sg.id, name: `${g.name} > ${sg.name}`, products: prods });
+        });
+        // Products in group but no subgroup
+        const sgIds = new Set(subs.map(s => s.id));
+        const noSub = products.filter(p => p.group_id === g.id && (!p.subgroup_id || !sgIds.has(p.subgroup_id))).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        if (noSub.length > 0) result.push({ id: g.id + '_unsub', name: `${g.name} > (unassigned)`, products: noSub });
+      } else {
+        const prods = products.filter(p => p.group_id === g.id).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        result.push({ id: g.id, name: g.name, products: prods });
+      }
+    });
+    // Ungrouped
+    const allGids = new Set(groupList.map(g => g.id));
+    const ungrouped = products.filter(p => !p.group_id || !allGids.has(p.group_id)).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    if (ungrouped.length > 0) result.push({ id: '', name: 'Ungrouped', products: ungrouped });
+    return result;
+  }, [products, groups]);
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       <header className="bg-white dark:bg-gray-900 shadow-sm">
@@ -312,149 +444,154 @@ export default function AdminProducts() {
             </div>
             
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-800">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Order</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Product</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Panel</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Details</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Pricing</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                  {products
-                    ?.filter(product => {
-                      // Apply search filter
-                      const matchesSearch = !searchQuery || 
-                        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        product.description?.toLowerCase().includes(searchQuery.toLowerCase());
-                      
-                      // Apply panel filter
-                      const productPanelKey = `${product.panel_type || 'xtream'}-${product.panel_index ?? 0}`;
-                      const matchesPanel = panelFilter === 'all' || productPanelKey === panelFilter;
-                      
-                      // Apply type filter
-                      const matchesType = typeFilter === 'all' || product.account_type === typeFilter;
-                      
-                      return matchesSearch && matchesPanel && matchesType;
-                    })
-                    .sort((a, b) => {
-                      return (a.display_order || 0) - (b.display_order || 0);
-                    })
-                    .map((product, index, array) => (
-                    <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                      {/* Sort Order Column */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleReorder(product, 'up')}
-                            disabled={index === 0}
-                            className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                              index === 0 ? 'opacity-30 cursor-not-allowed' : ''
-                            }`}
-                            title="Move Up"
-                          >
-                            <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                          </button>
-                          <button
-                            onClick={() => handleReorder(product, 'down')}
-                            disabled={index === array.length - 1}
-                            className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                              index === array.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
-                            }`}
-                            title="Move Down"
-                          >
-                            <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                          </button>
+
+            {/* Group Manager Toggle */}
+            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <button onClick={() => setShowGroupManager(!showGroupManager)}
+                className="text-sm font-medium text-blue-600 hover:text-blue-800">
+                {showGroupManager ? 'Hide Group Manager' : 'Manage Groups'}
+              </button>
+              <span className="text-xs text-gray-500">{groups.length} group{groups.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            {showGroupManager && (
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/10">
+                <div className="flex gap-2 mb-4">
+                  <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="New group name (e.g. CCTV, NXT Dash)"
+                    onKeyDown={(e) => e.key === 'Enter' && addGroup()}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+                  <button onClick={addGroup} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Add Group</button>
+                </div>
+                <div className="space-y-3">
+                  {groups.map((g, gi) => (
+                    <div key={g.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex gap-0.5">
+                          <button onClick={() => moveGroup(gi, 'up')} disabled={gi === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => moveGroup(gi, 'down')} disabled={gi === groups.length - 1} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
                         </div>
-                      </td>
-                      {/* Product Column */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">{product.name}</div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">{product.description}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          product.account_type === 'reseller'
-                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                            : product.account_type === 'manual'
-                            ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                            : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                        }`}>
-                          {product.account_type === 'reseller' ? 'Reseller' : product.account_type === 'manual' ? 'Manual' : 'Subscriber'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {product.panel_type === 'manual' ? '—' : getPanelName(product.panel_index || 0, product.panel_type || 'xtream')}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                        {product.account_type === 'reseller' ? (
-                          <div>{product.reseller_credits} credits</div>
-                        ) : (
-                          <div>{product.max_connections} connection{product.max_connections > 1 ? 's' : ''}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
-                        {product.prices && Object.entries(product.prices).map(([term, price]) => (
-                          <div key={term} className="whitespace-nowrap">
-                            {product.account_type === 'reseller' ? 'Lifetime' : `${term}mo`}: ${price}
+                        <span className="font-bold text-gray-900 dark:text-white flex-1">{g.name}</span>
+                        <span className="text-xs text-gray-500">{(g.subgroups || []).length} sub-groups</span>
+                        <button onClick={() => removeGroup(gi)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                      {/* Subgroups */}
+                      <div className="ml-8 space-y-1">
+                        {(g.subgroups || []).map((sg, si) => (
+                          <div key={sg.id} className="flex items-center gap-2 py-1 text-sm">
+                            <div className="flex gap-0.5">
+                              <button onClick={() => moveSubgroup(gi, si, 'up')} disabled={si === 0} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronUp className="w-3 h-3" /></button>
+                              <button onClick={() => moveSubgroup(gi, si, 'down')} disabled={si === (g.subgroups || []).length - 1} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronDown className="w-3 h-3" /></button>
+                            </div>
+                            <span className="text-gray-700 dark:text-gray-300 flex-1">{sg.name}</span>
+                            <span className="text-xs text-gray-400">{products?.filter(p => p.subgroup_id === sg.id).length || 0} products</span>
+                            <button onClick={() => removeSubgroup(gi, si)} className="text-red-400 hover:text-red-600 p-0.5"><Trash2 className="w-3 h-3" /></button>
                           </div>
                         ))}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          product.active
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}>
-                          {product.active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            const url = `${window.location.origin}/order/${product.id}`;
-                            navigator.clipboard.writeText(url).then(() => {
-                              setCopiedId(product.id);
-                              setTimeout(() => setCopiedId(null), 2000);
-                            });
-                          }}
-                          className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mr-3"
-                          title="Copy order link"
-                        >
-                          {copiedId === product.id ? <Check className="w-4 h-4 inline text-green-600" /> : <LinkIcon className="w-4 h-4 inline" />}
-                          <span className="ml-1">{copiedId === product.id ? 'Copied!' : 'Link'}</span>
-                        </button>
-                        <button
-                          onClick={() => handleEdit(product)}
-                          className="text-blue-600 hover:text-blue-900 dark:hover:text-blue-400 mr-3"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Delete ${product.name}?`)) {
-                              deleteMutation.mutate(product.id);
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-900 dark:hover:text-red-400"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
+                        <div className="flex gap-1 mt-1">
+                          <input value={newSubgroupName[gi] || ''} onChange={(e) => setNewSubgroupName({ ...newSubgroupName, [gi]: e.target.value })}
+                            placeholder="Add sub-group (e.g. 1 Connection)"
+                            onKeyDown={(e) => e.key === 'Enter' && addSubgroup(gi)}
+                            className="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                          <button onClick={() => addSubgroup(gi)} className="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700">Add</button>
+                        </div>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              </div>
+            )}
+
+            {/* Grouped Products */}
+            <div>
+              {groupedProducts.map((group) => {
+                const filteredProds = group.products.filter(product => {
+                  const matchesSearch = !searchQuery || product.name.toLowerCase().includes(searchQuery.toLowerCase()) || product.description?.toLowerCase().includes(searchQuery.toLowerCase());
+                  const matchesPanel = panelFilter === 'all' || `${product.panel_type || 'xtream'}-${product.panel_index ?? 0}` === panelFilter;
+                  const matchesType = typeFilter === 'all' || product.account_type === typeFilter;
+                  return matchesSearch && matchesPanel && matchesType;
+                });
+                if (filteredProds.length === 0) return null;
+                return (
+                  <div key={group.id || 'ungrouped'}>
+                    <div className="px-6 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">{group.name}</h3>
+                      <span className="text-xs text-gray-500">{filteredProds.length} product{filteredProds.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-800">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Order</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Type</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Panel</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Pricing</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Group</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Status</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase w-32">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {filteredProds.map((product, index) => (
+                          <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <td className="px-4 py-3">
+                              <div className="flex gap-0.5">
+                                <button onClick={() => handleReorder(product, 'up')} disabled={index === 0} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
+                                <button onClick={() => handleReorder(product, 'down')} disabled={index === filteredProds.length - 1} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">{product.name}</div>
+                              <div className="text-xs text-gray-500">{product.description?.substring(0, 50)}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${product.account_type === 'reseller' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : product.account_type === 'manual' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'}`}>
+                                {product.account_type === 'subscriber' ? 'Sub' : product.account_type === 'reseller' ? 'Reseller' : 'Manual'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{getPanelName(product.panel_index, product.panel_type)}</td>
+                            <td className="px-4 py-3 text-sm">{product.prices && Object.values(product.prices).map((p, i) => <div key={i}>${p}</div>)}</td>
+                            <td className="px-4 py-3">
+                              <select value={product.subgroup_id ? `${product.group_id}|${product.subgroup_id}` : product.group_id || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val.includes('|')) {
+                                    const [gid, sgid] = val.split('|');
+                                    setProductGroupAndSub(product.id, gid, sgid);
+                                  } else {
+                                    setProductGroupAndSub(product.id, val, '');
+                                  }
+                                }}
+                                className="text-xs px-1.5 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 w-full">
+                                <option value="">None</option>
+                                {groups.map(g => (
+                                  <React.Fragment key={g.id}>
+                                    {(g.subgroups || []).length === 0 && <option value={g.id}>{g.name}</option>}
+                                    {(g.subgroups || []).map(sg => (
+                                      <option key={sg.id} value={`${g.id}|${sg.id}`}>{g.name} &gt; {sg.name}</option>
+                                    ))}
+                                  </React.Fragment>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex px-2 py-0.5 text-xs rounded-full ${product.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {product.is_active !== false ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button onClick={() => { window.open(`/order/${product.id}`, '_blank'); }} className="text-xs text-blue-600 hover:underline">Link</button>
+                                <button onClick={() => handleEdit(product)} className="text-xs text-gray-600 hover:text-blue-600">Edit</button>
+                                <button onClick={() => handleDelete(product)} className="text-xs text-red-600 hover:text-red-800">Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
             </div>
             </div>
           </div>

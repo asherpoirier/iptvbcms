@@ -154,8 +154,8 @@ class BackupManager:
                 return self.upload_to_dropbox(archive_path, backup_name)
             elif cloud_provider == 'google_drive':
                 return self.upload_to_google_drive(archive_path, backup_name)
-            elif cloud_provider == 'proton_drive':
-                return self.upload_to_proton_drive(archive_path, backup_name)
+            elif cloud_provider == 'mega':
+                return self.upload_to_mega(archive_path, backup_name)
             else:
                 logger.warning(f"Unknown cloud provider: {cloud_provider}")
                 return False
@@ -320,53 +320,45 @@ class BackupManager:
             logger.error(f"Google Drive upload failed: {e}")
             return False
     
-    def upload_to_proton_drive(self, archive_path, backup_name):
-        """Upload backup to Proton Drive using WebDAV"""
+    def upload_to_mega(self, archive_path, backup_name):
+        """Upload backup to MEGA cloud storage"""
         try:
-            from webdav3.client import Client
-            
+            from mega import Mega
+
             settings = self.load_settings()
-            proton_settings = settings.get('proton_drive', {})
-            
-            webdav_url = proton_settings.get('webdav_url')
-            username = proton_settings.get('username')
-            password = proton_settings.get('password')
-            
-            if not all([webdav_url, username, password]):
-                logger.error("Proton Drive WebDAV credentials not configured")
+            mega_settings = settings.get('mega', {})
+
+            email = mega_settings.get('email')
+            password = mega_settings.get('password')
+
+            if not email or not password:
+                logger.error("MEGA credentials not configured")
                 return False
-            
-            logger.info(f"Uploading to Proton Drive: {backup_name}")
-            
-            # Configure WebDAV client
-            options = {
-                'webdav_hostname': webdav_url,
-                'webdav_login': username,
-                'webdav_password': password,
-                'webdav_timeout': 300
-            }
-            
-            client = Client(options)
-            
-            # Create backup directory if it doesn't exist
-            backup_folder = '/IPTV_Backups'
-            try:
-                client.mkdir(backup_folder)
-            except:
-                pass  # Folder might already exist
-            
-            # Upload file
-            remote_path = f"{backup_folder}/{backup_name}.zip"
-            client.upload_sync(remote_path=remote_path, local_path=archive_path)
-            
-            logger.info(f"✓ Uploaded to Proton Drive: {remote_path}")
+
+            logger.info(f"Uploading to MEGA: {backup_name}")
+
+            mega = Mega()
+            m = mega.login(email, password)
+
+            # Create backup folder if needed
+            folder_name = 'IPTV_Backups'
+            folder = m.find(folder_name)
+            if not folder:
+                m.create_folder(folder_name)
+                folder = m.find(folder_name)
+
+            # Upload file to the folder
+            dest_id = folder[0] if isinstance(folder, list) else folder
+            m.upload(archive_path, dest=dest_id)
+
+            logger.info(f"Uploaded to MEGA: {folder_name}/{backup_name}.zip")
             return True
-            
+
         except ImportError:
-            logger.error("WebDAV library not installed. Run: pip install webdavclient3")
+            logger.error("MEGA library not installed. Run: pip install mega.py")
             return False
         except Exception as e:
-            logger.error(f"Proton Drive upload failed: {e}")
+            logger.error(f"MEGA upload failed: {e}")
             return False
     
     def restore_backup(self, backup_name):
@@ -533,42 +525,27 @@ class BackupManager:
                         "email": about['user']['emailAddress']
                     }
             
-            elif provider == 'proton_drive':
-                from webdav3.client import Client
-                
-                webdav_url = credentials.get('webdav_url')
-                username = credentials.get('username')
+            elif provider == 'mega':
+                from mega import Mega
+
+                email = credentials.get('email')
                 password = credentials.get('password')
-                
-                if not all([webdav_url, username, password]):
-                    return {
-                        "success": False,
-                        "error": "WebDAV URL, username, and password required"
-                    }
-                
-                # Configure WebDAV client
-                options = {
-                    'webdav_hostname': webdav_url,
-                    'webdav_login': username,
-                    'webdav_password': password,
-                    'webdav_timeout': 10
+
+                if not email or not password:
+                    return {"success": False, "error": "MEGA email and password required"}
+
+                mega = Mega()
+                m = mega.login(email, password)
+                user_info = m.get_user()
+                storage = m.get_storage_space(giga=True)
+
+                return {
+                    "success": True,
+                    "account": email,
+                    "email": email,
+                    "storage_used": f"{storage.get('used', 0):.1f} GB",
+                    "storage_total": f"{storage.get('total', 0):.1f} GB"
                 }
-                
-                client = Client(options)
-                
-                # Test connection by listing root
-                try:
-                    client.list()
-                    return {
-                        "success": True,
-                        "account": username,
-                        "email": username
-                    }
-                except Exception as e:
-                    return {
-                        "success": False,
-                        "error": f"Connection failed: {str(e)}"
-                    }
             
             else:
                 return {

@@ -65,6 +65,7 @@ markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mccabe==0.7.0
 mdurl==0.1.2
+mega.py==1.0.8
 motor==3.6.0
 multidict==6.7.0
 mypy==1.19.1
@@ -75,6 +76,7 @@ openai==1.99.9
 packaging==25.0
 pandas==2.3.3
 passlib==1.7.4
+pathlib==1.0.1
 pathspec==1.0.3
 paypalrestsdk==1.13.3
 pillow==10.2.0
@@ -87,6 +89,7 @@ pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycodestyle==2.14.0
 pycparser==2.23
+pycryptodome==3.23.0
 pydantic==2.10.3
 pydantic_core==2.27.1
 pyflakes==3.4.0
@@ -124,7 +127,7 @@ soupsieve==2.8.3
 squareup==44.0.0.20260122
 starlette==0.41.3
 stripe==14.1.0
-tenacity==9.1.2
+tenacity==5.1.5
 tiktoken==0.12.0
 tokenizers==0.22.2
 tqdm==4.67.1
@@ -141,4 +144,5 @@ uvloop==0.22.1
 watchfiles==1.1.1
 websockets==15.0.1
 yarl==1.22.0
+zipfile36==0.1.3
 zipp==3.23.0

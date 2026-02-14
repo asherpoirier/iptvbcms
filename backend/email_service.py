@@ -686,6 +686,63 @@ class EmailService:
             recipient_name=customer_name
         )
     
+    async def send_expiry_warning(
+        self,
+        customer_email: str,
+        customer_name: str,
+        service_name: str,
+        expiry_date: str,
+        days_remaining: int,
+        renewal_link: str = "",
+        customer_id: str = None
+    ):
+        """Send service expiry warning email"""
+        if self.db is None:
+            return False
+        
+        template = await self.db.email_templates.find_one({
+            "template_type": "service_expiry_warning",
+            "is_active": True
+        })
+        
+        variables = {
+            "customer_name": customer_name,
+            "service_name": service_name,
+            "expiry_date": expiry_date,
+            "days_remaining": str(days_remaining),
+            "renewal_link": renewal_link or f"{self.backend_url}/dashboard",
+        }
+        
+        if template:
+            subject = template["subject"]
+            content = template["html_content"]
+            for key, value in variables.items():
+                subject = subject.replace(f"{{{{{key}}}}}", value)
+                content = content.replace(f"{{{{{key}}}}}", value)
+            wrapped = self._wrap_email(content, template["name"], customer_email, "transactional")
+        else:
+            subject = f"Your service expires in {days_remaining} day{'s' if days_remaining != 1 else ''}!"
+            content = f"""
+            <h2>Service Expiry Reminder</h2>
+            <p>Hi {customer_name},</p>
+            <p>Your service <strong>{service_name}</strong> will expire in <strong>{days_remaining} day{'s' if days_remaining != 1 else ''}</strong> on {expiry_date}.</p>
+            <p style="margin: 2rem 0;">
+                <a href="{variables['renewal_link']}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">Renew Now</a>
+            </p>
+            <p>Don't lose access — renew today to keep your service active!</p>
+            """
+            wrapped = self._wrap_email(content, "Expiry Warning", customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped,
+            email_type="transactional",
+            template_type="service_expiry_warning",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
+
     async def send_credits_added(
         self,
         customer_email: str,

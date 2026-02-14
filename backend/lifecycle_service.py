@@ -87,7 +87,24 @@ class ServiceLifecycleManager:
         }):
             try:
                 # Get user info for notification
-                user = await self.users.find_one({"_id": service["user_id"]})
+                from bson import ObjectId
+                uid = service.get("user_id", "")
+                user = None
+                if uid:
+                    try:
+                        user = await self.users.find_one({"_id": ObjectId(uid)})
+                    except Exception:
+                        user = await self.users.find_one({"_id": uid})
+                
+                # Fallback: use xtream_username as customer name if user not found
+                customer_name = "Unknown"
+                customer_email = "N/A"
+                if user:
+                    customer_name = user.get("name", user.get("panel_username", "Unknown"))
+                    email = user.get("email", "")
+                    customer_email = email if email and not email.endswith("@panel.local") else user.get("panel_username", "N/A")
+                elif service.get("xtream_username"):
+                    customer_name = service["xtream_username"]
                 
                 # Suspend service
                 await self.services.update_one(
@@ -113,7 +130,7 @@ class ServiceLifecycleManager:
                     from server import send_telegram_notification
                     await send_telegram_notification(
                         "service_expired",
-                        f"⏰ *Service Expired*\n\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\nEmail: {user.get('email', 'N/A') if user else 'N/A'}\nService: {service.get('product_name', 'Unknown')}\nExpired: {service.get('expiry_date').strftime('%Y-%m-%d %H:%M') if service.get('expiry_date') else 'N/A'}\n\nService has been automatically suspended."
+                        f"⏰ *Service Expired*\n\nCustomer: {customer_name}\nEmail: {customer_email}\nService: {service.get('product_name', 'Unknown')}\nExpired: {service.get('expiry_date').strftime('%Y-%m-%d %H:%M') if service.get('expiry_date') else 'N/A'}\n\nService has been automatically suspended."
                     )
                 except Exception as notif_error:
                     logger.error(f"Failed to send Telegram notification for expired service: {str(notif_error)}")
@@ -161,7 +178,7 @@ class ServiceLifecycleManager:
         return cancelled_count
     
     async def send_expiry_warnings(self, days_before: int = 7):
-        """Send warnings for services expiring soon"""
+        """Send warnings for services expiring soon — email + Telegram"""
         target_date = datetime.utcnow() + timedelta(days=days_before)
         start_of_target_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_target_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -177,24 +194,64 @@ class ServiceLifecycleManager:
             # Check if already warned for this period
             recent_warning = await self.lifecycle_logs.find_one({
                 "service_id": str(service["_id"]),
-                "action": "expiry_warning",
-                "created_at": {"$gte": datetime.utcnow() - timedelta(hours=12)}
+                "action": f"expiry_warning_{days_before}d",
+                "created_at": {"$gte": datetime.utcnow() - timedelta(hours=20)}
             })
             
             if recent_warning:
-                continue  # Already warned recently
+                continue
             
             try:
-                # Send warning email
-                if self.email_service:
-                    user = await self.users.find_one({"_id": service["user_id"]})
-                    # Would send expiry warning email
+                from bson import ObjectId
+                uid = service.get("user_id", "")
+                user = None
+                if uid:
+                    try:
+                        user = await self.users.find_one({"_id": ObjectId(uid)})
+                    except Exception:
+                        user = await self.users.find_one({"_id": uid})
                 
-                # Log warning sent
+                customer_name = "Customer"
+                customer_email = ""
+                if user:
+                    customer_name = user.get("name", user.get("panel_username", "Customer"))
+                    email = user.get("email", "")
+                    customer_email = email if email and not email.endswith("@panel.local") else ""
+                elif service.get("xtream_username"):
+                    customer_name = service["xtream_username"]
+
+                expiry_str = service.get("expiry_date").strftime("%Y-%m-%d") if service.get("expiry_date") else "N/A"
+                service_name = service.get("product_name", "Unknown Service")
+
+                # Send email if user has a real email
+                if self.email_service and customer_email:
+                    try:
+                        await self.email_service.send_expiry_warning(
+                            customer_email=customer_email,
+                            customer_name=customer_name,
+                            service_name=service_name,
+                            expiry_date=expiry_str,
+                            days_remaining=days_before,
+                            customer_id=uid,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Expiry warning email failed for {customer_email}: {e}")
+
+                # Send Telegram notification
+                try:
+                    from server import send_telegram_notification
+                    await send_telegram_notification(
+                        "service_expiry_warning",
+                        f"⚠️ *Service Expiring in {days_before} Day{'s' if days_before != 1 else ''}*\n\nCustomer: {customer_name}\nEmail: {customer_email or 'N/A'}\nService: {service_name}\nExpires: {expiry_str}"
+                    )
+                except Exception:
+                    pass
+
+                # Log warning
                 await self.log_action(
                     service_id=str(service["_id"]),
-                    user_id=service["user_id"],
-                    action="expiry_warning",
+                    user_id=uid,
+                    action=f"expiry_warning_{days_before}d",
                     reason=f"Service expires in {days_before} days"
                 )
                 
@@ -204,3 +261,74 @@ class ServiceLifecycleManager:
                 logger.error(f"Failed to send expiry warning for service {service['_id']}: {str(e)}")
         
         return warned_count
+
+    async def check_panel_credits(self, low_threshold: int = 10):
+        """Check panel credit balances and send Telegram alerts if low"""
+        try:
+            settings_col = self.db.settings
+            settings = await settings_col.find_one()
+            if not settings:
+                return
+
+            alerts = []
+
+            # Check XtreamUI panels (they use credits for user creation)
+            for i, panel in enumerate(settings.get("xtream", {}).get("panels", [])):
+                name = panel.get("name", f"XtreamUI Panel {i+1}")
+                # XtreamUI doesn't expose credits via API easily, skip
+                pass
+
+            # Check 1-Stream panels
+            for i, panel in enumerate(settings.get("onestream", {}).get("panels", [])):
+                name = panel.get("name", f"1-Stream Panel {i+1}")
+                try:
+                    from onestream_service import get_onestream_service
+                    svc = get_onestream_service(panel)
+                    if svc:
+                        info = svc.get_account_info()
+                        if info.get("success"):
+                            credits = info.get("credits", 0)
+                            if isinstance(credits, (int, float)) and credits < low_threshold:
+                                alerts.append(f"*{name}*: {credits} credits remaining")
+                except Exception as e:
+                    logger.warning(f"Credit check failed for {name}: {e}")
+
+            # Check NXT Dash panels
+            for i, panel in enumerate(settings.get("nxtdash", {}).get("panels", [])):
+                name = panel.get("name", f"NXT Dash Panel {i+1}")
+                try:
+                    from nxtdash_service import get_nxtdash_service
+                    svc = get_nxtdash_service(panel)
+                    if svc:
+                        info = await svc.test_connection()
+                        if info.get("success"):
+                            data = info.get("data", {})
+                            credits = data.get("credits", 0)
+                            if isinstance(credits, (int, float)) and credits < low_threshold:
+                                alerts.append(f"*{name}*: {credits} credits remaining")
+                except Exception as e:
+                    logger.warning(f"Credit check failed for {name}: {e}")
+
+            if alerts:
+                # Check if already alerted recently (once per 6 hours)
+                recent = await self.lifecycle_logs.find_one({
+                    "action": "credit_low_alert",
+                    "created_at": {"$gte": datetime.utcnow() - timedelta(hours=6)}
+                })
+                if not recent:
+                    msg = f"🔴 *Low Panel Credits Alert*\n\n" + "\n".join(alerts) + f"\n\nThreshold: {low_threshold} credits"
+                    try:
+                        from server import send_telegram_notification
+                        await send_telegram_notification("credit_low_alert", msg)
+                    except Exception:
+                        pass
+                    await self.log_action(
+                        service_id="system", user_id="system",
+                        action="credit_low_alert",
+                        reason=f"Low credits detected: {'; '.join(alerts)}"
+                    )
+                    logger.warning(f"Low panel credits: {alerts}")
+
+        except Exception as e:
+            logger.error(f"Credit check failed: {e}")
+

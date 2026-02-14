@@ -10,6 +10,8 @@ import CheckoutCouponCredits from '../components/CheckoutCouponCredits';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import { useCurrencyStore } from '../store/currency';
+import CurrencySwitcher from '../components/CurrencySwitcher';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
@@ -17,6 +19,7 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { items, removeItem, clearCart, getTotal, updateItemAction } = useCartStore();
+  const { symbol: currencySymbol, convertPrice, code: currencyCode } = useCurrencyStore();
   const [error, setError] = React.useState('');
   const [paymentMethod, setPaymentMethod] = useState('manual');
   const [currentOrderId, setCurrentOrderId] = useState(null);
@@ -40,8 +43,10 @@ export default function CheckoutPage() {
   // Helcim payment state
   const [helcimLoading, setHelcimLoading] = useState(false);
 
-  // Check if cart has reseller products
-  const hasResellerProduct = items.some(item => item.account_type === 'reseller');
+  // Check if cart has reseller products that need new credentials
+  const hasNewResellerProduct = items.some(item => 
+    item.account_type === 'reseller' && item.action_type !== 'extend'
+  );
   
   // Check if cart has subscriber products (for extend/create option)
   const hasSubscriberProduct = items.some(item => item.account_type === 'subscriber');
@@ -100,7 +105,7 @@ export default function CheckoutPage() {
     setError('');
     
     // Validate reseller credentials if needed
-    if (hasResellerProduct && (!resellerUsername || !resellerPassword)) {
+    if (hasNewResellerProduct && (!resellerUsername || !resellerPassword)) {
       setError('Please set username and password for your reseller panel');
       return;
     }
@@ -112,7 +117,7 @@ export default function CheckoutPage() {
       total: getTotal(),
       coupon_code: appliedCouponCode,
       use_credits: creditsUsed,
-      reseller_credentials: hasResellerProduct ? {
+      reseller_credentials: hasNewResellerProduct ? {
         username: resellerUsername,
         password: resellerPassword
       } : null
@@ -534,15 +539,15 @@ export default function CheckoutPage() {
           <div className="lg:col-span-2">
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-xl font-bold text-gray-900">Order Items</h2>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Order Items</h2>
               </div>
               <div className="divide-y divide-gray-200">
                 {items.map((item, index) => (
                   <div key={index} className="p-6">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{item.product_name}</h3>
-                        <p className="text-sm text-gray-600 mt-1">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">{item.product_name}</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                           {item.term_months} {item.term_months === 1 ? 'Month' : 'Months'}
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-300">
@@ -550,7 +555,7 @@ export default function CheckoutPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="text-xl font-bold text-gray-900">{(settings?.currency?.symbol || "$")}{item.price.toFixed(2)}</span>
+                        <span className="text-xl font-bold text-gray-900 dark:text-white">{currencySymbol}{convertPrice(item.price).toFixed(2)}</span>
                         <button
                           onClick={() => removeItem(item.product_id, item.term_months)}
                           className="text-red-600 hover:text-red-700"
@@ -635,7 +640,7 @@ export default function CheckoutPage() {
             </div>
 
             {/* Reseller Panel Credentials */}
-            {hasResellerProduct && (
+            {hasNewResellerProduct && (
               <div className="mb-6 bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-200 dark:border-purple-700 rounded-lg p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -657,7 +662,7 @@ export default function CheckoutPage() {
                     </label>
                     <input
                       type="text"
-                      required={hasResellerProduct}
+                      required={hasNewResellerProduct}
                       value={resellerUsername}
                       onChange={(e) => setResellerUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                       className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
@@ -675,7 +680,7 @@ export default function CheckoutPage() {
                     </label>
                     <input
                       type="password"
-                      required={hasResellerProduct}
+                      required={hasNewResellerProduct}
                       value={resellerPassword}
                       onChange={(e) => setResellerPassword(e.target.value)}
                       className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
@@ -697,7 +702,7 @@ export default function CheckoutPage() {
               <div className="p-6 space-y-4">
                 <div className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-300">Subtotal</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">${getTotal().toFixed(2)}</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{currencySymbol}{convertPrice(getTotal()).toFixed(2)}</span>
                 </div>
                 
                 {discountAmount > 0 && (
@@ -716,7 +721,7 @@ export default function CheckoutPage() {
                 
                 <div className="flex justify-between text-lg font-bold border-t pt-4">
                   <span className="text-gray-900 dark:text-white">Total</span>
-                  <span className="text-blue-600">{(settings?.currency?.symbol || "$")}{Math.max(0, getTotal() - discountAmount - creditsUsed).toFixed(2)}</span>
+                  <span className="text-blue-600">{currencySymbol}{convertPrice(Math.max(0, getTotal() - discountAmount - creditsUsed)).toFixed(2)}</span>
                 </div>
               </div>
 
@@ -976,7 +981,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
                         <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
-                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                          Amount: <span className="font-bold">{currencySymbol}{convertPrice(getTotal()).toFixed(2)} {currencyCode}</span>
                         </p>
                       </div>
                     </div>
@@ -1003,7 +1008,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-700">
                         <p className="text-sm font-medium text-purple-900 dark:text-purple-200">
-                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                          Amount: <span className="font-bold">{currencySymbol}{convertPrice(getTotal()).toFixed(2)} {currencyCode}</span>
                         </p>
                       </div>
                     </div>
@@ -1027,7 +1032,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
                         <p className="text-sm font-medium text-green-900 dark:text-green-200">
-                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                          Amount: <span className="font-bold">{currencySymbol}{convertPrice(getTotal()).toFixed(2)} {currencyCode}</span>
                         </p>
                       </div>
                     </div>
@@ -1051,7 +1056,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
                         <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
-                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                          Amount: <span className="font-bold">{currencySymbol}{convertPrice(getTotal()).toFixed(2)} {currencyCode}</span>
                         </p>
                       </div>
                     </div>
@@ -1075,7 +1080,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
                         <p className="text-sm font-medium text-green-900 dark:text-green-200">
-                          Amount: <span className="font-bold">{(settings?.currency?.symbol || "$")}{getTotal().toFixed(2)} {settings?.currency?.code || "USD"}</span>
+                          Amount: <span className="font-bold">{currencySymbol}{convertPrice(getTotal()).toFixed(2)} {currencyCode}</span>
                         </p>
                       </div>
                     </div>
@@ -1255,8 +1260,8 @@ export default function CheckoutPage() {
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow mt-6 p-6">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Customer Information</h3>
               <div className="space-y-2 text-sm">
-                <p className="text-gray-600 dark:text-gray-300">Name: <span className="text-gray-900 font-medium">{user?.name}</span></p>
-                <p className="text-gray-600 dark:text-gray-300">Email: <span className="text-gray-900 font-medium">{user?.email}</span></p>
+                <p className="text-gray-600 dark:text-gray-300">Name: <span className="text-gray-900 dark:text-white font-medium">{user?.name}</span></p>
+                <p className="text-gray-600 dark:text-gray-300">Email: <span className="text-gray-900 dark:text-white font-medium">{user?.email}</span></p>
               </div>
             </div>
           </div>

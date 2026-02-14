@@ -11,6 +11,11 @@ export default function AdminImportedUsers() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('subscribers');
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSelectedUsers(new Set());
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const [entriesPerPage, setEntriesPerPage] = useState(10);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -21,6 +26,8 @@ export default function AdminImportedUsers() {
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [selectedUserForCredits, setSelectedUserForCredits] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   // Fetch imported users (get all, filter on frontend)
   const { data: allUsers, isLoading } = useQuery({
@@ -126,6 +133,39 @@ export default function AdminImportedUsers() {
     if (window.confirm(`Remove "${user.username}" from billing panel?\n\nNote: This only removes from the billing panel, NOT from XtreamUI.`)) {
       deleteMutation.mutate(user.id);
     }
+  };
+
+  // Bulk selection helpers
+  const toggleSelectUser = (id) => {
+    setSelectedUsers(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUsers.size === paginatedData?.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set((paginatedData || []).map(u => u.id)));
+    }
+  };
+
+  const handleBulkAction = async (action) => {
+    const count = selectedUsers.size;
+    const label = action === 'delete' ? 'DELETE' : action === 'suspend' ? 'SUSPEND' : 'ACTIVATE';
+    if (!window.confirm(`${label} ${count} selected user${count !== 1 ? 's' : ''}?`)) return;
+    setBulkProcessing(true);
+    try {
+      const resp = await adminAPI.bulkActionImportedUsers(action, Array.from(selectedUsers));
+      toast.success(`Bulk ${action}: ${resp.data.processed} succeeded, ${resp.data.failed} failed`);
+      setSelectedUsers(new Set());
+      queryClient.invalidateQueries(['imported-users']);
+    } catch (err) {
+      toast.error('Bulk action failed: ' + (err.response?.data?.detail || err.message));
+    }
+    setBulkProcessing(false);
   };
 
   // Filter users by panel selection
@@ -518,7 +558,7 @@ export default function AdminImportedUsers() {
           <div className="border-b border-gray-200 dark:border-gray-700">
             <nav className="flex -mb-px">
               <button
-                onClick={() => setActiveTab('subscribers')}
+                onClick={() => handleTabChange('subscribers')}
                 className={`py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'subscribers'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
@@ -530,7 +570,7 @@ export default function AdminImportedUsers() {
                 Subscribers ({filteredSubscribers.length})
               </button>
               <button
-                onClick={() => setActiveTab('resellers')}
+                onClick={() => handleTabChange('resellers')}
                 className={`py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'resellers'
                     ? 'border-purple-500 text-purple-600 dark:text-purple-400'
@@ -562,10 +602,40 @@ export default function AdminImportedUsers() {
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+              {/* Bulk Action Bar */}
+              {selectedUsers.size > 0 && (
+                <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-700 flex items-center justify-between">
+                  <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleBulkAction('activate')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5" /> Activate
+                    </button>
+                    <button onClick={() => handleBulkAction('suspend')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
+                      <Ban className="w-3.5 h-3.5" /> Suspend
+                    </button>
+                    <button onClick={() => handleBulkAction('delete')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                    <button onClick={() => setSelectedUsers(new Set())}
+                      className="px-3 py-1.5 text-gray-600 dark:text-gray-400 text-sm hover:text-gray-800">
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" data-testid="subscribers-table">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
+                      <th className="px-3 py-3 w-10">
+                        <input type="checkbox" checked={paginatedData?.length > 0 && selectedUsers.size === paginatedData?.length}
+                          onChange={toggleSelectAll} className="w-4 h-4 text-blue-600 rounded" />
+                      </th>
                       <th onClick={() => handleSort('username')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Username <SortIcon column="username" /></span></th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Password</th>
                       <th onClick={() => handleSort('panel_name')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Panel <SortIcon column="panel_name" /></span></th>
@@ -578,7 +648,11 @@ export default function AdminImportedUsers() {
                   </thead>
                   <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                     {paginatedData.map((user) => (
-                      <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <tr key={user.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800 ${selectedUsers.has(user.id) ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
+                        <td className="px-3 py-4 w-10">
+                          <input type="checkbox" checked={selectedUsers.has(user.id)}
+                            onChange={() => toggleSelectUser(user.id)} className="w-4 h-4 text-blue-600 rounded" />
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900 dark:text-white">{user.username}</div>
                         </td>
@@ -731,10 +805,40 @@ export default function AdminImportedUsers() {
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+              {/* Bulk Action Bar for Resellers */}
+              {selectedUsers.size > 0 && (
+                <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-700 flex items-center justify-between">
+                  <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleBulkAction('activate')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5" /> Activate
+                    </button>
+                    <button onClick={() => handleBulkAction('suspend')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
+                      <Ban className="w-3.5 h-3.5" /> Suspend
+                    </button>
+                    <button onClick={() => handleBulkAction('delete')} disabled={bulkProcessing}
+                      className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                    <button onClick={() => setSelectedUsers(new Set())}
+                      className="px-3 py-1.5 text-gray-600 dark:text-gray-400 text-sm hover:text-gray-800">
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" data-testid="resellers-table">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
+                      <th className="px-3 py-3 w-10">
+                        <input type="checkbox" checked={paginatedData?.length > 0 && selectedUsers.size === paginatedData?.length}
+                          onChange={toggleSelectAll} className="w-4 h-4 text-blue-600 rounded" />
+                      </th>
                       <th onClick={() => handleSort('username')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Username <SortIcon column="username" /></span></th>
                       <th onClick={() => handleSort('panel_name')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Panel <SortIcon column="panel_name" /></span></th>
                       <th onClick={() => handleSort('member_group')} className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase cursor-pointer hover:text-gray-900 dark:hover:text-white select-none"><span className="flex items-center gap-1">Member Group <SortIcon column="member_group" /></span></th>
@@ -747,7 +851,11 @@ export default function AdminImportedUsers() {
                   </thead>
                   <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                     {paginatedData.map((user) => (
-                      <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <tr key={user.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800 ${selectedUsers.has(user.id) ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
+                        <td className="px-3 py-4 w-10">
+                          <input type="checkbox" checked={selectedUsers.has(user.id)}
+                            onChange={() => toggleSelectUser(user.id)} className="w-4 h-4 text-blue-600 rounded" />
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <UserCog className="w-4 h-4 text-purple-500 mr-2" />

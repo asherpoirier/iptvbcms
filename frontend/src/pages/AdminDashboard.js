@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/store';
 import { useCurrencyStore } from '../store/currency';
 import { 
   Home, ShoppingCart, Users, Server, MessageSquare, FileText, 
-  BarChart3, Settings, LogOut, DollarSign, TrendingUp, Plus, 
+  BarChart3, Settings, LogOut, DollarSign, TrendingUp, Plus, Shield, 
   UserPlus, Menu, X, Package, Mail, Download, Tag, RefreshCw, ChevronDown, ChevronRight, BookOpen
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,10 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({});
+  
+  const isStaff = user?.role === 'staff';
+  const staffPerms = user?.permissions || [];
+  const hasPermission = (perm) => !isStaff || staffPerms.includes(perm);
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['admin-stats'],
@@ -71,8 +75,20 @@ export default function AdminDashboard() {
     { id: 'coupons', label: 'Coupons', icon: Tag, path: '/admin/coupons' },
     { id: 'refunds', label: 'Refunds', icon: RefreshCw, path: '/admin/refunds' },
     { id: 'tickets', label: 'Tickets', icon: MessageSquare, path: '/admin/tickets' },
+    { id: 'staff', label: 'Staff', icon: Shield, path: '/admin/staff' },
     { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
-  ];
+  ].filter(item => {
+    // Staff users only see items matching their permissions
+    if (!isStaff) return true;
+    const permMap = {
+      'dashboard': 'dashboard', 'customers-section': 'customers', 'customers-list': 'customers',
+      'imported-users': 'imported_users', 'orders': 'orders', 'invoices': 'orders',
+      'services': 'services', 'tickets': 'tickets',
+    };
+    const perm = permMap[item.id];
+    if (!perm) return false; // hide settings, products, staff, etc. from staff
+    return staffPerms.includes(perm);
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
