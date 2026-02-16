@@ -35,6 +35,8 @@ import AdminEmailTemplates from './pages/AdminEmailTemplates';
 import AdminCoupons from './pages/AdminCoupons';
 import AdminRefunds from './pages/AdminRefunds';
 import AdminDownloads from './pages/AdminDownloads';
+import AdminKnowledgeBase from './pages/AdminKnowledgeBase';
+import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import AdminImportedUsers from './pages/AdminImportedUsers';
 import TicketsPage from './pages/TicketsPage';
 import DownloadsPage from './pages/DownloadsPage';
@@ -364,6 +366,24 @@ function App() {
                   <AdminRoute>
                     <AdminDownloads />
                   </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/knowledge-base"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <AdminKnowledgeBase />
+                  </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/knowledge-base"
+              element={
+                <ProtectedRoute>
+                  <KnowledgeBasePage />
                 </ProtectedRoute>
               }
             />

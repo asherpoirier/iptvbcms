@@ -48,8 +48,9 @@ export default function NotificationSettings({ settings }) {
   const saveMutation = useMutation({
     mutationFn: async (data) => {
       await adminAPI.updateTelegramSettings(data);
-      // Also save credit threshold to main settings
-      await adminAPI.updateSettings({...settings, credit_alert_threshold: creditThreshold});
+      // Save credit threshold separately without overwriting notifications
+      const { notifications, ...settingsWithoutNotifications } = (settings || {});
+      await adminAPI.updateSettings({...settingsWithoutNotifications, credit_alert_threshold: creditThreshold});
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['notification-settings']);

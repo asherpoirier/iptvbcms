@@ -65,7 +65,7 @@ markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mccabe==0.7.0
 mdurl==0.1.2
-mega-x==1.0.9.dev1
+# mega.py installed separately via pip install --no-deps
 motor==3.6.0
 multidict==6.7.0
 mypy==1.19.1
@@ -101,7 +101,6 @@ pyotp==2.9.0
 pyparsing==3.3.1
 PyPDF2==3.0.1
 pypng==0.20220715.0
-pyserial==3.5
 pytest==9.0.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1

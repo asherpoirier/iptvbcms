@@ -2043,7 +2043,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://payment-gateway-test-4.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://iptv-billing-hub.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2123,7 +2123,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://payment-gateway-test-4.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://iptv-billing-hub.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -3361,6 +3361,30 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
             
             if not product:
                 logger.error(f"Product {item['product_id']} not found")
+                continue
+            
+            # Bundle product - provision each included product separately
+            if product.get("is_bundle") and product.get("bundle_product_ids"):
+                logger.info(f"Provisioning bundle: {product.get('name')} ({len(product['bundle_product_ids'])} products)")
+                for bp_id in product["bundle_product_ids"]:
+                    bp = await products_collection.find_one({"_id": str_to_objectid(bp_id)})
+                    if not bp:
+                        logger.error(f"Bundle sub-product {bp_id} not found, skipping")
+                        continue
+                    bp_item = {**item, "product_id": bp_id, "product_name": f"{item['product_name']} — {bp.get('name', '')}"}
+                    bp_panel_type = bp.get("panel_type", "xtream")
+                    logger.info(f"  Provisioning bundle item: {bp.get('name')} (Panel: {bp_panel_type})")
+                    if bp_panel_type == "manual":
+                        svc = {"user_id": order["user_id"], "order_id": order_id, "product_id": bp_id, "product_name": bp_item["product_name"], "account_type": "manual", "term_months": item.get("term_months", 1), "status": "active", "panel_type": "manual", "setup_instructions": bp.get("setup_instructions", ""), "start_date": datetime.utcnow(), "created_at": datetime.utcnow()}
+                        await services_collection.insert_one(svc)
+                    elif bp_panel_type == "xuione":
+                        await provision_xuione_service(order_id, order, user, bp_item, bp, settings, email_service)
+                    elif bp_panel_type == "onestream":
+                        await provision_onestream_service(order_id, order, user, bp_item, bp, settings, email_service)
+                    elif bp_panel_type == "nxtdash":
+                        await provision_nxtdash_service(order_id, order, user, bp_item, bp, settings, email_service)
+                    else:
+                        await provision_xtream_service(order_id, order, user, bp_item, bp, settings, email_service)
                 continue
             
             # Get panel type and index from product
@@ -5198,6 +5222,10 @@ async def update_admin_settings(settings_update: Settings,
     settings_dict = settings_update.dict()
     settings_dict["updated_at"] = datetime.utcnow()
     
+    # Never overwrite protected fields via general settings update
+    for key in ("license_key", "license_validation", "notifications"):
+        settings_dict.pop(key, None)
+    
     existing = await settings_collection.find_one()
     if existing:
         await settings_collection.update_one(
@@ -6329,9 +6357,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "attachments")
 HERO_IMAGES_DIR = os.path.join(BASE_DIR, "uploads", "hero")
 LOGO_DIR = os.path.join(BASE_DIR, "uploads", "logos")
+KB_MEDIA_DIR = os.path.join(BASE_DIR, "uploads", "kb")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(HERO_IMAGES_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
+os.makedirs(KB_MEDIA_DIR, exist_ok=True)
 
 @app.post("/api/admin/upload/logo")
 async def upload_logo(
@@ -6357,6 +6387,35 @@ async def upload_logo(
     }
 
 app.mount("/api/uploads/logos", StaticFiles(directory=LOGO_DIR), name="logos")
+
+@app.post("/api/admin/kb/upload")
+async def upload_kb_media(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_admin_user)
+):
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    allowed_image = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+    allowed_video = ['video/mp4', 'video/webm', 'video/ogg']
+    allowed_types = allowed_image + allowed_video
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only images (JPG, PNG, WebP, GIF) and videos (MP4, WebM, OGG) are allowed")
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 50MB")
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"kb_{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(KB_MEDIA_DIR, unique_filename)
+    async with aiofiles.open(file_path, 'wb') as f:
+        await f.write(contents)
+    media_type = "image" if file.content_type in allowed_image else "video"
+    return {
+        "filename": file.filename,
+        "url": f"/api/uploads/kb/{unique_filename}",
+        "type": media_type,
+        "size": len(contents)
+    }
+
+app.mount("/api/uploads/kb", StaticFiles(directory=KB_MEDIA_DIR), name="kb_media")
 
 @app.post("/api/admin/upload/hero-image")
 async def upload_hero_image(
@@ -9822,6 +9881,15 @@ async def track_download(
 @app.get("/api/license/status")
 async def get_license_status():
     """Get current license status (public endpoint for status check)"""
+    # Preview/development environments are always licensed
+    backend_url = os.getenv("BACKEND_PUBLIC_URL", "")
+    if "preview.emergentagent.com" in backend_url or "localhost" in backend_url:
+        return {
+            "licensed": True,
+            "mode": "LICENSED",
+            "message": "Development environment"
+        }
+    
     # Check env var first
     license_key = os.getenv("LICENSE_KEY")
     
@@ -10088,6 +10156,66 @@ async def download_user_guide(current_user=Depends(get_current_admin_user)):
         media_type="application/pdf",
         filename="IPTV_Billing_Admin_User_Guide.pdf"
     )
+
+# ============ KNOWLEDGE BASE ============
+@app.post("/api/admin/kb")
+async def create_kb_article(data: dict, current_user=Depends(get_current_admin_user)):
+    article = {
+        "id": str(uuid.uuid4()),
+        "title": data.get("title", ""),
+        "content": data.get("content", ""),
+        "category": data.get("category", "General"),
+        "is_published": data.get("is_published", True),
+        "display_order": data.get("display_order", 0),
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    if not article["title"] or not article["content"]:
+        raise HTTPException(status_code=400, detail="Title and content are required")
+    await db.kb_articles.insert_one(article)
+    del article["_id"]
+    return article
+
+@app.get("/api/admin/kb")
+async def get_admin_kb_articles(current_user=Depends(get_current_admin_user)):
+    articles = await db.kb_articles.find({}, {"_id": 0}).sort("display_order", 1).to_list(500)
+    return articles
+
+@app.put("/api/admin/kb/{article_id}")
+async def update_kb_article(article_id: str, data: dict, current_user=Depends(get_current_admin_user)):
+    existing = await db.kb_articles.find_one({"id": article_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Article not found")
+    update_data = {
+        "title": data.get("title", existing["title"]),
+        "content": data.get("content", existing["content"]),
+        "category": data.get("category", existing["category"]),
+        "is_published": data.get("is_published", existing["is_published"]),
+        "display_order": data.get("display_order", existing["display_order"]),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    await db.kb_articles.update_one({"id": article_id}, {"$set": update_data})
+    return {**update_data, "id": article_id, "created_at": existing["created_at"]}
+
+@app.delete("/api/admin/kb/{article_id}")
+async def delete_kb_article(article_id: str, current_user=Depends(get_current_admin_user)):
+    result = await db.kb_articles.delete_one({"id": article_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return {"message": "Article deleted"}
+
+@app.get("/api/kb")
+async def get_public_kb_articles():
+    articles = await db.kb_articles.find({"is_published": True}, {"_id": 0}).sort("display_order", 1).to_list(500)
+    return articles
+
+@app.get("/api/kb/{article_id}")
+async def get_public_kb_article(article_id: str):
+    article = await db.kb_articles.find_one({"id": article_id, "is_published": True}, {"_id": 0})
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return article
+
 
 if __name__ == "__main__":
     import uvicorn

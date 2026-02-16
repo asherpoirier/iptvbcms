@@ -40,11 +40,15 @@ export const useCartStore = create(
           ),
         })),
       removeItem: (product_id, term_months) =>
-        set((state) => ({
-          items: state.items.filter(
-            (item) => !(item.product_id === product_id && item.term_months === term_months)
-          ),
-        })),
+        set((state) => {
+          const idx = state.items.findIndex(
+            (item) => item.product_id === product_id && item.term_months === term_months
+          );
+          if (idx === -1) return state;
+          const newItems = [...state.items];
+          newItems.splice(idx, 1);
+          return { items: newItems };
+        }),
       clearCart: () => set({ items: [] }),
       getTotal: () => get().items.reduce((sum, item) => sum + item.price, 0),
     }),

@@ -97,6 +97,8 @@ class ProductCreate(BaseModel):
     trial_duration_unit: Optional[str] = 'days'  # Trial duration unit (hours, days, months)
     setup_instructions: Optional[str] = ""  # Custom setup instructions for this product
     custom_panel_url: Optional[str] = ""  # Custom panel URL for customers (reseller only)
+    is_bundle: Optional[bool] = False  # Whether this is a bundle product
+    bundle_product_ids: Optional[List[str]] = []  # IDs of products included in bundle
 
 class Product(ProductCreate):
     id: Optional[str] = None

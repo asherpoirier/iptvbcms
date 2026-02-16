@@ -420,7 +420,7 @@ export default function HomePage() {
                       )}
                       <div className="space-y-4">
                         {(group.subCards || []).map((subCard) => (
-                          <GroupCard key={subCard.id} group={subCard} />
+                          <GroupCard key={subCard.id} group={subCard} allProducts={products} />
                         ))}
                       </div>
                     </div>
@@ -570,7 +570,7 @@ function GroupedProductCard({ products, connections }) {
   );
 }
 
-function GroupCard({ group }) {
+function GroupCard({ group, allProducts }) {
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
   const { branding } = useBrandingStore();
@@ -630,11 +630,27 @@ function GroupCard({ group }) {
               const [term, price] = Object.entries(product.prices || {})[0] || ['1', 0];
               const displayPrice = product.is_trial && parseFloat(price) === 0 ? 'FREE' : `${currencySymbol}${convertPrice(price).toFixed(2)}`;
               return (
-                <button key={product.id} onClick={() => handleAddToCart(product)}
-                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-blue-50 dark:hover:bg-gray-800 transition text-left group">
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-blue-700">{product.name}</span>
-                  <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{displayPrice}</span>
-                </button>
+                <div key={product.id}>
+                  <button onClick={() => handleAddToCart(product)}
+                    className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-blue-50 dark:hover:bg-gray-800 transition text-left group">
+                    <div>
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-blue-700">{product.name}</span>
+                      {product.is_bundle && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-full font-semibold">BUNDLE</span>}
+                    </div>
+                    <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{displayPrice}</span>
+                  </button>
+                  {product.is_bundle && product.bundle_product_ids?.length > 0 && (
+                    <div className="px-5 pb-2 -mt-1">
+                      <p className="text-[10px] text-gray-400 mb-0.5">Includes:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {product.bundle_product_ids.map(bId => {
+                          const bp = allProducts?.find(p => p.id === bId);
+                          return bp ? <span key={bId} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded">{bp.name}</span> : null;
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
             {/* View Channels */}
@@ -674,6 +690,6 @@ function GroupCard({ group }) {
   );
 }
 
-function ProductCard({ product }) {
-  return <GroupCard group={{ id: product.id, name: product.name, products: [product] }} />;
+function ProductCard({ product, allProducts }) {
+  return <GroupCard group={{ id: product.id, name: product.name, products: [product] }} allProducts={allProducts} />;
 }

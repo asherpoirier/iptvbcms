@@ -71,6 +71,7 @@ export default function AdminDashboard() {
         { id: 'email-templates', label: 'Email Templates', icon: FileText, path: '/admin/email-templates' }
       ]
     },
+    { id: 'knowledge-base', label: 'Knowledge Base', icon: BookOpen, path: '/admin/knowledge-base' },
     { id: 'downloads', label: 'Downloads', icon: Download, path: '/admin/downloads' },
     { id: 'coupons', label: 'Coupons', icon: Tag, path: '/admin/coupons' },
     { id: 'refunds', label: 'Refunds', icon: RefreshCw, path: '/admin/refunds' },

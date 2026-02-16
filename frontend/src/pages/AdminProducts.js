@@ -11,6 +11,7 @@ export default function AdminProducts() {
   const [showModal, setShowModal] = useState(false);
   const [showResellerModal, setShowResellerModal] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
+  const [showBundleModal, setShowBundleModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   
@@ -94,11 +95,14 @@ export default function AdminProducts() {
   const handleEdit = (product) => {
     setEditingProduct(product);
     
-    // Check if it's a reseller product
-    if (product.account_type === 'reseller') {
-      setShowResellerModal(true);  // Show reseller modal
+    if (product.is_bundle) {
+      setShowBundleModal(true);
+    } else if (product.account_type === 'reseller') {
+      setShowResellerModal(true);
+    } else if (product.panel_type === 'manual') {
+      setShowManualModal(true);
     } else {
-      setShowModal(true);  // Show subscriber modal
+      setShowModal(true);
     }
   };
 
@@ -285,22 +289,6 @@ export default function AdminProducts() {
           {/* Add New Product Buttons */}
           <div className="flex gap-3">
             <button
-              onClick={async () => {
-                if (window.confirm('Fix display order for all products? This will reorganize products into sequential order within each panel.')) {
-                  try {
-                    await adminAPI.fixProductDisplayOrder();
-                    toast.success('Display order fixed! Products have been reorganized.');
-                    queryClient.invalidateQueries(['admin-products']);
-                  } catch (error) {
-                    toast.error('Failed to fix display order: ' + (error.response?.data?.detail || error.message));
-                  }
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm"
-            >
-              Fix Order
-            </button>
-            <button
               onClick={handleAddNew}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
@@ -321,6 +309,14 @@ export default function AdminProducts() {
               <Plus className="w-5 h-5" />
               Add Manual Product
             </button>
+            <button
+              onClick={() => { setEditingProduct(null); setShowBundleModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+              data-testid="add-bundle-btn"
+            >
+              <Plus className="w-5 h-5" />
+              Add Bundle
+            </button>
           </div>
         </div>
 
@@ -332,6 +328,22 @@ export default function AdminProducts() {
               setShowManualModal(false);
               queryClient.invalidateQueries(['admin-products']);
             }}
+            editingProduct={editingProduct}
+          />
+        )}
+
+        {/* Bundle Product Modal */}
+        {showBundleModal && (
+          <BundleProductModal
+            onClose={() => { setShowBundleModal(false); setEditingProduct(null); }}
+            onSuccess={() => {
+              setShowBundleModal(false);
+              setEditingProduct(null);
+              queryClient.invalidateQueries(['admin-products']);
+            }}
+            products={products || []}
+            editingProduct={editingProduct}
+            getPanelName={getPanelName}
           />
         )}
 
@@ -544,8 +556,8 @@ export default function AdminProducts() {
                               <div className="text-xs text-gray-500">{product.description?.substring(0, 50)}</div>
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${product.account_type === 'reseller' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : product.account_type === 'manual' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'}`}>
-                                {product.account_type === 'subscriber' ? 'Sub' : product.account_type === 'reseller' ? 'Reseller' : 'Manual'}
+                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full ${product.is_bundle ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' : product.account_type === 'reseller' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : product.account_type === 'manual' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'}`}>
+                                {product.is_bundle ? 'Bundle' : product.account_type === 'subscriber' ? 'Sub' : product.account_type === 'reseller' ? 'Reseller' : 'Manual'}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{getPanelName(product.panel_index, product.panel_type)}</td>
@@ -580,7 +592,7 @@ export default function AdminProducts() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <button onClick={() => { window.open(`/order/${product.id}`, '_blank'); }} className="text-xs text-blue-600 hover:underline">Link</button>
+                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/order/${product.id}`); toast.success('Link copied to clipboard!'); }} className="text-xs text-blue-600 hover:underline">Link</button>
                                 <button onClick={() => handleEdit(product)} className="text-xs text-gray-600 hover:text-blue-600">Edit</button>
                                 <button onClick={() => handleDelete(product)} className="text-xs text-red-600 hover:text-red-800">Delete</button>
                               </div>
@@ -1518,6 +1530,185 @@ function ManualProductModal({ onClose, onSuccess }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+
+function BundleProductModal({ onClose, onSuccess, products, editingProduct, getPanelName }) {
+  const [saving, setSaving] = React.useState(false);
+  const [name, setName] = React.useState(editingProduct?.name || '');
+  const [description, setDescription] = React.useState(editingProduct?.description || '');
+  const [selectedIds, setSelectedIds] = React.useState(editingProduct?.bundle_product_ids || []);
+  const [prices, setPrices] = React.useState(() => {
+    if (editingProduct?.prices) {
+      const firstVal = Object.values(editingProduct.prices)[0];
+      return firstVal ?? '';
+    }
+    return '';
+  });
+  const [groupId, setGroupId] = React.useState(editingProduct?.group_id || '');
+  const [subgroupId, setSubgroupId] = React.useState(editingProduct?.subgroup_id || '');
+  const [search, setSearch] = React.useState('');
+
+  // Available products (exclude other bundles and this bundle itself)
+  const available = (products || []).filter(p =>
+    !p.is_bundle && p.id !== editingProduct?.id &&
+    (p.name.toLowerCase().includes(search.toLowerCase()) || (getPanelName(p.panel_index, p.panel_type) || '').toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const toggleProduct = (id) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const selectedProducts = selectedIds.map(id => products.find(p => p.id === id)).filter(Boolean);
+
+  // Calculate sum of individual prices for comparison
+  const individualTotal = selectedProducts.reduce((sum, p) => {
+    const firstPrice = p.prices ? Object.values(p.prices)[0] : 0;
+    return sum + (parseFloat(firstPrice) || 0);
+  }, 0);
+
+  const handleSave = async () => {
+    if (!name || selectedIds.length < 2) {
+      toast.error('Bundle needs a name and at least 2 products');
+      return;
+    }
+    if (!prices || parseFloat(prices) <= 0) {
+      toast.error('Set a bundle price');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        name,
+        description,
+        account_type: 'subscriber',
+        is_bundle: true,
+        bundle_product_ids: selectedIds,
+        prices: { 1: parseFloat(prices) },
+        bouquets: [1],
+        max_connections: 1,
+        active: true,
+        panel_type: 'manual',
+        panel_index: 0,
+        group_id: groupId,
+        subgroup_id: subgroupId,
+      };
+      if (editingProduct) {
+        await adminAPI.updateProduct(editingProduct.id, payload);
+      } else {
+        await adminAPI.createProduct(payload);
+      }
+      toast.success(editingProduct ? 'Bundle updated!' : 'Bundle created!');
+      onSuccess();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to save bundle');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+            {editingProduct ? 'Edit Bundle' : 'Create Bundle Product'}
+          </h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Name & Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bundle Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+              placeholder="e.g. Ultimate IPTV Bundle" data-testid="bundle-name-input" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <input type="text" value={description} onChange={e => setDescription(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+              placeholder="e.g. Get Panel 1 + Panel 2 at a discounted price" data-testid="bundle-desc-input" />
+          </div>
+
+          {/* Select Products */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Select Products to Bundle ({selectedIds.length} selected)
+            </label>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm mb-2"
+              placeholder="Search products..." data-testid="bundle-search-products" />
+            <div className="border dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto">
+              {available.length === 0 ? (
+                <p className="text-sm text-gray-400 p-3 text-center">No products found</p>
+              ) : available.map(p => (
+                <label key={p.id} className={`flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b dark:border-gray-700 last:border-0 ${selectedIds.includes(p.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''}`}>
+                  <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleProduct(p.id)}
+                    className="rounded text-emerald-600" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{p.name}</p>
+                    <p className="text-xs text-gray-500">{getPanelName(p.panel_index, p.panel_type)} — {p.prices ? `$${Object.values(p.prices)[0]}` : 'No price'}</p>
+                  </div>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${p.account_type === 'reseller' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {p.account_type === 'subscriber' ? 'Sub' : p.account_type}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Selected summary */}
+          {selectedProducts.length > 0 && (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-lg p-3">
+              <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 mb-2">Bundle includes:</p>
+              <div className="space-y-1">
+                {selectedProducts.map(p => (
+                  <div key={p.id} className="flex justify-between text-xs">
+                    <span className="text-gray-700 dark:text-gray-300">{p.name}</span>
+                    <span className="text-gray-500">${Object.values(p.prices || {})[0] || '—'}</span>
+                  </div>
+                ))}
+                <div className="border-t dark:border-emerald-700 pt-1 mt-1 flex justify-between text-xs font-semibold">
+                  <span className="text-gray-700 dark:text-gray-300">Individual total</span>
+                  <span className="text-gray-700 dark:text-gray-300">${individualTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bundle Price */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bundle Price</label>
+            <div className="relative w-48">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input type="number" step="0.01" min="0" value={prices}
+                onChange={e => setPrices(e.target.value)}
+                className="w-full pl-7 pr-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                placeholder="0.00" data-testid="bundle-price-input" />
+            </div>
+            {prices && individualTotal > 0 && parseFloat(prices) < individualTotal && (
+              <p className="text-xs text-emerald-600 mt-1">
+                Savings: ${(individualTotal - parseFloat(prices)).toFixed(2)} ({((1 - parseFloat(prices) / individualTotal) * 100).toFixed(0)}% off)
+              </p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border rounded-lg text-gray-700 dark:text-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={saving || selectedIds.length < 2}
+              className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+              data-testid="bundle-save-btn">
+              {saving ? 'Saving...' : editingProduct ? 'Update Bundle' : 'Create Bundle'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

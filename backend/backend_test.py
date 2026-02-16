@@ -12,7 +12,7 @@ import random
 import string
 
 # Use public endpoint
-BASE_URL = "https://payment-gateway-test-4.preview.emergentagent.com/api"
+BASE_URL = "https://iptv-billing-hub.preview.emergentagent.com/api"
 
 class BackendTester:
     def __init__(self):

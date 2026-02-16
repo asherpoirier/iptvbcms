@@ -9,8 +9,8 @@ export default function RecaptchaSettings({ settings }) {
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [formData, setFormData] = useState({
     enabled: settings?.recaptcha?.enabled || false,
-    site_key: settings?.recaptcha?.site_key || '6Ld3k10sAAAAAARRcgB5g_oMaPnZAf-QYTaGPOgm',
-    secret_key: settings?.recaptcha?.secret_key || '6Ld3k10sAAAAADqYygjrbMeostUHLzZkHSzbRTld',
+    site_key: settings?.recaptcha?.site_key || '',
+    secret_key: settings?.recaptcha?.secret_key || '',
     customer_score_threshold: settings?.recaptcha?.customer_score_threshold || 0.5,
     admin_score_threshold: settings?.recaptcha?.admin_score_threshold || 0.7,
   });

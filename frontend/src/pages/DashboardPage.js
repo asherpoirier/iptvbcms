@@ -5,7 +5,7 @@ import { servicesAPI, ordersAPI } from '../api/api';
 import { useAuthStore, useCartStore } from '../store/store';
 import { useBrandingStore } from '../store/branding';
 import { useCurrencyStore } from '../store/currency';
-import { Server, ShoppingBag, FileText, LogOut, Tv, MessageSquare, Gift, Download, ShoppingCart, Clock, AlertTriangle, RefreshCw, Copy, Check, Eye, EyeOff } from 'lucide-react';
+import { Server, ShoppingBag, FileText, LogOut, Tv, MessageSquare, Gift, Download, ShoppingCart, Clock, AlertTriangle, RefreshCw, Copy, Check, Eye, EyeOff, BookOpen } from 'lucide-react';
 import CreditBalance from '../components/CreditBalance';
 import CurrencySwitcher from '../components/CurrencySwitcher';
 import { toast } from 'sonner';
@@ -49,7 +49,6 @@ export default function DashboardPage() {
   const activeServices = allServices.filter((s) => s.status === 'active');
   const expiredServices = allServices.filter((s) => s.status !== 'active');
   const pendingOrders = orders?.filter((o) => o.status === 'pending') || [];
-  const referrerReward = referralSettings?.settings?.referrer_reward || 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
@@ -76,57 +75,85 @@ export default function DashboardPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-              <Tv className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{activeServices.length}</p>
-            </div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
-              <ShoppingBag className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{pendingOrders.length}</p>
-            </div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Orders</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{orders?.length || 0}</p>
-            </div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-            <CreditBalance showHistory={false} />
-          </div>
-        </div>
+        <div className="flex gap-6">
+          {/* Sidebar Navigation */}
+          <aside className="hidden md:block w-52 flex-shrink-0">
+            <nav className="bg-white dark:bg-gray-900 rounded-lg shadow p-2 space-y-1 sticky top-20" data-testid="dashboard-sidebar">
+              {[
+                { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
+                { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
+                { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
+                { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
+                { to: '/downloads', icon: Download, label: 'Downloads', color: 'text-cyan-600' },
+                { to: '/knowledge-base', icon: BookOpen, label: 'Guides', color: 'text-teal-600' },
+                { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
+                { to: '/referrals', icon: Gift, label: 'Referrals', color: 'text-indigo-600' },
+              ].map((link) => (
+                <Link key={link.to} to={link.to}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition text-sm"
+                  data-testid={`sidebar-link-${link.label.toLowerCase()}`}>
+                  <link.icon className={`w-4 h-4 ${link.color} flex-shrink-0`} />
+                  <span className="text-gray-700 dark:text-gray-300 font-medium">{link.label}</span>
+                </Link>
+              ))}
+            </nav>
+          </aside>
 
-        {/* Quick Links */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
-          {[
-            { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
-            { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
-            { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
-            { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
-            { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
-            { to: '/referrals', icon: Gift, label: referrerReward > 0 ? `Refer ($${referrerReward})` : 'Refer', color: 'text-indigo-600' },
-          ].map((link) => (
-            <Link key={link.to} to={link.to}
-              className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 hover:shadow-md transition text-center">
-              <link.icon className={`w-6 h-6 ${link.color} mx-auto mb-1`} />
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{link.label}</p>
-            </Link>
-          ))}
-        </div>
+          {/* Mobile Quick Links (visible only on small screens) */}
+          <div className="md:hidden grid grid-cols-4 gap-2 mb-6 w-full">
+            {[
+              { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
+              { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
+              { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
+              { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
+              { to: '/downloads', icon: Download, label: 'Downloads', color: 'text-cyan-600' },
+              { to: '/knowledge-base', icon: BookOpen, label: 'Guides', color: 'text-teal-600' },
+              { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
+              { to: '/referrals', icon: Gift, label: 'Referrals', color: 'text-indigo-600' },
+            ].map((link) => (
+              <Link key={link.to} to={link.to}
+                className="bg-white dark:bg-gray-900 rounded-lg shadow p-2 hover:shadow-md transition text-center">
+                <link.icon className={`w-5 h-5 ${link.color} mx-auto mb-0.5`} />
+                <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300">{link.label}</p>
+              </Link>
+            ))}
+          </div>
+
+          {/* Main Content */}
+          <div className="flex-1 min-w-0">
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                  <Tv className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{activeServices.length}</p>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
+                  <ShoppingBag className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{pendingOrders.length}</p>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Orders</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{orders?.length || 0}</p>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+                <CreditBalance showHistory={false} />
+              </div>
+            </div>
 
         {/* Active Services - Visual Cards */}
         {activeServices.length > 0 && (
@@ -163,6 +190,8 @@ export default function DashboardPage() {
             </Link>
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

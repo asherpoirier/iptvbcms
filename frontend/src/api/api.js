@@ -224,6 +224,11 @@ export const adminAPI = {
   createAccountsForImportedUsers: () => api.post('/api/admin/imported-users/create-accounts'),
   cleanupOrphanedUsers: (deleteCustomers = false) => api.post('/api/admin/imported-users/cleanup-orphans', { delete_customers: deleteCustomers }),
   bulkActionImportedUsers: (action, userIds) => api.post('/api/admin/imported-users/bulk-action', { action, user_ids: userIds }),
+  // Knowledge Base
+  getKBArticles: () => api.get('/api/admin/kb'),
+  createKBArticle: (data) => api.post('/api/admin/kb', data),
+  updateKBArticle: (id, data) => api.put(`/api/admin/kb/${id}`, data),
+  deleteKBArticle: (id) => api.delete(`/api/admin/kb/${id}`),
 };
 
 export default api;
