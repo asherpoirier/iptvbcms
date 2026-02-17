@@ -8,7 +8,7 @@ import requests
 import os
 import io
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://iptv-billing-hub.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://admin-analytics-46.preview.emergentagent.com')
 
 class TestKBMediaUpload:
     """Tests for KB media upload endpoint POST /api/admin/kb/upload"""

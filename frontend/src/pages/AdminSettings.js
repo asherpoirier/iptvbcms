@@ -20,6 +20,7 @@ import NotificationSettings from '../components/NotificationSettings';
 import OneStreamPanelManagement from '../components/OneStreamPanelManagement';
 import NxtDashPanelManagement from '../components/NxtDashPanelManagement';
 import InvoiceSettings from '../components/InvoiceSettings';
+import SEOSettings from '../components/SEOSettings';
 import { toast } from 'sonner';
 
 export default function AdminSettings() {
@@ -206,6 +207,14 @@ export default function AdminSettings() {
               >
                 Backups
               </button>
+              <button
+                onClick={() => setActiveTab('seo')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'seo' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                SEO
+              </button>
             </nav>
           </div>
 
@@ -300,6 +309,11 @@ export default function AdminSettings() {
             {/* Backups Tab */}
             {activeTab === 'backups' && (
               <BackupManager />
+            )}
+
+            {/* SEO Tab */}
+            {activeTab === 'seo' && (
+              <SEOSettings settings={settings} />
             )}
             </div>
           </div>

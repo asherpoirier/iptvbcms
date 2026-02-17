@@ -281,7 +281,8 @@ class NxtDashPanel(BaseModel):
     token: str = ""           # Bearer token
     username: str = ""        # Reseller username
     password: str = ""        # Reseller password
-    portal_url: str = ""      # Customer portal URL
+    portal_url: str = ""      # Customer portal URL (legacy, use streaming_url)
+    streaming_url: str = ""  # Streaming DNS for customers
     active: bool = True
 
 class NxtDashSettings(BaseModel):
@@ -296,6 +297,7 @@ class OneStreamPanel(BaseModel):
     admin_username: str = ""
     admin_password: str = ""
     ssl_verify: bool = False
+    streaming_url: str = ""  # Streaming DNS for customers
     active: bool = True
 
 class OneStreamSettings(BaseModel):
@@ -332,6 +334,7 @@ class BrandingSettings(BaseModel):
     feature_3_description: str = "Choose from 1, 3, 6, or 12-month plans. Save more with longer subscriptions."
     # Background (deprecated - use hero_background_image instead)
     background_image_url: str = ""
+    provision_notes_template: str = "{{customer_name}} | {{email}} | Order: {{order_id}}"
 
 
 # Credit and Referral Settings (must be before Settings class)
@@ -399,6 +402,27 @@ class InvoiceSettings(BaseModel):
     primary_color: str = "#2563eb"
     accent_color: str = "#f3f4f6"
 
+class SEOSettings(BaseModel):
+    meta_title: str = ""
+    meta_description: str = ""
+    meta_keywords: str = ""
+    og_title: str = ""
+    og_description: str = ""
+    og_image: str = ""
+    twitter_card: str = "summary_large_image"
+    favicon_url: str = ""
+    google_analytics_id: str = ""
+    google_tag_manager_id: str = ""
+    robots_txt: str = "User-agent: *\nAllow: /\nSitemap: /sitemap.xml"
+    schema_type: str = "Organization"
+    schema_name: str = ""
+    schema_description: str = ""
+    schema_url: str = ""
+    schema_logo: str = ""
+    schema_phone: str = ""
+    schema_email: str = ""
+    custom_head_code: str = ""
+
 
 class Settings(BaseModel):
     id: Optional[str] = None
@@ -422,6 +446,7 @@ class Settings(BaseModel):
     wise: WiseSettings = Field(default_factory=WiseSettings)
     helcim: HelcimSettings = Field(default_factory=HelcimSettings)
     invoice: InvoiceSettings = Field(default_factory=InvoiceSettings)
+    seo: SEOSettings = Field(default_factory=SEOSettings)
     currency: str = "USD"
     refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"

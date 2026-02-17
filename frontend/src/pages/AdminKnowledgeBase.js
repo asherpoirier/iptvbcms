@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import api from '../api/api';
-import { ArrowLeft, Plus, Edit, Trash2, X, Save, BookOpen, Eye, EyeOff, Search, Image, Video, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, X, Save, BookOpen, Eye, EyeOff, Search, Image, Video, Youtube, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
@@ -95,6 +95,28 @@ export default function AdminKnowledgeBase() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleYouTubeInsert = () => {
+    const url = window.prompt('Paste a YouTube video URL:');
+    if (!url) return;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|shorts\/))([a-zA-Z0-9_-]{11})/);
+    if (!match) {
+      toast.error('Invalid YouTube URL');
+      return;
+    }
+    const tag = `[video:${url}]`;
+    const textarea = contentRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const before = formData.content.substring(0, start);
+      const after = formData.content.substring(textarea.selectionEnd);
+      const newContent = before + (before.length > 0 && !before.endsWith('\n') ? '\n' : '') + tag + '\n' + after;
+      setFormData(prev => ({ ...prev, content: newContent }));
+    } else {
+      setFormData(prev => ({ ...prev, content: prev.content + '\n' + tag + '\n' }));
+    }
+    toast.success('YouTube video added!');
   };
 
   const categories = [...new Set((articles || []).map(a => a.category))];
@@ -280,13 +302,18 @@ export default function AdminKnowledgeBase() {
                       data-testid="kb-upload-video-btn">
                       <Video className="w-3.5 h-3.5" /> Video
                     </button>
+                    <button type="button" onClick={handleYouTubeInsert} disabled={uploading}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 disabled:opacity-50"
+                      data-testid="kb-youtube-btn">
+                      <Youtube className="w-3.5 h-3.5" /> YouTube
+                    </button>
                   </div>
                 </div>
                 <textarea ref={contentRef} value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   rows={12}
                   className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm font-mono"
-                  placeholder={"Write article content here.\n\nUse the Image/Video buttons above to embed media.\nTags like [image:/api/uploads/kb/file.jpg] and [video:/api/uploads/kb/file.mp4] will render for customers."}
+                  placeholder={"Write article content here.\n\nUse the Image/Video/YouTube buttons above to embed media.\nTags like [image:/api/uploads/kb/file.jpg], [video:/api/uploads/kb/file.mp4], and [video:https://youtube.com/watch?v=...] will render for customers."}
                   required data-testid="kb-content-input" />
               </div>
               <div className="flex items-center gap-2">

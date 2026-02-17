@@ -50,6 +50,7 @@ export default function AdminDashboard() {
 
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/admin' },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/admin/analytics' },
     { 
       id: 'customers', 
       label: 'Customers', 

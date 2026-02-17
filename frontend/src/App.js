@@ -37,6 +37,8 @@ import AdminRefunds from './pages/AdminRefunds';
 import AdminDownloads from './pages/AdminDownloads';
 import AdminKnowledgeBase from './pages/AdminKnowledgeBase';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
+import SEOHead from './components/SEOHead';
+import AnalyticsDashboard from './pages/AnalyticsDashboard';
 import AdminImportedUsers from './pages/AdminImportedUsers';
 import TicketsPage from './pages/TicketsPage';
 import DownloadsPage from './pages/DownloadsPage';
@@ -389,17 +391,16 @@ function App() {
             />
             <Route
               path="/admin/staff"
-              element={
-                <ProtectedRoute>
-                  <AdminRoute>
-                    <StaffManagement />
-                  </AdminRoute>
-                </ProtectedRoute>
-              }
+              element={<ProtectedRoute><AdminRoute><StaffManagement /></AdminRoute></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/analytics"
+              element={<ProtectedRoute><AdminRoute><AnalyticsDashboard /></AdminRoute></ProtectedRoute>}
             />
           </Routes>
         </div>
       </Router>
+      <SEOHead />
       <Toaster position="top-center" richColors closeButton duration={4000} />
       </LicenseCheck>
       </GoogleReCaptchaProvider>

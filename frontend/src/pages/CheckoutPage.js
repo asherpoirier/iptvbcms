@@ -87,12 +87,22 @@ export default function CheckoutPage() {
       if (['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise'].includes(paymentMethod)) {
         clearCart();
         navigate('/orders');
-        toast.error(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
+        toast.success(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
+      }
+      
+      // Free trial / fully paid with credits
+      const finalTotal = Math.max(0, getTotal() - discountAmount - creditsUsed);
+      if (finalTotal === 0) {
+        clearCart();
+        toast.success('Order placed! Your service is being provisioned.');
+        navigate('/orders');
       }
       // For PayPal, buttons will handle the flow
     },
     onError: (error) => {
-      setError(error.response?.data?.detail || 'Failed to create order');
+      const msg = error.response?.data?.detail || 'Failed to create order';
+      setError(msg);
+      toast.error(msg);
     },
   });
 

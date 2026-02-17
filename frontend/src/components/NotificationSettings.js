@@ -1,8 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Bell, Send, MessageSquare, CheckCircle, AlertCircle } from 'lucide-react';
+import { Bell, Send, MessageSquare, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+
+const eventLabels = {
+  new_order: { label: 'New Order', description: 'When a customer places a new order' },
+  payment_received: { label: 'Payment Received', description: 'When a payment is confirmed' },
+  new_user_registration: { label: 'New User Registration', description: 'When a new user signs up' },
+  service_activated: { label: 'Service Activated', description: 'When a service is activated for a customer' },
+  service_expired: { label: 'Service Expired', description: 'When a service expires' },
+  service_expiry_warning: { label: 'Expiry Reminders', description: 'When a service is about to expire (7, 3, 1 day warnings)' },
+  credit_low_alert: { label: 'Low Panel Credits', description: 'When IPTV panel credits drop below threshold' },
+  new_support_ticket: { label: 'New Support Ticket', description: 'When a customer creates a support ticket' },
+  ticket_reply: { label: 'Ticket Reply', description: 'When a customer replies to a ticket' }
+};
+
+const defaultEvents = {
+  new_order: true,
+  payment_received: true,
+  new_user_registration: true,
+  service_activated: true,
+  service_expired: false,
+  service_expiry_warning: true,
+  credit_low_alert: true,
+  new_support_ticket: true,
+  ticket_reply: false
+};
+
+function EventToggles({ events, onToggle, idPrefix }) {
+  return (
+    <div className="grid md:grid-cols-2 gap-4">
+      {Object.entries(eventLabels).map(([key, { label, description }]) => (
+        <label
+          key={key}
+          className="flex items-start gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:border-blue-400 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={events[key] || false}
+            onChange={() => onToggle(key)}
+            className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            data-testid={`${idPrefix}-event-${key}`}
+          />
+          <div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">{label}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{description}</div>
+          </div>
+        </label>
+      ))}
+    </div>
+  );
+}
 
 export default function NotificationSettings({ settings }) {
   const queryClient = useQueryClient();
@@ -10,22 +59,17 @@ export default function NotificationSettings({ settings }) {
     enabled: false,
     bot_token: '',
     chat_id: '',
-    events: {
-      new_order: true,
-      payment_received: true,
-      new_user: true,
-      service_activated: true,
-      service_expired: false,
-      service_expiry_warning: true,
-      credit_low_alert: true,
-      ticket_created: true,
-      ticket_replied: false
-    }
+    events: { ...defaultEvents }
+  });
+  const [emailConfig, setEmailConfig] = useState({
+    enabled: false,
+    recipient_email: '',
+    events: { ...defaultEvents }
   });
   const [creditThreshold, setCreditThreshold] = useState(10);
-  const [testStatus, setTestStatus] = useState(null);
+  const [telegramTestStatus, setTelegramTestStatus] = useState(null);
+  const [emailTestStatus, setEmailTestStatus] = useState(null);
 
-  // Fetch notification settings
   const { data: notificationSettings, isLoading } = useQuery({
     queryKey: ['notification-settings'],
     queryFn: async () => {
@@ -34,82 +78,66 @@ export default function NotificationSettings({ settings }) {
     },
   });
 
-  // Update local state when settings are fetched
   useEffect(() => {
     if (notificationSettings?.telegram) {
-      setTelegramConfig(prev => ({...prev, ...notificationSettings.telegram}));
+      setTelegramConfig(prev => ({ ...prev, ...notificationSettings.telegram }));
+    }
+    if (notificationSettings?.email) {
+      setEmailConfig(prev => ({ ...prev, ...notificationSettings.email }));
     }
     if (settings?.credit_alert_threshold !== undefined) {
       setCreditThreshold(settings.credit_alert_threshold);
     }
   }, [notificationSettings, settings]);
 
-  // Save mutation
   const saveMutation = useMutation({
-    mutationFn: async (data) => {
-      await adminAPI.updateTelegramSettings(data);
-      // Save credit threshold separately without overwriting notifications
+    mutationFn: async () => {
+      await adminAPI.updateTelegramSettings(telegramConfig);
+      await adminAPI.updateEmailNotificationSettings(emailConfig);
       const { notifications, ...settingsWithoutNotifications } = (settings || {});
-      await adminAPI.updateSettings({...settingsWithoutNotifications, credit_alert_threshold: creditThreshold});
+      await adminAPI.updateSettings({ ...settingsWithoutNotifications, credit_alert_threshold: creditThreshold });
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['notification-settings']);
-      toast.success('Telegram settings saved successfully!');
+      toast.success('Notification settings saved successfully!');
     },
     onError: (error) => {
       toast.error('Failed to save settings: ' + (error.response?.data?.detail || error.message));
     },
   });
 
-  // Test mutation
-  const testMutation = useMutation({
+  const telegramTestMutation = useMutation({
     mutationFn: (data) => adminAPI.testTelegramNotification(data),
     onSuccess: () => {
-      setTestStatus('success');
-      setTimeout(() => setTestStatus(null), 3000);
+      setTelegramTestStatus('success');
+      setTimeout(() => setTelegramTestStatus(null), 3000);
     },
     onError: (error) => {
-      setTestStatus('error');
-      toast.error('Test failed: ' + (error.response?.data?.detail || error.message));
-      setTimeout(() => setTestStatus(null), 3000);
+      setTelegramTestStatus('error');
+      toast.error('Telegram test failed: ' + (error.response?.data?.detail || error.message));
+      setTimeout(() => setTelegramTestStatus(null), 3000);
     },
   });
 
-  const handleSave = () => {
-    saveMutation.mutate(telegramConfig);
+  const emailTestMutation = useMutation({
+    mutationFn: (data) => adminAPI.testEmailNotification(data),
+    onSuccess: () => {
+      setEmailTestStatus('success');
+      setTimeout(() => setEmailTestStatus(null), 3000);
+    },
+    onError: (error) => {
+      setEmailTestStatus('error');
+      toast.error('Email test failed: ' + (error.response?.data?.detail || error.message));
+      setTimeout(() => setEmailTestStatus(null), 3000);
+    },
+  });
+
+  const handleTelegramEventToggle = (event) => {
+    setTelegramConfig(prev => ({ ...prev, events: { ...prev.events, [event]: !prev.events[event] } }));
   };
 
-  const handleTest = () => {
-    if (!telegramConfig.bot_token || !telegramConfig.chat_id) {
-      toast.error('Please enter both Bot Token and Chat ID before testing');
-      return;
-    }
-    testMutation.mutate({
-      bot_token: telegramConfig.bot_token,
-      chat_id: telegramConfig.chat_id
-    });
-  };
-
-  const handleEventToggle = (event) => {
-    setTelegramConfig(prev => ({
-      ...prev,
-      events: {
-        ...prev.events,
-        [event]: !prev.events[event]
-      }
-    }));
-  };
-
-  const eventLabels = {
-    new_order: { label: 'New Order', description: 'When a customer places a new order' },
-    payment_received: { label: 'Payment Received', description: 'When a payment is confirmed' },
-    new_user: { label: 'New User Registration', description: 'When a new user signs up' },
-    service_activated: { label: 'Service Activated', description: 'When a service is activated for a customer' },
-    service_expired: { label: 'Service Expired', description: 'When a service expires' },
-    service_expiry_warning: { label: 'Expiry Reminders', description: 'When a service is about to expire (7, 3, 1 day warnings)' },
-    credit_low_alert: { label: 'Low Panel Credits', description: 'When IPTV panel credits drop below threshold' },
-    ticket_created: { label: 'New Support Ticket', description: 'When a customer creates a support ticket' },
-    ticket_replied: { label: 'Ticket Reply', description: 'When a customer replies to a ticket' }
+  const handleEmailEventToggle = (event) => {
+    setEmailConfig(prev => ({ ...prev, events: { ...prev.events, [event]: !prev.events[event] } }));
   };
 
   if (isLoading) {
@@ -131,6 +159,80 @@ export default function NotificationSettings({ settings }) {
         <p className="text-gray-600 dark:text-gray-400 mt-1">
           Configure how you receive notifications about important events
         </p>
+      </div>
+
+      {/* Email Notifications Section */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-100 dark:bg-green-900 rounded-lg">
+              <Mail className="w-6 h-6 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Email Notifications</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Receive admin notifications via email</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={emailConfig.enabled}
+              onChange={(e) => setEmailConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+              className="sr-only peer"
+              data-testid="email-notif-enabled"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:peer-focus:ring-green-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-600"></div>
+          </label>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Recipient Email
+            </label>
+            <input
+              type="email"
+              value={emailConfig.recipient_email}
+              onChange={(e) => setEmailConfig(prev => ({ ...prev, recipient_email: e.target.value }))}
+              placeholder="admin@yoursite.com"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+              data-testid="email-notif-recipient"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              The email address where admin notifications will be sent. Requires SMTP to be configured in Email Settings.
+            </p>
+          </div>
+
+          {/* Test Button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => emailTestMutation.mutate({ recipient_email: emailConfig.recipient_email })}
+              disabled={emailTestMutation.isPending || !emailConfig.recipient_email}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="email-notif-test-btn"
+            >
+              <Send className="w-4 h-4" />
+              {emailTestMutation.isPending ? 'Sending...' : 'Send Test Email'}
+            </button>
+            {emailTestStatus === 'success' && (
+              <span className="flex items-center text-green-600 text-sm">
+                <CheckCircle className="w-4 h-4 mr-1" /> Email sent!
+              </span>
+            )}
+            {emailTestStatus === 'error' && (
+              <span className="flex items-center text-red-600 text-sm">
+                <AlertCircle className="w-4 h-4 mr-1" /> Failed to send
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Event Triggers */}
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-4">Notification Events</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose which events should trigger an email notification</p>
+          <EventToggles events={emailConfig.events} onToggle={handleEmailEventToggle} idPrefix="email" />
+        </div>
       </div>
 
       {/* Telegram Section */}
@@ -157,12 +259,9 @@ export default function NotificationSettings({ settings }) {
           </label>
         </div>
 
-        {/* Configuration Fields */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Bot Token
-            </label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bot Token</label>
             <input
               type="text"
               value={telegramConfig.bot_token}
@@ -175,11 +274,8 @@ export default function NotificationSettings({ settings }) {
               Get your bot token from <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">@BotFather</a>
             </p>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Chat ID
-            </label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID</label>
             <input
               type="text"
               value={telegramConfig.chat_id}
@@ -192,28 +288,24 @@ export default function NotificationSettings({ settings }) {
               Your personal chat ID or group chat ID. Get it from <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">@userinfobot</a>
             </p>
           </div>
-
-          {/* Test Button */}
           <div className="flex items-center gap-3">
             <button
-              onClick={handleTest}
-              disabled={testMutation.isPending || !telegramConfig.bot_token || !telegramConfig.chat_id}
+              onClick={() => telegramTestMutation.mutate({ bot_token: telegramConfig.bot_token, chat_id: telegramConfig.chat_id })}
+              disabled={telegramTestMutation.isPending || !telegramConfig.bot_token || !telegramConfig.chat_id}
               className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               data-testid="telegram-test-btn"
             >
               <Send className="w-4 h-4" />
-              {testMutation.isPending ? 'Sending...' : 'Send Test Message'}
+              {telegramTestMutation.isPending ? 'Sending...' : 'Send Test Message'}
             </button>
-            {testStatus === 'success' && (
+            {telegramTestStatus === 'success' && (
               <span className="flex items-center text-green-600 text-sm">
-                <CheckCircle className="w-4 h-4 mr-1" />
-                Message sent!
+                <CheckCircle className="w-4 h-4 mr-1" /> Message sent!
               </span>
             )}
-            {testStatus === 'error' && (
+            {telegramTestStatus === 'error' && (
               <span className="flex items-center text-red-600 text-sm">
-                <AlertCircle className="w-4 h-4 mr-1" />
-                Failed to send
+                <AlertCircle className="w-4 h-4 mr-1" /> Failed to send
               </span>
             )}
           </div>
@@ -221,58 +313,36 @@ export default function NotificationSettings({ settings }) {
 
         {/* Event Triggers */}
         <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-4">
-            Notification Events
-          </h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Choose which events should trigger a Telegram notification
-          </p>
-          <div className="grid md:grid-cols-2 gap-4">
-            {Object.entries(eventLabels).map(([key, { label, description }]) => (
-              <label
-                key={key}
-                className="flex items-start gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:border-blue-400 transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={telegramConfig.events[key] || false}
-                  onChange={() => handleEventToggle(key)}
-                  className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  data-testid={`event-${key}`}
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{label}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{description}</div>
-                </div>
-              </label>
-            ))}
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-4">Notification Events</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose which events should trigger a Telegram notification</p>
+          <EventToggles events={telegramConfig.events} onToggle={handleTelegramEventToggle} idPrefix="telegram" />
+        </div>
+      </div>
+
+      {/* Credit Alert Threshold */}
+      {(telegramConfig.events?.credit_low_alert || emailConfig.events?.credit_low_alert) && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+          <label className="block text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
+            Credit Alert Threshold
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              value={creditThreshold}
+              onChange={(e) => setCreditThreshold(parseInt(e.target.value) || 10)}
+              className="w-24 px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              data-testid="credit-threshold-input"
+            />
+            <span className="text-sm text-amber-700 dark:text-amber-300">credits - alert when any panel drops below this</span>
           </div>
         </div>
-
-        {/* Credit Alert Threshold */}
-        {telegramConfig.events?.credit_low_alert && (
-          <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
-            <label className="block text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
-              Credit Alert Threshold
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                min="1"
-                value={creditThreshold}
-                onChange={(e) => setCreditThreshold(parseInt(e.target.value) || 10)}
-                className="w-24 px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              />
-              <span className="text-sm text-amber-700 dark:text-amber-300">credits — alert when any panel drops below this</span>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Save Button */}
       <div className="flex justify-end">
         <button
-          onClick={handleSave}
+          onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
           className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           data-testid="save-notifications-btn"

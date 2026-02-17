@@ -6,6 +6,11 @@ import { ArrowLeft, BookOpen, ChevronRight, Search, ChevronDown } from 'lucide-r
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
+function getYouTubeId(url) {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|shorts\/))([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
 function RichContent({ content }) {
   const parts = content.split(/(\[image:[^\]]+\]|\[video:[^\]]+\])/g);
   return (
@@ -18,7 +23,22 @@ function RichContent({ content }) {
         }
         const videoMatch = part.match(/^\[video:(.+)\]$/);
         if (videoMatch) {
-          const src = videoMatch[1].startsWith('http') ? videoMatch[1] : `${API_URL}${videoMatch[1]}`;
+          const videoUrl = videoMatch[1];
+          const ytId = getYouTubeId(videoUrl);
+          if (ytId) {
+            return (
+              <div key={i} className="relative w-full" style={{ paddingBottom: '56.25%' }} data-testid="kb-content-youtube">
+                <iframe
+                  className="absolute top-0 left-0 w-full h-full rounded-lg"
+                  src={`https://www.youtube.com/embed/${ytId}`}
+                  title="YouTube video"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            );
+          }
+          const src = videoUrl.startsWith('http') ? videoUrl : `${API_URL}${videoUrl}`;
           return (
             <video key={i} controls className="rounded-lg max-w-full max-h-[500px]" data-testid="kb-content-video" preload="metadata">
               <source src={src} />

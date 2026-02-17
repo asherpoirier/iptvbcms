@@ -58,9 +58,13 @@ export default function XuiOnePanelManagement({ settings }) {
   const syncBouquetsMutation = useMutation({
     mutationFn: (panelIndex) => adminAPI.syncXuiOneBouquets(panelIndex),
     onSuccess: (response, panelIndex) => {
-      const count = response.data?.bouquets?.length || 0;
-      const panelName = response.data?.panel_name || 'panel';
-      toast.success(`✓ Synced ${count} bouquets from ${panelName}!`);
+      if (response.data?.warning) {
+        toast.warning(response.data.warning, { duration: 6000 });
+      } else {
+        const count = response.data?.bouquets?.length || 0;
+        const panelName = response.data?.panel_name || 'panel';
+        toast.success(`Synced ${count} bouquets from ${panelName}`);
+      }
       setSyncingBouquets(null);
     },
     onError: (error, panelIndex) => {

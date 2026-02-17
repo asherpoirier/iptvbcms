@@ -89,10 +89,6 @@ export default function LinkEmailPage() {
               className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
               {submitting ? 'Sending...' : <><ArrowRight className="w-5 h-5" /> Link Email & Verify</>}
             </button>
-            <button type="button" onClick={handleSkip}
-              className="w-full py-2 text-gray-500 dark:text-gray-400 text-sm hover:text-gray-700">
-              Skip for now
-            </button>
           </form>
         )}
       </div>

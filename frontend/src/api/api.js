@@ -171,6 +171,8 @@ export const adminAPI = {
   getNotificationSettings: () => api.get('/api/admin/notifications/settings'),
   updateTelegramSettings: (data) => api.put('/api/admin/notifications/telegram', data),
   testTelegramNotification: (data) => api.post('/api/admin/notifications/telegram/test', data),
+  updateEmailNotificationSettings: (data) => api.put('/api/admin/notifications/email', data),
+  testEmailNotification: (data) => api.post('/api/admin/notifications/email/test', data),
 
   syncTrialPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync-trial?panel_index=${panelIndex}`),
   updateBouquets: (data) => api.put('/api/admin/bouquets', data),

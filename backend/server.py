@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, status, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
@@ -16,6 +16,9 @@ import secrets
 import asyncio
 import re
 import shutil
+import aiosmtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from bson import ObjectId
 from dotenv import load_dotenv
 
@@ -308,7 +311,7 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
     panel_index = imported_user.get("panel_index", 0)
     if panel_index < len(panels_list):
         p = panels_list[panel_index]
-        streaming_url = p.get("portal_url", p.get("streaming_url", p.get("panel_url", "")))
+        streaming_url = p.get("streaming_url") or p.get("portal_url") or p.get("panel_url", "")
 
     service_exists = await services_collection.find_one({
         "user_id": user_id,
@@ -346,6 +349,15 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
         await services_collection.insert_one(service_doc)
 
     return user_id
+
+
+def render_provision_notes(template: str, **kwargs) -> str:
+    """Render provisioning notes template with variables"""
+    if not template:
+        template = "{{customer_name}} | {{email}} | Order: {{order_id}}"
+    for key, val in kwargs.items():
+        template = template.replace("{{" + key + "}}", str(val or ""))
+    return template.strip()
 
 
 async def get_settings() -> dict:
@@ -973,6 +985,11 @@ async def register(user_data: UserCreate):
     await send_telegram_notification(
         "new_user_registration",
         f"🆕 *New User Registration*\n\nName: {user_data.name}\nEmail: {user_data.email}"
+    )
+    await send_email_notification(
+        "new_user_registration",
+        "New User Registration",
+        f"Name: {user_data.name}\nEmail: {user_data.email}"
     )
     
     return {
@@ -2043,7 +2060,7 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://iptv-billing-hub.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://admin-analytics-46.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2123,7 +2140,7 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
     # Build callback URL for webhook - use PUBLIC_URL for production
-    public_url = os.getenv("PUBLIC_URL", "https://iptv-billing-hub.preview.emergentagent.com")
+    public_url = os.getenv("PUBLIC_URL", "https://admin-analytics-46.preview.emergentagent.com")
     callback_url = f"{public_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
@@ -2345,6 +2362,36 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
     """Create new order with coupon and credit support"""
     user_id = current_user["sub"]
     
+    # Check trial eligibility - 1 trial per customer per panel
+    for item in order_data.items:
+        product = await products_collection.find_one({"_id": str_to_objectid(item.product_id)})
+        if product and product.get("is_trial"):
+            panel_type = product.get("panel_type", "xtream")
+            panel_index = product.get("panel_index", 0)
+            existing_trial = await services_collection.find_one({
+                "user_id": user_id,
+                "panel_type": panel_type,
+                "panel_index": panel_index,
+                "account_type": "subscriber",
+                "$or": [
+                    {"is_trial": True},
+                    {"product_name": {"$regex": "trial", "$options": "i"}}
+                ]
+            })
+            if not existing_trial:
+                existing_trial_order = await orders_collection.find_one({
+                    "user_id": user_id,
+                    "status": {"$in": ["paid", "pending"]},
+                    "items": {"$elemMatch": {"product_id": item.product_id}}
+                })
+                if existing_trial_order:
+                    existing_trial = existing_trial_order
+            if existing_trial:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"You have already used a trial for this service. Only one trial per customer is allowed."
+                )
+    
     # Calculate pricing
     subtotal = order_data.total
     discount_amount = 0.0
@@ -2448,6 +2495,11 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
     await send_telegram_notification(
         "new_order",
         f"🛒 *New Order Created*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nTotal: ${final_total:.2f}\n\nItems:\n{order_items_text}"
+    )
+    await send_email_notification(
+        "new_order",
+        "New Order Created",
+        f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nTotal: ${final_total:.2f}\n\nItems:\n{order_items_text}"
     )
     
     # If fully paid with credits, mark order as paid and provision service
@@ -2666,6 +2718,11 @@ async def create_ticket(ticket_data: TicketCreate, current_user: dict = Depends(
         "new_support_ticket",
         f"🎫 *New Support Ticket*\n\nFrom: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nSubject: {ticket_data.subject}\nPriority: {ticket_data.priority}\n\nMessage:\n{ticket_data.message[:200]}..."
     )
+    await send_email_notification(
+        "new_support_ticket",
+        "New Support Ticket",
+        f"From: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nSubject: {ticket_data.subject}\nPriority: {ticket_data.priority}\n\nMessage:\n{ticket_data.message[:200]}..."
+    )
     
     return {"message": "Ticket created successfully", "ticket_id": ticket_dict["id"]}
 
@@ -2748,6 +2805,11 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
     await send_telegram_notification(
         "ticket_reply",
         f"💬 *Ticket Reply*\n\nTicket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nAdmin replied:\n{reply['message'][:200]}..."
+    )
+    await send_email_notification(
+        "ticket_reply",
+        "Ticket Reply",
+        f"Ticket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nAdmin replied:\n{reply['message'][:200]}..."
     )
     
     return {"message": "Ticket status updated"}
@@ -3291,6 +3353,11 @@ async def mark_order_paid(order_id: str, background_tasks: BackgroundTasks,
         "payment_received",
         f"💰 *Payment Received*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nAmount: ${order['total']:.2f}\n\nItems:\n{order_items_text}"
     )
+    await send_email_notification(
+        "payment_received",
+        "Payment Received",
+        f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nAmount: ${order['total']:.2f}\n\nItems:\n{order_items_text}"
+    )
     
     # Provision services
     background_tasks.add_task(provision_order_services, order_id, order, user)
@@ -3735,6 +3802,11 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         await send_telegram_notification(
                             "service_activated",
                             f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {actual_expiry.strftime('%Y-%m-%d')}"
+                        )
+                        await send_email_notification(
+                            "service_activated",
+                            "Service Activated",
+                            f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {actual_expiry.strftime('%Y-%m-%d')}"
                         )
                         
                         logger.info(f"Subscriber provisioned: {username}")
@@ -4245,7 +4317,7 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                     service_name=item["product_name"],
                     username=username,
                     password=password,
-                    streaming_url=panel.get("panel_url", ""),  # XuiOne uses panel_url for streaming
+                    streaming_url=panel.get("streaming_url") or panel.get("panel_url", ""),  # XuiOne streaming URL
                     max_connections=product["max_connections"],
                     expiry_date=expiry_date_str,
                     customer_id=order["user_id"]
@@ -4255,6 +4327,11 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                 await send_telegram_notification(
                     "service_activated",
                     f"✅ *Service Activated*\n\nCustomer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XuiOne)\nUsername: {username}\nExpiry: {expiry_date_str}"
+                )
+                await send_email_notification(
+                    "service_activated",
+                    "Service Activated",
+                    f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XuiOne)\nUsername: {username}\nExpiry: {expiry_date_str}"
                 )
         
         else:
@@ -4561,6 +4638,8 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
                     "onestream_line_id": result.get("line_id", ""),
                     "bouquets": product.get("bouquets", []),
                     "max_connections": product.get("max_connections", 1),
+                    "is_trial": product.get("is_trial", False),
+                    "streaming_url": panel.get("streaming_url") or panel.get("panel_url", ""),
                     "start_date": datetime.utcnow(),
                     "expiry_date": expiry_date,
                     "created_at": datetime.utcnow()
@@ -4585,6 +4664,11 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
                 await send_telegram_notification(
                     "service_activated",
                     f"✅ *Service Activated (1-Stream)*\n\nCustomer: {user.get('name')}\nEmail: {user.get('email')}\nService: {item['product_name']}\nPanel: {panel_name}\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
+                )
+                await send_email_notification(
+                    "service_activated",
+                    "Service Activated (1-Stream)",
+                    f"Customer: {user.get('name')}\nEmail: {user.get('email')}\nService: {item['product_name']}\nPanel: {panel_name}\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
                 )
                 
                 logger.info(f"1-Stream subscriber provisioned: {username}")
@@ -4781,7 +4865,7 @@ async def provision_nxtdash_service(order_id: str, order: dict, user: dict, item
                     from datetime import timezone
                     expiry_str = datetime.fromtimestamp(int(expire_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-                portal_url = panel.get("portal_url", "")
+                portal_url = panel.get("streaming_url") or panel.get("portal_url") or panel.get("panel_url", "")
 
                 service_doc = {
                     "user_id": order["user_id"],
@@ -4798,6 +4882,7 @@ async def provision_nxtdash_service(order_id: str, order: dict, user: dict, item
                     "nxtdash_line_id": result.get("line_id", ""),
                     "account_type": "subscriber",
                     "max_connections": product.get("max_connections", 1),
+                    "is_trial": product.get("is_trial", False),
                     "streaming_url": portal_url,
                     "expiry_date": expiry_str,
                     "status": "active",
@@ -5228,6 +5313,29 @@ async def update_admin_settings(settings_update: Settings,
     
     existing = await settings_collection.find_one()
     if existing:
+        # Detect removed panels and clean up their data
+        for panel_type_key in ["xtream", "xuione", "onestream", "nxtdash"]:
+            old_panels = existing.get(panel_type_key, {}).get("panels", [])
+            new_panels = settings_dict.get(panel_type_key, {}).get("panels", [])
+            old_names = {p.get("name") for p in old_panels if p.get("name")}
+            new_names = {p.get("name") for p in new_panels if p.get("name")}
+            removed_names = old_names - new_names
+            if removed_names:
+                logger.info(f"Panels removed from {panel_type_key}: {removed_names}")
+                for panel_name in removed_names:
+                    orphaned = await imported_users_collection.find(
+                        {"panel_name": panel_name, "panel_type": panel_type_key}
+                    ).to_list(length=50000)
+                    for iu in orphaned:
+                        uid = iu.get("user_id")
+                        if uid:
+                            await users_collection.delete_one({"_id": str_to_objectid(uid), "created_via": "panel_sync"})
+                            await services_collection.delete_many({"user_id": uid, "panel_type": panel_type_key, "panel_name": panel_name})
+                    del_result = await imported_users_collection.delete_many(
+                        {"panel_name": panel_name, "panel_type": panel_type_key}
+                    )
+                    logger.info(f"Cleaned up {del_result.deleted_count} imported users for removed panel '{panel_name}'")
+        
         await settings_collection.update_one(
             {"_id": existing["_id"]},
             {"$set": settings_dict}
@@ -5327,6 +5435,23 @@ class TestTelegramRequest(BaseModel):
     bot_token: str
     chat_id: str
 
+class EmailNotificationSettings(BaseModel):
+    enabled: bool = False
+    recipient_email: str = ""
+    events: dict = {}
+
+DEFAULT_NOTIFICATION_EVENTS = {
+    "new_order": True,
+    "payment_received": True,
+    "new_user": True,
+    "service_activated": True,
+    "service_expired": False,
+    "service_expiry_warning": True,
+    "credit_low_alert": True,
+    "ticket_created": True,
+    "ticket_replied": False
+}
+
 @app.get("/api/admin/notifications/settings")
 async def get_notification_settings(current_user: dict = Depends(get_current_admin_user)):
     """Get notification settings"""
@@ -5337,15 +5462,12 @@ async def get_notification_settings(current_user: dict = Depends(get_current_adm
             "enabled": False,
             "bot_token": "",
             "chat_id": "",
-            "events": {
-                "new_order": True,
-                "payment_received": True,
-                "new_user": True,
-                "service_activated": True,
-                "service_expired": False,
-                "ticket_created": True,
-                "ticket_replied": False
-            }
+            "events": DEFAULT_NOTIFICATION_EVENTS.copy()
+        }),
+        "email": notifications.get("email", {
+            "enabled": False,
+            "recipient_email": settings.get("support_email", ""),
+            "events": DEFAULT_NOTIFICATION_EVENTS.copy()
         })
     }
 
@@ -5422,6 +5544,63 @@ async def test_telegram_notification(request: TestTelegramRequest, current_user:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send test message: {str(e)}")
 
+@app.put("/api/admin/notifications/email")
+async def update_email_notification_settings(email_settings: EmailNotificationSettings, current_user: dict = Depends(get_current_admin_user)):
+    """Update email notification settings"""
+    settings = await get_settings()
+    if "notifications" not in settings:
+        settings["notifications"] = {}
+    settings["notifications"]["email"] = email_settings.dict()
+    await settings_collection.update_one(
+        {},
+        {"$set": {"notifications": settings["notifications"]}},
+        upsert=True
+    )
+    return {"message": "Email notification settings updated successfully"}
+
+@app.post("/api/admin/notifications/email/test")
+async def test_email_notification_endpoint(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Send a test email notification"""
+    recipient = data.get("recipient_email", "")
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+    try:
+        email_service = await get_configured_email_service()
+        if not email_service or not email_service.enabled:
+            raise HTTPException(status_code=400, detail="SMTP is not configured. Please set up SMTP in Email Settings first.")
+        settings = await get_settings()
+        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
+        subject = f"Test Notification from {site_name}"
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            {email_service._get_email_header("Test Notification")}
+            <div style="padding: 30px;">
+                <p style="font-size: 16px; color: #333;">This is a test notification from <strong>{site_name}</strong>.</p>
+                <p style="font-size: 14px; color: #666;">Your admin email notifications are configured correctly!</p>
+            </div>
+            {email_service._get_email_footer(site_name)}
+        </div>
+        """
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"{email_service.from_name} <{email_service.from_email}>"
+        msg["To"] = recipient
+        msg["Subject"] = subject
+        msg.attach(MIMEText(html_body, "html"))
+        await aiosmtplib.send(
+            msg,
+            hostname=email_service.smtp_host,
+            port=email_service.smtp_port,
+            username=email_service.smtp_username,
+            password=email_service.smtp_password,
+            use_tls=False,
+            start_tls=True,
+        )
+        return {"message": "Test email sent successfully!"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
+
 # Helper function to send Telegram notifications
 async def send_telegram_notification(event_type: str, message: str):
     """Send a Telegram notification if enabled for the event type"""
@@ -5456,6 +5635,57 @@ async def send_telegram_notification(event_type: str, message: str):
         return True
     except Exception as e:
         logger.error(f"Failed to send Telegram notification: {str(e)}")
+        return False
+
+# Helper function to send admin email notifications
+async def send_email_notification(event_type: str, subject: str, message: str):
+    """Send an admin email notification if enabled for the event type"""
+    try:
+        settings = await get_settings()
+        email_notif = settings.get("notifications", {}).get("email", {})
+        
+        if not email_notif.get("enabled"):
+            return False
+        
+        events = email_notif.get("events", {})
+        if not events.get(event_type, False):
+            return False
+        
+        recipient = email_notif.get("recipient_email", "")
+        if not recipient:
+            return False
+        
+        email_service = await get_configured_email_service()
+        if not email_service or not email_service.enabled:
+            return False
+        
+        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            {email_service._get_email_header(subject)}
+            <div style="padding: 30px;">
+                <pre style="font-family: Arial, sans-serif; font-size: 14px; color: #333; white-space: pre-wrap;">{message}</pre>
+            </div>
+            {email_service._get_email_footer(site_name)}
+        </div>
+        """
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"{email_service.from_name} <{email_service.from_email}>"
+        msg["To"] = recipient
+        msg["Subject"] = f"[{site_name}] {subject}"
+        msg.attach(MIMEText(html_body, "html"))
+        await aiosmtplib.send(
+            msg,
+            hostname=email_service.smtp_host,
+            port=email_service.smtp_port,
+            username=email_service.smtp_username,
+            password=email_service.smtp_password,
+            use_tls=False,
+            start_tls=True,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send admin email notification: {str(e)}")
         return False
 
 # ===== XUIONE PANEL ENDPOINTS =====
@@ -5561,7 +5791,13 @@ async def sync_xuione_bouquets(panel_index: int = 0, current_user: dict = Depend
     result = service.get_bouquets()
     
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to fetch bouquets"))
+        return {
+            "success": False,
+            "warning": result.get("error", "Could not fetch bouquets from this panel"),
+            "bouquets": [],
+            "count": 0,
+            "panel_name": panel_name
+        }
     
     bouquets = result.get("bouquets", [])
     
@@ -10215,6 +10451,122 @@ async def get_public_kb_article(article_id: str):
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return article
+
+
+# ============ ANALYTICS ============
+@app.get("/api/admin/analytics")
+async def get_admin_analytics(period: str = "30d", current_user: dict = Depends(get_current_admin_user)):
+    """Get comprehensive revenue analytics"""
+    days = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}.get(period, 30)
+    start_date = datetime.utcnow() - timedelta(days=days)
+    prev_start = start_date - timedelta(days=days)
+
+    cur_pipeline = [{"$match": {"status": "paid", "paid_at": {"$gte": start_date}}}, {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}}]
+    cur = await orders_collection.aggregate(cur_pipeline).to_list(1)
+    cur_revenue = cur[0]["total"] if cur else 0
+    cur_orders = cur[0]["count"] if cur else 0
+
+    prev_pipeline = [{"$match": {"status": "paid", "paid_at": {"$gte": prev_start, "$lt": start_date}}}, {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}}]
+    prev = await orders_collection.aggregate(prev_pipeline).to_list(1)
+    prev_revenue = prev[0]["total"] if prev else 0
+    prev_orders = prev[0]["count"] if prev else 0
+
+    rev_change = ((cur_revenue - prev_revenue) / prev_revenue * 100) if prev_revenue > 0 else 0
+    order_change = ((cur_orders - prev_orders) / prev_orders * 100) if prev_orders > 0 else 0
+
+    cur_customers = await users_collection.count_documents({"created_at": {"$gte": start_date}, "role": "user"})
+    prev_customers = await users_collection.count_documents({"created_at": {"$gte": prev_start, "$lt": start_date}, "role": "user"})
+    cust_change = ((cur_customers - prev_customers) / prev_customers * 100) if prev_customers > 0 else 0
+
+    chart_data = []
+    for i in range(min(days, 90)):
+        d_start = start_date + timedelta(days=i)
+        d_end = d_start + timedelta(days=1)
+        d_pipe = [{"$match": {"status": "paid", "paid_at": {"$gte": d_start, "$lt": d_end}}}, {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": 1}}}]
+        d_res = await orders_collection.aggregate(d_pipe).to_list(1)
+        chart_data.append({"date": d_start.strftime("%b %d"), "revenue": round(d_res[0]["total"], 2) if d_res else 0, "orders": d_res[0]["count"] if d_res else 0})
+
+    method_pipeline = [
+        {"$match": {"status": "paid", "paid_at": {"$gte": start_date}}},
+        {"$group": {"_id": "$payment_method", "total": {"$sum": "$total"}, "count": {"$sum": 1}}}
+    ]
+    methods = await orders_collection.aggregate(method_pipeline).to_list(20)
+    by_method = [{"method": m["_id"] or "unknown", "revenue": round(m["total"], 2), "orders": m["count"]} for m in methods]
+
+    product_pipeline = [
+        {"$match": {"status": "paid", "paid_at": {"$gte": start_date}}},
+        {"$unwind": "$items"},
+        {"$group": {"_id": "$items.product_name", "revenue": {"$sum": "$items.price"}, "count": {"$sum": 1}}},
+        {"$sort": {"revenue": -1}}, {"$limit": 10}
+    ]
+    top_products = await orders_collection.aggregate(product_pipeline).to_list(10)
+    by_product = [{"name": p["_id"] or "Unknown", "revenue": round(p["revenue"], 2), "orders": p["count"]} for p in top_products]
+
+    active_services = await services_collection.count_documents({"status": "active"})
+    total_customers = await users_collection.count_documents({"role": "user"})
+
+    return {
+        "revenue": {"current": round(cur_revenue, 2), "previous": round(prev_revenue, 2), "change": round(rev_change, 1)},
+        "orders": {"current": cur_orders, "previous": prev_orders, "change": round(order_change, 1)},
+        "customers": {"current": cur_customers, "previous": prev_customers, "change": round(cust_change, 1), "total": total_customers},
+        "active_services": active_services,
+        "chart": chart_data,
+        "by_method": by_method,
+        "by_product": by_product,
+    }
+
+
+# ============ SEO ============
+@app.get("/api/seo")
+async def get_seo_settings():
+    settings = await get_settings()
+    seo = settings.get("seo", {})
+    branding = settings.get("branding", {})
+    return {
+        "meta_title": seo.get("meta_title") or branding.get("site_name", "IPTV Billing"),
+        "meta_description": seo.get("meta_description") or branding.get("hero_description", ""),
+        "meta_keywords": seo.get("meta_keywords", ""),
+        "og_title": seo.get("og_title") or seo.get("meta_title") or branding.get("site_name", ""),
+        "og_description": seo.get("og_description") or seo.get("meta_description") or branding.get("hero_description", ""),
+        "og_image": seo.get("og_image") or branding.get("logo_url", ""),
+        "twitter_card": seo.get("twitter_card", "summary_large_image"),
+        "favicon_url": seo.get("favicon_url", ""),
+        "google_analytics_id": seo.get("google_analytics_id", ""),
+        "google_tag_manager_id": seo.get("google_tag_manager_id", ""),
+        "schema_type": seo.get("schema_type", "Organization"),
+        "schema_name": seo.get("schema_name") or branding.get("site_name", ""),
+        "schema_description": seo.get("schema_description") or seo.get("meta_description", ""),
+        "schema_url": seo.get("schema_url", ""),
+        "schema_logo": seo.get("schema_logo") or branding.get("logo_url", ""),
+        "schema_phone": seo.get("schema_phone", ""),
+        "schema_email": seo.get("schema_email", ""),
+        "custom_head_code": seo.get("custom_head_code", ""),
+    }
+
+@app.get("/api/robots.txt")
+async def robots_txt():
+    settings = await get_settings()
+    content = settings.get("seo", {}).get("robots_txt", "User-agent: *\nAllow: /\nSitemap: /api/sitemap.xml")
+    return Response(content=content, media_type="text/plain")
+
+@app.get("/api/sitemap.xml")
+async def sitemap_xml(request: Request):
+    settings = await get_settings()
+    base_url = settings.get("seo", {}).get("schema_url", "").rstrip("/")
+    if not base_url:
+        base_url = str(request.base_url).rstrip("/")
+    urls = [
+        {"loc": f"{base_url}/", "priority": "1.0", "changefreq": "daily"},
+        {"loc": f"{base_url}/login", "priority": "0.6", "changefreq": "monthly"},
+        {"loc": f"{base_url}/register", "priority": "0.6", "changefreq": "monthly"},
+    ]
+    async for product in products_collection.find({"is_active": {"$ne": False}}, {"_id": 1}):
+        urls.append({"loc": f"{base_url}/order/{str(product['_id'])}", "priority": "0.8", "changefreq": "weekly"})
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for u in urls:
+        xml += f'  <url>\n    <loc>{u["loc"]}</loc>\n    <priority>{u["priority"]}</priority>\n    <changefreq>{u["changefreq"]}</changefreq>\n  </url>\n'
+    xml += '</urlset>'
+    return Response(content=xml, media_type="application/xml")
 
 
 if __name__ == "__main__":

@@ -233,7 +233,7 @@ function ServiceCard({ service, navigate, expired }) {
   const isExpiringSoon = daysLeft <= 7 && daysLeft > 0;
   const isExpired = diffMs <= 0;
 
-  const countdownText = isExpired ? 'Expired' : daysLeft > 0 ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : `${hoursLeft}h left`;
+  const countdownText = isExpired ? 'Expired' : daysLeft > 1 ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : hoursLeft > 0 ? `${hoursLeft}h left` : 'Expiring soon';
   const countdownColor = isExpired ? 'text-red-600 bg-red-50 dark:bg-red-900/20' : isExpiringSoon ? 'text-amber-600 bg-amber-50 dark:bg-amber-900/20' : 'text-green-600 bg-green-50 dark:bg-green-900/20';
 
   const streamUrl = service.streaming_url;

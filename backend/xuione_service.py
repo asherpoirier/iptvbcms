@@ -343,61 +343,119 @@ class XuiOneService:
     def get_bouquets(self) -> Dict[str, Any]:
         """Get bouquets from XuiOne panel using API"""
         try:
-            logger.info("XuiOne: Fetching bouquets via get_package API...")
+            logger.info("XuiOne: Fetching bouquets...")
             
             if not self.logged_in:
                 if not self.login():
                     return {"success": False, "error": "Login failed", "bouquets": []}
             
-            # Get bouquets by fetching a package (they all have the same bouquet list)
-            # Use the web session (not API key) since this is the web API
-            logger.info(f"Fetching: {self.panel_url}/api?action=get_package&package_id=31")
+            # First get packages to find a valid package_id
+            packages_result = self.get_packages()
+            package_ids = []
+            if packages_result.get("success"):
+                for pkg in packages_result.get("packages", []):
+                    pid = pkg.get("id") or pkg.get("package_id")
+                    if pid:
+                        package_ids.append(str(pid))
             
-            response = self.session.get(
-                f"{self.panel_url}/api",
-                params={
-                    'action': 'get_package',
-                    'package_id': '31'  # Any package ID works - they all return the full bouquet list
-                },
-                timeout=30
-            )
+            if not package_ids:
+                # Fallback: try common IDs
+                package_ids = ["1", "2", "31"]
             
-            logger.info(f"Response: status={response.status_code}")
-            
-            if response.status_code != 200:
-                return {"success": False, "error": f"HTTP {response.status_code}", "bouquets": []}
-            
-            try:
-                data = response.json()
-                logger.info(f"Response keys: {list(data.keys())}")
+            # Try each package_id until we get bouquets
+            for pkg_id in package_ids[:5]:
+                logger.info(f"Trying /api?action=get_package&package_id={pkg_id}")
+                response = self.session.get(
+                    f"{self.panel_url}/api",
+                    params={'action': 'get_package', 'package_id': pkg_id},
+                    timeout=30
+                )
                 
-                if data.get('result'):
-                    bouquets = []
-                    bouquet_list = data.get('bouquets', [])
+                if response.status_code == 200 and response.text.strip():
+                    try:
+                        data = response.json()
+                        if data.get('result') and data.get('bouquets'):
+                            bouquets = []
+                            for bouquet in data['bouquets']:
+                                bouquets.append({
+                                    'id': int(bouquet.get('id')),
+                                    'name': bouquet.get('bouquet_name', f"Bouquet {bouquet.get('id')}")
+                                })
+                            logger.info(f"XuiOne: Found {len(bouquets)} bouquets via package {pkg_id}")
+                            return {"success": True, "bouquets": bouquets}
+                    except Exception:
+                        continue
+            
+            logger.warning("XuiOne: No bouquets found from any package API")
+            
+            # Fallback: scrape bouquets from a line edit page (/line?id=X)
+            try:
+                import re as _re, json as _json
+                logger.info("XuiOne: Trying to scrape bouquets from line edit page...")
+                
+                # Find the reseller's own ID for filtering
+                reseller_id = ""
+                line_page = self.session.get(f"{self.panel_url}/line", timeout=30)
+                if line_page.status_code == 200:
+                    member_sel = _re.search(r'name=["\']member_id["\'][^>]*>(.*?)</select>', line_page.text, _re.DOTALL)
+                    if member_sel:
+                        for uid, uname in _re.findall(r'value=["\'](\d+)["\'][^>]*>([^<]+)', member_sel.group(1)):
+                            if uname.strip() == self.admin_username:
+                                reseller_id = uid
+                                break
+                
+                # Get a line ID via DataTable
+                line_id = None
+                params = "draw=1&start=0&length=1&id=lines"
+                if reseller_id:
+                    params += f"&reseller={reseller_id}"
+                resp = self.session.post(
+                    f"{self.panel_url}/table",
+                    data=params,
+                    headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                             "X-Requested-With": "XMLHttpRequest",
+                             "Referer": f"{self.panel_url}/lines"},
+                    timeout=15
+                )
+                if resp.status_code == 200 and resp.text.strip().startswith("{"):
+                    data = _json.loads(resp.text)
+                    if data.get("data"):
+                        line_id = _re.sub(r'<[^>]+>', '', str(data["data"][0][0])).strip()
+                
+                if line_id:
+                    resp2 = self.session.get(f"{self.panel_url}/line?id={line_id}", timeout=15)
+                    if resp2.status_code == 200:
+                        # Parse inline bouquet data from the else block:
+                        # rTable.row.add(["<input...value='1003' checked></input>", 'Movies', 0, 33706, 0, 0]);
+                        bouquet_rows = _re.findall(
+                            r"rTable\.row\.add\(\[\"<input[^\"]*value='(\d+)'[^\"]*>\",\s*'([^']*)',\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\)",
+                            resp2.text
+                        )
+                        if bouquet_rows:
+                            bouquets = [{"id": int(bid), "name": bname} for bid, bname, _, _, _, _ in bouquet_rows]
+                            logger.info(f"XuiOne: Scraped {len(bouquets)} bouquets from line edit page")
+                            return {"success": True, "bouquets": bouquets}
+                        
+                        # Looser fallback regex
+                        bouquet_rows2 = _re.findall(r"value='(\d+)'[^)]*>\",\s*'([^']+)'", resp2.text)
+                        if bouquet_rows2:
+                            bouquets = [{"id": int(bid), "name": bname} for bid, bname in bouquet_rows2]
+                            logger.info(f"XuiOne: Scraped {len(bouquets)} bouquets (loose regex)")
+                            return {"success": True, "bouquets": bouquets}
                     
-                    logger.info(f"Bouquet list length: {len(bouquet_list)}")
-                    
-                    for bouquet in bouquet_list:
-                        bouquets.append({
-                            'id': int(bouquet.get('id')),
-                            'name': bouquet.get('bouquet_name', f"Bouquet {bouquet.get('id')}")
-                        })
-                        logger.info(f"  Found: {bouquet.get('id')} = {bouquet.get('bouquet_name')}")
-                    
-                    logger.info(f"✓ XuiOne: Found {len(bouquets)} bouquets")
-                    return {"success": True, "bouquets": bouquets}
+                    logger.warning("XuiOne: Line edit page loaded but no bouquet data found")
                 else:
-                    logger.error("API response result=false")
-                    return {"success": False, "error": "API returned unsuccessful result", "bouquets": []}
+                    logger.warning("XuiOne: Could not find any line ID for bouquet scraping")
                     
-            except Exception as parse_err:
-                logger.error(f"JSON parse error: {parse_err}")
-                return {"success": False, "error": "Invalid JSON response", "bouquets": []}
+            except Exception as scrape_err:
+                logger.warning(f"XuiOne: Bouquet scrape failed: {scrape_err}")
+                import traceback
+                logger.warning(traceback.format_exc())
+            
+            return {"success": False, "error": "This panel's API doesn't support bouquet fetching. Bouquets are managed by the panel admin — you can add them manually.", "bouquets": []}
             
         except Exception as e:
             logger.error(f"Error fetching bouquets: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
             return {"success": False, "error": str(e), "bouquets": []}
     
     def get_users(self) -> Dict[str, Any]:
@@ -409,32 +467,24 @@ class XuiOneService:
                 if not self.login():
                     return {"success": False, "error": "Login failed", "users": []}
             
-            # Try get_lines API action if API key is available
-            if self.api_key:
-                api_url = self.get_api_url()
-                
+            # Try /api?action=get_lines with session (most reliable)
+            for action in ["get_lines", "get_users"]:
                 try:
-                    import requests
                     response = self.session.get(
-                        api_url,
-                        params={
-                            'api_key': self.api_key,
-                            'action': 'get_lines'
-                        },
+                        f"{self.panel_url}/api",
+                        params={'action': action, 'api_key': self.api_key} if self.api_key else {'action': action},
                         timeout=30
                     )
                     
-                    logger.info(f"XuiOne get_lines response: status={response.status_code}")
-                    
-                    if response.status_code == 200:
+                    if response.status_code == 200 and response.text.strip().startswith("{"):
                         result = response.json()
-                        
-                        if result.get('status') == 'STATUS_SUCCESS' or result.get('result'):
+                        if result.get('result') or result.get('status') == 'STATUS_SUCCESS':
                             lines_data = result.get('data', [])
+                            if isinstance(lines_data, dict):
+                                lines_data = list(lines_data.values())
                             
                             users = []
                             for line in lines_data:
-                                # Parse expiry date
                                 expiry_timestamp = line.get('exp_date')
                                 expiry_str = ""
                                 if expiry_timestamp:
@@ -451,15 +501,155 @@ class XuiOneService:
                                     "password": line.get('password', ''),
                                     "expiry": expiry_str,
                                     "max_connections": str(line.get('max_connections', 1)),
-                                    "status": "active" if line.get('enabled') == '1' else "disabled",
+                                    "status": "active" if str(line.get('enabled', '1')) == '1' else "disabled",
                                 })
                             
-                            logger.info(f"✓ XuiOne: Found {len(users)} lines")
-                            return {"success": True, "users": users, "count": len(users)}
-                except Exception as api_err:
-                    logger.error(f"XuiOne get_lines API error: {api_err}")
+                            if users:
+                                logger.info(f"XuiOne: Found {len(users)} users via /api?{action}")
+                                return {"success": True, "users": users, "count": len(users)}
+                except Exception as e:
+                    logger.warning(f"XuiOne /api?{action} failed: {e}")
             
-            return {"success": False, "error": "API not available or failed", "users": []}
+            # Fallback: try API access code URL if configured
+            if self.api_key:
+                api_url = self.get_api_url()
+                try:
+                    response = self.session.get(
+                        api_url,
+                        params={'api_key': self.api_key, 'action': 'get_lines'},
+                        timeout=30
+                    )
+                    if response.status_code == 200 and response.text.strip().startswith("{"):
+                        result = response.json()
+                        if result.get('result') or result.get('status') == 'STATUS_SUCCESS':
+                            lines_data = result.get('data', [])
+                            users = []
+                            for line in lines_data:
+                                expiry_timestamp = line.get('exp_date')
+                                expiry_str = ""
+                                if expiry_timestamp:
+                                    from datetime import datetime
+                                    try:
+                                        expiry_dt = datetime.fromtimestamp(int(expiry_timestamp))
+                                        expiry_str = expiry_dt.strftime("%Y-%m-%d %H:%M:%S")
+                                    except:
+                                        expiry_str = str(expiry_timestamp)
+                                users.append({
+                                    "user_id": line.get('id'),
+                                    "username": line.get('username', ''),
+                                    "password": line.get('password', ''),
+                                    "expiry": expiry_str,
+                                    "max_connections": str(line.get('max_connections', 1)),
+                                    "status": "active" if str(line.get('enabled', '1')) == '1' else "disabled",
+                                })
+                            if users:
+                                logger.info(f"XuiOne: Found {len(users)} users via API access code")
+                                return {"success": True, "users": users, "count": len(users)}
+                except Exception:
+                    pass
+            
+            logger.warning("XuiOne: Could not fetch users from any endpoint")
+            
+            # Final fallback: scrape via XuiOne DataTable endpoint
+            try:
+                import re as _re
+                logger.info("XuiOne: Trying DataTable scrape from /table endpoint...")
+                
+                # Find the reseller's own ID from the member_id dropdown
+                reseller_id = ""
+                line_page = self.session.get(f"{self.panel_url}/line", timeout=30)
+                if line_page.status_code == 200:
+                    member_sel = _re.search(r'name=["\'\']member_id["\'\'][^>]*>(.*?)</select>', line_page.text, _re.DOTALL)
+                    if member_sel:
+                        for uid, uname in _re.findall(r'value=["\'\'](\d+)["\'\'][^>]*>([^<]+)', member_sel.group(1)):
+                            if uname.strip() == self.admin_username:
+                                reseller_id = uid
+                                break
+                
+                logger.info(f"XuiOne: Reseller ID: {reseller_id or 'not found'}")
+                
+                all_users = []
+                start = 0
+                page_size = 500
+                
+                while True:
+                    params = f"draw=1&start={start}&length={page_size}&id=lines&search%5Bvalue%5D=&order%5B0%5D%5Bcolumn%5D=0&order%5B0%5D%5Bdir%5D=asc"
+                    if reseller_id:
+                        params += f"&reseller={reseller_id}"
+                    
+                    resp = self.session.post(
+                        f"{self.panel_url}/table",
+                        data=params,
+                        headers={
+                            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Referer": f"{self.panel_url}/lines"
+                        },
+                        timeout=30
+                    )
+                    
+                    if resp.status_code != 200 or not resp.text.strip().startswith("{"):
+                        break
+                    
+                    import json as _json
+                    data = _json.loads(resp.text)
+                    total = int(data.get("recordsTotal", 0))
+                    rows = data.get("data", [])
+                    
+                    if not rows:
+                        break
+                    
+                    for row in rows:
+                        uid = _re.sub(r'<[^>]+>', '', str(row[0])).strip() if len(row) > 0 else ""
+                        username = _re.sub(r'<[^>]+>', '', str(row[1])).strip() if len(row) > 1 else ""
+                        password = _re.sub(r'<[^>]+>', '', str(row[2])).strip() if len(row) > 2 else ""
+                        
+                        status = "active"
+                        if len(row) > 4 and ("text-danger" in str(row[4]) or "text-warning" in str(row[4])):
+                            status = "disabled"
+                        
+                        connections = _re.sub(r'<[^>]+>', '', str(row[8])).strip() if len(row) > 8 else "1"
+                        
+                        # Parse expiry: HTML like "2026-08-10<br/><small>11:24:16</small>" or with <span class="expired">
+                        expiry = ""
+                        if len(row) > 9:
+                            raw_exp = str(row[9])
+                            # Strip HTML tags but replace <br/> with space
+                            exp_clean = _re.sub(r'<br\s*/?>', ' ', raw_exp)
+                            exp_clean = _re.sub(r'<[^>]+>', '', exp_clean).strip()
+                            # Fix missing space: "2025-09-0812:10:37" -> "2025-09-08 12:10:37"
+                            exp_match = _re.match(r'(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})', exp_clean)
+                            if exp_match:
+                                expiry = f"{exp_match.group(1)} {exp_match.group(2)}"
+                            elif exp_clean:
+                                expiry = exp_clean
+                        
+                        # Check expired status from expiry column HTML
+                        if len(row) > 9 and "expired" in str(row[9]).lower():
+                            status = "expired"
+                        
+                        if username:
+                            all_users.append({
+                                "user_id": uid,
+                                "username": username,
+                                "password": password,
+                                "expiry": expiry,
+                                "max_connections": connections or "1",
+                                "status": status,
+                            })
+                    
+                    start += page_size
+                    if start >= total:
+                        break
+                
+                if all_users:
+                    logger.info(f"XuiOne: Scraped {len(all_users)} subscriber lines via DataTable")
+                    return {"success": True, "users": all_users, "count": len(all_users)}
+                    
+            except Exception as scrape_err:
+                logger.warning(f"XuiOne: DataTable scrape failed: {scrape_err}")
+            
+            return {"success": False, "error": "Could not fetch users from any endpoint", "users": []}
             
         except Exception as e:
             logger.error(f"Error fetching users: {str(e)}")
@@ -564,29 +754,35 @@ class XuiOneService:
             
             logger.info(f"XuiOne: Found line ID {line_id} for username {username}")
             
-            api_url = self.get_api_url()
-            
-            # Use edit_line action with the line ID
             request_data = {
                 'id': str(line_id),
+                'edit': str(line_id),
                 'package': str(package_id),
                 'trial': '0',
                 'reseller_notes': 'Extended via Billing Panel',
                 'is_isplock': '0'
             }
             
-            logger.info(f"XuiOne: Calling edit_line with data: {request_data}")
+            logger.info(f"XuiOne: Extending line with data: {request_data}")
             
+            # Primary: use post.php?action=line with session (same as web UI)
             response = self.session.post(
-                api_url,
-                params={
-                    'api_key': self.api_key,
-                    'action': 'edit_line'
-                },
+                f"{self.panel_url}/post.php?action=line",
                 data=request_data,
-                auth=self.http_auth,
+                headers={"X-Requested-With": "XMLHttpRequest"},
                 timeout=30
             )
+            
+            if response.status_code != 200 or not response.text.strip():
+                # Fallback: try API access code endpoint
+                if self.api_key:
+                    api_url = self.get_api_url()
+                    response = self.session.post(
+                        api_url,
+                        params={'api_key': self.api_key, 'action': 'edit_line'},
+                        data=request_data,
+                        timeout=30
+                    )
             
             logger.info(f"XuiOne edit_line response: {response.status_code}")
             
@@ -595,11 +791,11 @@ class XuiOneService:
                     result = response.json()
                     logger.info(f"XuiOne edit_line result: {result}")
                     
-                    if result.get('status') == 'STATUS_SUCCESS':
+                    if result.get('result') == True or result.get('status') == 'STATUS_SUCCESS':
                         logger.info(f"✓ XuiOne line extended successfully")
                         return {"success": True, "result": result}
                     else:
-                        error_msg = result.get('message', result.get('status', 'Unknown error'))
+                        error_msg = result.get('message', result.get('error', str(result.get('status', 'Unknown error'))))
                         logger.error(f"XuiOne edit_line failed: {error_msg}")
                         return {"success": False, "error": error_msg}
                 except ValueError:
@@ -618,34 +814,49 @@ class XuiOneService:
     def _get_line_id_by_username(self, username: str) -> Optional[str]:
         """Look up a line's ID by its username"""
         try:
-            # First try using the API if available
+            # Primary: search via DataTable endpoint
+            import re as _re, json as _json
+            try:
+                resp = self.session.post(
+                    f"{self.panel_url}/table",
+                    data=f"draw=1&start=0&length=5&id=lines&search%5Bvalue%5D={username}&order%5B0%5D%5Bcolumn%5D=0&order%5B0%5D%5Bdir%5D=asc",
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": f"{self.panel_url}/lines"
+                    },
+                    timeout=15
+                )
+                if resp.status_code == 200 and resp.text.strip().startswith("{"):
+                    data = _json.loads(resp.text)
+                    for row in data.get("data", []):
+                        row_user = _re.sub(r'<[^>]+>', '', str(row[1])).strip()
+                        if row_user == username:
+                            row_id = _re.sub(r'<[^>]+>', '', str(row[0])).strip()
+                            if row_id:
+                                return row_id
+            except Exception:
+                pass
+            
+            # Fallback: try API access code endpoint
             if self.api_key:
                 api_url = self.get_api_url()
-                
-                # Try get_line action
-                response = self.session.get(
-                    api_url,
-                    params={
-                        'api_key': self.api_key,
-                        'action': 'get_line',
-                        'username': username
-                    },
-                    auth=self.http_auth,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    try:
+                try:
+                    response = self.session.get(
+                        api_url,
+                        params={'api_key': self.api_key, 'action': 'get_line', 'username': username},
+                        timeout=30
+                    )
+                    if response.status_code == 200:
                         result = response.json()
                         if result.get('status') == 'STATUS_SUCCESS':
-                            data = result.get('data', {})
-                            line_id = data.get('id')
+                            line_id = result.get('data', {}).get('id')
                             if line_id:
                                 return str(line_id)
-                    except ValueError:
-                        pass
+                except Exception:
+                    pass
             
-            # Fallback: Get all users and find the matching one
+            # Last resort: get all users
             users_result = self.get_users()
             if users_result.get('success'):
                 for user in users_result.get('users', []):

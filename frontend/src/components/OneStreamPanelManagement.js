@@ -152,6 +152,7 @@ export default function OneStreamPanelManagement({ settings }) {
                     {panel.name || `1-Stream Panel ${index + 1}`}
                   </h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 font-mono">{panel.panel_url}</p>
+                  {panel.streaming_url && <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">Stream: {panel.streaming_url}</p>}
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     API Key: {panel.api_key ? '****' + panel.api_key.slice(-4) : 'Not set'} |
                     Auth Token: {panel.auth_user_token ? '****' + panel.auth_user_token.slice(-4) : 'Not set'}
@@ -227,6 +228,7 @@ function PanelModal({ panel, onClose, onSave }) {
   const [formData, setFormData] = useState({
     name: panel?.name || '',
     panel_url: panel?.panel_url || '',
+    streaming_url: panel?.streaming_url || '',
     api_key: panel?.api_key || '',
     auth_user_token: panel?.auth_user_token || '',
     admin_username: panel?.admin_username || '',
@@ -275,6 +277,17 @@ function PanelModal({ panel, onClose, onSave }) {
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Base URL of the 1-Stream panel (with port if needed)</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Streaming DNS / Server URL</label>
+            <input
+              type="text" value={formData.streaming_url || ''}
+              onChange={(e) => setFormData({ ...formData, streaming_url: e.target.value })}
+              placeholder="http://stream.example.com:8080"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">The URL customers use to connect their IPTV player (shown on service cards)</p>
           </div>
 
           <div>
