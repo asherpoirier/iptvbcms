@@ -3633,10 +3633,10 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     # Get package ID from product
                     package_id = product.get("xtream_package_id", 52)
                     
-                    # Extend in XtreamUI with complete data
+                    # Extend in XtreamUI with product bouquets
                     extend_result = xtream_service.extend_subscriber(
                         username=existing_subscriber["xtream_username"],
-                        password=existing_subscriber["xtream_password"],  # Subscriber's password!
+                        password=existing_subscriber["xtream_password"],
                         package_id=package_id,
                         bouquets=product["bouquets"],
                         max_connections=product["max_connections"],
@@ -8929,7 +8929,7 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
             packages_list = session_client.fetch_packages()
             
             selected_package = None
-            bouquets = [1]  # Default bouquet
+            bouquets = []
             max_connections = 1
             
             logger.info(f"Looking for package ID {data.package_id} in {len(packages_list)} packages")
@@ -8953,7 +8953,7 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
                         days_to_add = 30
                     
                     max_connections = int(pkg.get("max_connections", 1))
-                    bouquets = pkg.get("bouquets", [1])
+                    bouquets = pkg.get("bouquets", [])
                     break
             
             if not selected_package:
@@ -8969,7 +8969,7 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
                 username=username,
                 password=password,
                 package_id=data.package_id,
-                bouquets=bouquets,
+                bouquets=bouquets,  # Package bouquets from panel API
                 max_connections=max_connections,
                 reseller_notes=f"Extended by Admin - {current_user.get('email', 'Unknown')}"
             )

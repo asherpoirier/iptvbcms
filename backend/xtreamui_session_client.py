@@ -403,20 +403,11 @@ class XtreamUISessionClient:
                         if user_id:
                             logger.info(f"Found user ID: {user_id}")
                             
-                            # Step 2: POST to user_reseller.php with ALL data + edit parameter
-                            # Use clean URL with auth parameter - cookies will be sent correctly!
+                            # Step 2: POST to user_reseller.php with package bouquets
                             edit_url = f"{self.panel_url}/user_reseller.php?id={user_id}"
                             
                             logger.info(f"Edit URL: {edit_url}")
-                            
-                            # Debug: Log cookies being sent
-                            cookie_names = [c.name for c in self.session.cookies]
-                            logger.info(f"Cookies in session: {cookie_names}")
-                            for c in self.session.cookies:
-                                logger.info(f"  Cookie {c.name}: domain={c.domain}, path={c.path}")
-                            
-                            # CREATE uses: submit_user='1' and bouquets_selected=JSON
-                            # Let's use the EXACT same pattern!
+                            logger.info(f"Using package bouquets for extension: {bouquets}")
                             
                             from datetime import datetime, timedelta
                             import re
@@ -437,22 +428,20 @@ class XtreamUISessionClient:
                             member_id = str(reseller_info.get('member_id', 0))
                             logger.info(f"Using member_id: {member_id}")
                             
-                            # Use EXACT same format as CREATE:
-                            # submit_user='1' and bouquets_selected=JSON
+                            # Use package bouquets — these determine what channels the user gets
                             edit_data = {
                                 'edit': str(user_id),
-                                'submit_user': '1',  # Same as CREATE - '1' not 'Purchase'!
+                                'submit_user': '1',
                                 'username': username,
                                 'password': password,
                                 'package': str(package_id),
-                                'member_id': member_id,  # Auto-detected!
+                                'member_id': member_id,
                                 'exp_date': new_exp_str,
                                 'reseller_notes': reseller_notes or '',
-                                'bouquets_selected': json.dumps(bouquets) if bouquets else '[]',  # JSON like CREATE!
+                                'bouquets_selected': json.dumps(bouquets if bouquets else []),
                             }
                             
-                            logger.info(f"Edit URL: {edit_url}")
-                            logger.info(f"POST data (CREATE pattern - submit_user=1, JSON bouquets): {edit_data}")
+                            logger.info(f"POST data: {edit_data}")
                             
                             edit_response = self.session.post(edit_url, data=edit_data, auth=self.http_auth, timeout=30)
                             
@@ -707,6 +696,27 @@ class XtreamUISessionClient:
                         try:
                             data = api_response.json()
                             if data.get('result') == True:
+                                # Extract bouquet IDs from package data
+                                # data['data']['bouquets'] is a JSON string like "[1,2,3]"
+                                pkg_bouquet_ids = []
+                                try:
+                                    raw_bouquets = data['data'].get('bouquets', '[]')
+                                    if isinstance(raw_bouquets, str):
+                                        pkg_bouquet_ids = json.loads(raw_bouquets)
+                                    elif isinstance(raw_bouquets, list):
+                                        pkg_bouquet_ids = raw_bouquets
+                                except (json.JSONDecodeError, TypeError):
+                                    pkg_bouquet_ids = []
+                                
+                                # Fallback: extract IDs from top-level bouquet objects
+                                if not pkg_bouquet_ids and data.get('bouquets'):
+                                    top_bouquets = data.get('bouquets', [])
+                                    if isinstance(top_bouquets, list) and top_bouquets:
+                                        if isinstance(top_bouquets[0], dict):
+                                            pkg_bouquet_ids = [int(b['id']) for b in top_bouquets if 'id' in b]
+                                        elif isinstance(top_bouquets[0], (int, str)):
+                                            pkg_bouquet_ids = [int(b) for b in top_bouquets]
+                                
                                 packages.append({
                                     'id': int(package_id),
                                     'name': package_name,
@@ -714,8 +724,9 @@ class XtreamUISessionClient:
                                     'duration': data['data'].get('official_duration', 0),
                                     'duration_unit': data['data'].get('official_duration_in', 'months'),
                                     'max_connections': data['data'].get('max_connections', 1),
-                                    'bouquets': data.get('bouquets', [])
+                                    'bouquets': pkg_bouquet_ids
                                 })
+                                logger.info(f"Package {package_id} ({package_name}): {len(pkg_bouquet_ids)} bouquets")
                         except Exception as e:
                             logger.warning(f"Error parsing package {package_id}: {e}")
             
