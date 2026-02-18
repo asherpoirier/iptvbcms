@@ -7755,7 +7755,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             synced_count = 0
             updated_count = 0
 
-            # Sync lines (subscribers)
+            # Get the reseller's username to filter direct lines only
+            reseller_username = panel.get("admin_username", "").strip()
+
+            # Sync lines (subscribers) — only direct lines owned by this reseller
             lines_result = os_service.get_lines()
             lines_list = lines_result.get('users', [])
             # Count lines with actual usernames vs empty
@@ -7783,6 +7786,11 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         else:
                             skipped_count += 1
                             continue
+                    # Filter: only import lines directly owned by this reseller
+                    line_owner = line.get("owner", "").strip()
+                    if reseller_username and line_owner and line_owner != reseller_username:
+                        skipped_count += 1
+                        continue
                     existing = await imported_users_collection.find_one({
                         "panel_index": panel_index, "panel_type": "onestream",
                         "username": username, "account_type": "subscriber"
