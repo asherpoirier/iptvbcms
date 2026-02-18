@@ -6072,12 +6072,19 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
     synced_count = 0
     updated_count = 0
 
-    # Sync lines (subscribers)
+    # Get the reseller's username to filter direct lines only
+    reseller_username = panel.get("admin_username", "").strip()
+
+    # Sync lines (subscribers) — only direct lines owned by this reseller
     lines_result = service.get_lines()
     if lines_result.get("success"):
         for line in lines_result.get("users", []):
             username = line.get("username", "")
             if not username:
+                continue
+            # Filter: only import lines directly owned by this reseller
+            line_owner = line.get("owner", "").strip()
+            if reseller_username and line_owner and line_owner != reseller_username:
                 continue
             existing = await imported_users_collection.find_one({
                 "panel_index": panel_index, "panel_type": "onestream",

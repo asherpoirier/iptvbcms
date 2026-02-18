@@ -90,17 +90,25 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(null);
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showRenewPicker, setShowRenewPicker] = useState(false);
   const { addRenewalItem } = useCartStore();
+
+  // Get compatible products for this service (same panel type, subscriber products, not bundles/trials)
+  const compatibleProducts = (products || []).filter(p =>
+    p.panel_type === service.panel_type &&
+    (p.panel_index === undefined || p.panel_index === service.panel_index) &&
+    p.account_type === 'subscriber' &&
+    !p.is_bundle &&
+    !p.is_trial
+  );
   
   const handleRenew = () => {
-    // Find the product and get correct price
     const product = products?.find(p => p.id === service.product_id);
     
     if (product) {
       const term = service.term_months || 1;
       const price = product.prices?.[term] || 0;
       
-      // Add as renewal item with extend action (from services page always extends)
       addRenewalItem({
         product_id: service.product_id,
         product_name: service.product_name,
@@ -109,11 +117,25 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
         account_type: service.account_type
       }, service.id, 'extend');
       
-      // Redirect to checkout
       navigate('/checkout');
+    } else if (compatibleProducts.length > 0) {
+      setShowRenewPicker(true);
     } else {
-      toast.error('Product not found. Please contact support.');
+      toast.error('No compatible products found. Please contact support.');
     }
+  };
+
+  const handlePickProduct = (product, termKey, price) => {
+    addRenewalItem({
+      product_id: product.id,
+      product_name: product.name,
+      term_months: termKey,
+      price: price,
+      account_type: service.account_type
+    }, service.id, 'extend');
+    
+    setShowRenewPicker(false);
+    navigate('/checkout');
   };
 
   const copyToClipboard = (text, field) => {
@@ -274,17 +296,18 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
           )}
         </div>
 
-        {/* Renew and Refund buttons for active subscribers only */}
-        {service.account_type === 'subscriber' && service.status === 'active' && (
+        {/* Renew and Refund buttons for subscribers */}
+        {service.account_type === 'subscriber' && ['active', 'expired', 'suspended'].includes(service.status) && (
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 flex gap-3">
             <button
               onClick={handleRenew}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+              className={`inline-flex items-center gap-2 px-6 py-3 text-white rounded-lg font-semibold ${service.status === 'active' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}
+              data-testid="renew-service-btn"
             >
               <Package className="w-5 h-5" />
-              Renew Service
+              {service.status === 'active' ? 'Renew Service' : 'Renew Now'}
             </button>
-            {refundsEnabled && (
+            {refundsEnabled && service.status === 'active' && (
               <button
                 onClick={() => setShowRefundModal(true)}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold"
@@ -341,6 +364,47 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
           service={service}
           onClose={() => setShowRefundModal(false)}
         />
+      )}
+
+      {/* Renewal Product Picker Modal */}
+      {showRenewPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowRenewPicker(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="renew-picker-modal">
+            <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Select Renewal Package</h3>
+              <button onClick={() => setShowRenewPicker(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Choose a package to renew <strong>{service.xtream_username || service.product_name}</strong>:</p>
+              {compatibleProducts.map(product => {
+                const priceEntries = Object.entries(product.prices || {});
+                const price = priceEntries.length > 0 ? priceEntries[0][1] : 0;
+                const termKey = priceEntries.length > 0 ? Number(priceEntries[0][0]) : 1;
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => handlePickProduct(product, termKey, price)}
+                    className="w-full text-left p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    data-testid={`renew-product-${product.id}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white text-sm">{product.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{product.max_connections || 1} connection{(product.max_connections || 1) > 1 ? 's' : ''}</div>
+                      </div>
+                      <div className="text-blue-600 dark:text-blue-400 font-bold">${Number(price).toFixed(2)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+              {compatibleProducts.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No compatible packages found.</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

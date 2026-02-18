@@ -132,15 +132,6 @@ export default function CheckoutPage() {
         password: resellerPassword
       } : null
     });
-    
-    // If fully paid with credits and coupon, redirect to orders
-    if (finalTotal === 0) {
-      setTimeout(() => {
-        clearCart();
-        navigate('/orders');
-        toast.success('Order completed! Paid with credits.');
-      }, 1000);
-    }
   };
 
   const createPayPalOrder = async () => {
