@@ -70,45 +70,81 @@ class LicenseManager:
         return license_key
     
     async def validate_license(self, license_key: str, domain: str, ip_address: str = None) -> dict:
-        """Validate a license key - calls remote license server"""
+        """Validate a license key - tries primary server first, falls back to backup"""
         import aiohttp
         
-        # Remote license server URL
-        LICENSE_SERVER_URL = "https://license.synapse.watch"
+        # Primary license server (iptvb.app)
+        PRIMARY_SERVER = "https://license.iptvb.app"
+        # Backup license server (synapse.watch)
+        BACKUP_SERVER = "https://license.synapse.watch"
         
+        # Try primary server first
         try:
-            # Call remote license server to validate (using query parameters)
-            params = {
-                "license_key": license_key,
-                "domain": domain
-            }
-            if ip_address:
-                params["ip_address"] = ip_address
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{LICENSE_SERVER_URL}/api/validate",
-                    params=params,  # Send as query parameters, not JSON body
-                    timeout=aiohttp.ClientTimeout(total=10),
-                    ssl=False  # Skip SSL verification for self-signed certs
-                ) as response:
-                    result = await response.json()
-                    
-                    # Log validation locally
-                    await self._log_validation(
-                        license_key, 
-                        domain, 
-                        ip_address,
-                        "success" if result.get("valid") else "failed",
-                        result.get("reason")
-                    )
-                    
-                    return result
-                    
+            result = await self._validate_with_primary(license_key, domain, PRIMARY_SERVER)
+            if result is not None:
+                await self._log_validation(license_key, domain, ip_address,
+                    "success" if result.get("valid") else "failed",
+                    result.get("reason"))
+                return result
         except Exception as e:
-            logger.error(f"Failed to validate license with remote server: {str(e)}")
-            await self._log_validation(license_key, domain, ip_address, "failed", f"Server error: {str(e)}")
-            return {"valid": False, "reason": f"Unable to connect to license server: {str(e)}"}
+            logger.warning(f"Primary license server failed: {str(e)}, trying backup...")
+        
+        # Fall back to backup server
+        try:
+            result = await self._validate_with_backup(license_key, domain, ip_address, BACKUP_SERVER)
+            await self._log_validation(license_key, domain, ip_address,
+                "success" if result.get("valid") else "failed",
+                result.get("reason"))
+            return result
+        except Exception as e:
+            logger.error(f"Backup license server also failed: {str(e)}")
+            await self._log_validation(license_key, domain, ip_address, "failed", f"Both servers failed: {str(e)}")
+            return {"valid": False, "reason": f"Unable to connect to license servers"}
+    
+    async def _validate_with_primary(self, license_key: str, domain: str, server_url: str) -> dict:
+        """Validate against primary server (license.iptvb.app)"""
+        import aiohttp
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{server_url}/api/verify",
+                json={"license_key": license_key, "domain": domain},
+                timeout=aiohttp.ClientTimeout(total=10),
+                ssl=False
+            ) as response:
+                data = await response.json()
+                
+                if data.get("valid"):
+                    license_info = data.get("license", {})
+                    return {
+                        "valid": True,
+                        "customer_name": license_info.get("product_name", ""),
+                        "domains": license_info.get("domains", []),
+                        "status": license_info.get("status", "active"),
+                        "expires_at": license_info.get("expires_at"),
+                    }
+                else:
+                    return {
+                        "valid": False,
+                        "reason": data.get("error", "License validation failed"),
+                    }
+    
+    async def _validate_with_backup(self, license_key: str, domain: str, ip_address: str, server_url: str) -> dict:
+        """Validate against backup server (license.synapse.watch)"""
+        import aiohttp
+        
+        params = {"license_key": license_key, "domain": domain}
+        if ip_address:
+            params["ip_address"] = ip_address
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{server_url}/api/validate",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10),
+                ssl=False
+            ) as response:
+                return await response.json()
     
     async def _log_validation(self, license_key: str, domain: str, ip_address: str, status: str, failure_reason: str = None):
         """Log license validation attempt"""
