@@ -6356,32 +6356,23 @@ class MassEmailRequest(BaseModel):
 @app.post("/api/admin/email/test")
 async def send_test_email(request: TestEmailRequest, current_user: dict = Depends(get_current_admin_user)):
     """Send a test email to verify SMTP settings"""
-    settings = await get_settings()
-    smtp_settings = settings.get("smtp", {})
     email_service = await get_configured_email_service()
     
     if not email_service or not email_service.enabled:
         raise HTTPException(status_code=400, detail="SMTP is not configured. Please configure SMTP settings first.")
     
-    test_content = f"""
-    <p>This is a test email from your billing system.</p>
-    <p>If you're receiving this, your SMTP settings are configured correctly!</p>
-    <div style="background-color: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0;">
-        <strong>SMTP Configuration:</strong>
-        <ul style="margin: 10px 0;">
-            <li>Host: {smtp_settings.get('host', 'Not set')}</li>
-            <li>Port: {smtp_settings.get('port', 587)}</li>
-            <li>From: {smtp_settings.get('from_email', 'Not set')}</li>
-        </ul>
-    </div>
-    <p>Sent at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
-    """
+    site_name = email_service.from_name
+    test_html = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6;">This is a test email from {site_name}.</p>
+<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your email settings are configured correctly.</p>"""
+    test_text = f"This is a test email from {site_name}.\n\nYour email settings are configured correctly."
     
     try:
         success = await email_service.send_email(
-            request.email,
-            "Test Email - SMTP Configuration Verified",
-            email_service._wrap_email(test_content, "Test Email")
+            to_email=request.email,
+            subject=f"Test email from {site_name}",
+            html_content=email_service._wrap_email(test_html, "", request.email, "transactional"),
+            text_content=test_text,
+            email_type="transactional"
         )
         
         if success:
