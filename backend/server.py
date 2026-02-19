@@ -1116,19 +1116,32 @@ async def resend_verification(data: ResendVerificationRequest):
     verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
     logger.info(f"Resend verification: new token generated for {target_email}, link={verification_link[:80]}...")
     
-    email_service = await get_configured_email_service()
-    if email_service and email_service.enabled:
-        try:
-            await email_service.send_email_verification(
+    try:
+        email_service = await get_configured_email_service()
+        logger.info(f"Resend: Email service configured={email_service is not None}, enabled={email_service.enabled if email_service else 'N/A'}")
+        if email_service and email_service.enabled:
+            result = await email_service.send_email_verification(
                 customer_email=target_email,
                 customer_name=user.get("name", ""),
                 verification_link=verification_link,
                 customer_id=str(user["_id"])
             )
-        except Exception as e:
-            logger.error(f"Failed to resend verification: {e}")
-    
-    return {"message": f"Verification email sent to {target_email}"}
+            if result:
+                logger.info(f"Resend verification email sent to {target_email}")
+                return {"message": f"Verification email sent to {target_email}"}
+            else:
+                logger.error(f"Resend verification email failed for {target_email}")
+                raise HTTPException(status_code=500, detail="Failed to send verification email. Please try again or contact support.")
+        else:
+            logger.warning(f"SMTP not configured - cannot resend verification to {target_email}")
+            raise HTTPException(status_code=500, detail="Email system is not configured. Please contact support.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resend verification: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Failed to send verification email. Please try again.")
 
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
