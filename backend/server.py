@@ -970,9 +970,10 @@ async def register(user_data: UserCreate):
     # Use frontend route for verification to avoid redirect issues
     verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
     
-    email_service = await get_configured_email_service()
-    if email_service and email_service.enabled:
-        try:
+    try:
+        email_service = await get_configured_email_service()
+        logger.info(f"Email service status: configured={email_service is not None}, enabled={email_service.enabled if email_service else 'N/A'}")
+        if email_service and email_service.enabled:
             logger.info(f"Sending verification email to {user_data.email}")
             result = await email_service.send_email_verification(
                 customer_email=user_data.email,
@@ -984,10 +985,12 @@ async def register(user_data: UserCreate):
                 logger.info(f"Verification email sent successfully to {user_data.email}")
             else:
                 logger.error(f"Verification email failed to send to {user_data.email} (returned False)")
-        except Exception as e:
-            logger.error(f"Error sending verification email to {user_data.email}: {str(e)}")
-    else:
-        logger.warning(f"SMTP not configured - verification email NOT sent to {user_data.email}")
+        else:
+            logger.warning(f"SMTP not configured - verification email NOT sent to {user_data.email}")
+    except Exception as e:
+        logger.error(f"Error sending verification email to {user_data.email}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
     
     # Send Telegram notification
     await send_telegram_notification(
