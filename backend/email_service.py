@@ -20,8 +20,8 @@ class EmailService:
         self.smtp_username = smtp_username
         self.smtp_password = smtp_password
         self.from_email = from_email
-        # Use site name from branding if provided
-        self.from_name = branding.get("site_name", from_name) if branding else from_name
+        # Use SMTP from_name first, then branding site_name, then default
+        self.from_name = from_name or (branding.get("site_name") if branding else None) or "Digital Services"
         self.enabled = bool(smtp_host and smtp_username and smtp_password)
         
         # Integration with logging and unsubscribe
@@ -33,58 +33,90 @@ class EmailService:
         self.backend_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
     
     def _get_email_header(self, title: str) -> str:
-        """Common email header"""
+        """Common email header - clean, professional, spam-filter friendly"""
         return f"""
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">{title}</h1>
-        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #1a56db; padding: 24px 20px; text-align: center;">
+            <tr><td align="center">
+                <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 600;">{title}</h1>
+            </td></tr>
+        </table>
         """
     
     def _get_email_footer(self, company_name: str = "Digital Services", recipient_email: str = "", email_type: str = "transactional") -> str:
-        """Common email footer with unsubscribe link"""
+        """Common email footer - spam compliant"""
         footer = f"""
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #e9ecef;">
-            <p style="color: #6c757d; margin: 0; font-size: 14px;">
-                © 2024 {company_name}. All rights reserved.
-            </p>
-            <p style="color: #6c757d; margin: 10px 0 0 0; font-size: 12px;">
-                This is an automated message. Please do not reply directly to this email.
-            </p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; padding: 16px 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <tr><td align="center">
+                <p style="color: #6b7280; margin: 0; font-size: 13px;">
+                    {company_name}
+                </p>
+            </td></tr>
+        </table>
         """
         
-        # Add unsubscribe link for marketing emails
         if email_type == "marketing" and recipient_email:
             unsubscribe_url = f"{self.backend_url}/api/unsubscribe?email={recipient_email}"
-            footer += f"""
-            <p style="margin-top: 15px; font-size: 11px;">
-                <a href="{unsubscribe_url}" style="color: #6c757d; text-decoration: underline;">
-                    Unsubscribe from marketing emails
-                </a>
-            </p>
+            footer = f"""
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; padding: 16px 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <tr><td align="center">
+                <p style="color: #6b7280; margin: 0; font-size: 13px;">{company_name}</p>
+                <p style="margin-top: 8px; font-size: 11px;">
+                    <a href="{unsubscribe_url}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>
+                </p>
+            </td></tr>
+        </table>
             """
         
-        footer += "</div>"
         return footer
     
     def _wrap_email(self, content: str, title: str = "", recipient_email: str = "", email_type: str = "transactional") -> str:
-        """Wrap email content with consistent styling"""
-        return f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
-            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                {self._get_email_header(title)}
-                <div style="padding: 30px;">
-                    {content}
-                </div>
-                {self._get_email_footer(self.from_name, recipient_email, email_type)}
-            </div>
-        </body>
-        </html>
-        """
+        """Wrap email content - minimal, spam-filter friendly"""
+        footer = f"<p style=\"color: #9ca3af; font-size: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb;\">{self.from_name}</p>"
+        if email_type == "marketing" and recipient_email:
+            unsub = f"{self.backend_url}/api/unsubscribe?email={recipient_email}"
+            footer = f"<p style=\"color: #9ca3af; font-size: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb;\">{self.from_name} &middot; <a href=\"{unsub}\" style=\"color: #9ca3af;\">Unsubscribe</a></p>"
+        
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #ffffff;">
+<div style="max-width: 560px; margin: 0 auto; padding: 32px 20px;">
+{content}
+{footer}
+</div>
+</body>
+</html>"""
+    
+    def _html_to_text(self, html: str) -> str:
+        """Convert HTML to plain text for multipart emails"""
+        import re
+        text = html
+        # Remove style/script blocks
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+        # Convert line breaks
+        text = re.sub(r'<br\s*/?\s*>', '\n', text)
+        # Convert paragraphs and divs to newlines
+        text = re.sub(r'</p>', '\n', text)
+        text = re.sub(r'</div>', '\n', text)
+        text = re.sub(r'</tr>', '\n', text)
+        text = re.sub(r'</h[1-6]>', '\n', text)
+        # Extract link text with URL
+        text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>', r'\2: \1', text)
+        # Remove all remaining tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Decode entities
+        text = re.sub(r'&amp;', '&', text)
+        text = re.sub(r'&lt;', '<', text)
+        text = re.sub(r'&gt;', '>', text)
+        text = re.sub(r'&nbsp;', ' ', text)
+        text = re.sub(r'&#\d+;', '', text)
+        text = re.sub(r'&[a-zA-Z]+;', '', text)
+        # Clean up whitespace
+        lines = [line.strip() for line in text.split('\n')]
+        text = '\n'.join(line for line in lines if line)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
     
     async def send_email(
         self, 
@@ -139,23 +171,48 @@ class EmailService:
                 logger.error(f"Failed to log email: {str(e)}")
         
         try:
-            message = MIMEMultipart('mixed')
+            import email.utils
+            import email.charset
+            import uuid
+            
+            has_attachments = bool(attachments)
+            
+            # Set charset to use quoted-printable instead of base64
+            cs = email.charset.Charset('utf-8')
+            cs.body_encoding = email.charset.QP
+            
+            # Generate clean boundary (not Python's default =============== format)
+            boundary_id = uuid.uuid4().hex
+            
+            if has_attachments:
+                message = MIMEMultipart('mixed', boundary=f"mixed-{boundary_id}")
+                msg_alternative = MIMEMultipart('alternative', boundary=f"alt-{boundary_id}")
+            else:
+                message = MIMEMultipart('alternative', boundary=f"alt-{boundary_id}")
+                msg_alternative = message
+            
             message['Subject'] = subject
             message['From'] = f"{self.from_name} <{self.from_email}>"
             message['To'] = to_email
+            message['Date'] = email.utils.formatdate(localtime=True)
+            domain = self.from_email.split('@')[-1] if '@' in self.from_email else 'localhost'
+            message['Message-ID'] = f"<{uuid.uuid4()}@{domain}>"
             
-            # Create alternative part for text and HTML
-            msg_alternative = MIMEMultipart('alternative')
+            # Always include plain text (generate from HTML if not provided)
+            plain_text = text_content or self._html_to_text(html_content)
             
-            # Add text and HTML parts
-            if text_content:
-                part1 = MIMEText(text_content, 'plain')
-                msg_alternative.attach(part1)
+            # Create parts with quoted-printable encoding and no extra MIME-Version
+            text_part = MIMEText(plain_text, 'plain', _charset=cs)
+            del text_part['MIME-Version']
+            html_part = MIMEText(html_content, 'html', _charset=cs)
+            del html_part['MIME-Version']
             
-            part2 = MIMEText(html_content, 'html')
-            msg_alternative.attach(part2)
+            msg_alternative.attach(text_part)
+            msg_alternative.attach(html_part)
             
-            message.attach(msg_alternative)
+            if has_attachments:
+                del msg_alternative['MIME-Version']
+                message.attach(msg_alternative)
             
             # Add attachments if any
             if attachments:
@@ -177,6 +234,8 @@ class EmailService:
                             logger.error(f"Failed to attach file {file_path}: {str(e)}")
             
             # Determine SSL/TLS settings based on port
+            # Use from_email domain as EHLO hostname (avoids random container hostname)
+            ehlo_domain = self.from_email.split('@')[-1] if '@' in self.from_email else 'localhost'
             logger.info(f"Attempting to send email via {self.smtp_host}:{self.smtp_port}")
             
             if self.smtp_port == 465:
@@ -188,16 +247,17 @@ class EmailService:
                     username=self.smtp_username,
                     password=self.smtp_password,
                     use_tls=True,
-                    start_tls=False
+                    start_tls=False,
+                    local_hostname=ehlo_domain
                 )
             else:
                 # Use STARTTLS for port 587 and others (Gmail, etc.)
-                # Use explicit client for better compatibility
                 smtp_client = aiosmtplib.SMTP(
                     hostname=self.smtp_host,
                     port=self.smtp_port,
                     use_tls=False,
-                    start_tls=False
+                    start_tls=False,
+                    local_hostname=ehlo_domain
                 )
                 async with smtp_client:
                     await smtp_client.starttls()
@@ -563,23 +623,23 @@ class EmailService:
         
         if not template:
             logger.warning("Email verification template not found, using fallback")
-            # Fallback
             content = f"""
-            <h2>Welcome to IPTV Billing!</h2>
-            <p>Hi {customer_name},</p>
-            <p>Thank you for registering. Please verify your email address to activate your account.</p>
-            <p style="margin: 2rem 0;">
-                <a href="{verification_link}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">
-                    Verify Email Address
+            <p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {customer_name},</p>
+            <p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
+            <p style="margin: 24px 0; text-align: center;">
+                <a href="{verification_link}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">
+                    Confirm Email
                 </a>
             </p>
-            <p>Or copy this link:</p>
-            <p style="background: #f3f4f6; padding: 1rem; border-radius: 4px; word-break: break-all;">{verification_link}</p>
+            <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
+            <p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{verification_link}</p>
             """
+            plain = f"Hi {customer_name},\n\nPlease confirm your email by visiting the link below:\n\n{verification_link}\n\nThis link expires in 24 hours.\n\n{self.from_name}"
             return await self.send_email(
                 to_email=customer_email,
-                subject="Verify Your Email - IPTV Billing",
-                html_content=self._wrap_email(content, "Email Verification", customer_email, "transactional"),
+                subject=f"Confirm your email - {self.from_name}",
+                html_content=self._wrap_email(content, "Confirm Your Email", customer_email, "transactional"),
+                text_content=plain,
                 email_type="transactional",
                 customer_id=customer_id,
                 recipient_name=customer_name
@@ -591,12 +651,20 @@ class EmailService:
         content = content.replace("{{customer_name}}", customer_name)
         content = content.replace("{{verification_link}}", verification_link)
         
+        plain_text = template.get("text_content", "")
+        if plain_text:
+            plain_text = plain_text.replace("{{customer_name}}", customer_name)
+            plain_text = plain_text.replace("{{verification_link}}", verification_link)
+        else:
+            plain_text = f"Hi {customer_name},\n\nPlease confirm your email by visiting:\n\n{verification_link}\n\n{self.from_name}"
+        
         wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
         
         return await self.send_email(
             to_email=customer_email,
             subject=subject,
             html_content=wrapped_content,
+            text_content=plain_text,
             email_type="transactional",
             template_type="email_verification",
             customer_id=customer_id,

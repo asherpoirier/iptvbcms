@@ -831,21 +831,15 @@ async def startup_event():
             {
                 "template_type": "email_verification",
                 "name": "Email Verification",
-                "subject": "Verify Your Email Address",
-                "html_content": """
-<h2>Welcome to IPTV Billing!</h2>
-<p>Hi {{customer_name}},</p>
-<p>Thank you for registering. Please verify your email address to activate your account.</p>
-<p style="margin: 2rem 0;">
-    <a href="{{verification_link}}" style="background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; display: inline-block;">
-        Verify Email Address
-    </a>
+                "subject": "Confirm your email",
+                "html_content": """<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>
+<p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
+<p style="margin: 24px 0; text-align: center;">
+    <a href="{{verification_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Confirm Email</a>
 </p>
-<p>Or copy this link:</p>
-<p style="background: #f3f4f6; padding: 1rem; border-radius: 4px; word-break: break-all;">{{verification_link}}</p>
-<p style="color: #6b7280; font-size: 0.875rem; margin-top: 2rem;">This link will expire in 24 hours.</p>
-""",
-                "text_content": "Verify your email: {{verification_link}}",
+<p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
+<p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{{verification_link}}</p>""",
+                "text_content": "Hi {{customer_name}},\n\nPlease confirm your email by visiting:\n{{verification_link}}\n\nThis link expires in 24 hours.",
                 "available_variables": ["customer_name", "verification_link"],
                 "description": "Sent when a new user registers to verify their email",
                 "is_active": True,
