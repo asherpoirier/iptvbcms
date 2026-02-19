@@ -612,6 +612,13 @@ class EmailService:
         customer_id: str = None
     ):
         """Send email verification - uses hardcoded clean template to avoid spam filters"""
+        logger.info(f"send_email_verification: START for {customer_email}")
+        logger.info(f"send_email_verification: enabled={self.enabled}, smtp_host={self.smtp_host}, from={self.from_email}")
+        
+        if not self.enabled:
+            logger.error(f"send_email_verification: SMTP not enabled, aborting")
+            return False
+        
         content = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {customer_name},</p>
 <p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
 <p style="margin: 24px 0; text-align: center;">
@@ -620,16 +627,26 @@ class EmailService:
 <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
 <p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{verification_link}</p>"""
         plain = f"Hi {customer_name},\n\nPlease confirm your email by visiting the link below:\n\n{verification_link}\n\nThis link expires in 24 hours.\n\n{self.from_name}"
-        return await self.send_email(
-            to_email=customer_email,
-            subject=f"Confirm your email - {self.from_name}",
-            html_content=self._wrap_email(content, "", customer_email, "transactional"),
-            text_content=plain,
-            email_type="transactional",
-            template_type="email_verification",
-            customer_id=customer_id,
-            recipient_name=customer_name
-        )
+        
+        logger.info(f"send_email_verification: calling send_email to {customer_email}")
+        try:
+            result = await self.send_email(
+                to_email=customer_email,
+                subject=f"Confirm your email - {self.from_name}",
+                html_content=self._wrap_email(content, "", customer_email, "transactional"),
+                text_content=plain,
+                email_type="transactional",
+                template_type="email_verification",
+                customer_id=customer_id,
+                recipient_name=customer_name
+            )
+            logger.info(f"send_email_verification: send_email returned {result}")
+            return result
+        except Exception as e:
+            logger.error(f"send_email_verification: EXCEPTION in send_email: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
     
     async def send_welcome_email(
         self,
