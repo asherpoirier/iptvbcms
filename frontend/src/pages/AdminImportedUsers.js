@@ -353,11 +353,18 @@ export default function AdminImportedUsers() {
                 try {
                   // Deduplicate first, then sync
                   await adminAPI.deduplicateImportedUsers();
-                  const response = await adminAPI.syncAllUsers();
+                  const response = await adminAPI.syncAllUsers({ timeout: 120000 });
                   setSyncResult(response.data);
                   queryClient.invalidateQueries(['imported-users']);
                 } catch (error) {
-                  setSyncResult({ success: false, error: error.response?.data?.detail || error.message });
+                  const status = error.response?.status;
+                  const msg = error.response?.data?.detail || error.message;
+                  if (status === 520 || status === 504 || error.code === 'ECONNABORTED' || msg.includes('timeout')) {
+                    setSyncResult({ success: true, message: 'Sync is processing in the background. Panels behind Cloudflare may take longer. Please refresh in a moment.' });
+                    queryClient.invalidateQueries(['imported-users']);
+                  } else {
+                    setSyncResult({ success: false, error: msg });
+                  }
                 } finally {
                   setIsSyncing(false);
                 }

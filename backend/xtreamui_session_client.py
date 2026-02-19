@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class XtreamUISessionClient:
     """XtreamUI R22F Client with Cookie File Persistence (WHMCS Method)"""
     
-    def __init__(self, panel_url: str, username: str, password: str, ssl_verify: bool = False):
+    def __init__(self, panel_url: str, username: str, password: str, ssl_verify: bool = False,
+                 http_basic_user: str = None, http_basic_pass: str = None, proxy_url: str = None):
         from urllib.parse import urlparse, urlunparse
         
         # Parse URL to extract any embedded credentials and clean hostname
@@ -42,11 +43,16 @@ class XtreamUISessionClient:
         self.panel_url = clean_url.rstrip('/')
         self.ssl_verify = ssl_verify
         
-        # HTTP Basic Auth tuple for requests
-        self.http_auth = (self.username, self.password)
+        # HTTP Basic Auth - use separate basic auth creds if provided, otherwise use panel creds
+        if http_basic_user and http_basic_pass:
+            self.http_auth = (http_basic_user, http_basic_pass)
+        else:
+            self.http_auth = (self.username, self.password)
         
         logger.info(f"Panel URL (clean): {self.panel_url}")
-        logger.info(f"HTTP Basic Auth user: {self.username}")
+        logger.info(f"HTTP Basic Auth user: {self.http_auth[0]}")
+        if proxy_url:
+            logger.info(f"Using proxy: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
         
         # Create cookie file
         cookie_dir = os.path.join(tempfile.gettempdir(), 'xtreamui_sessions')
@@ -59,6 +65,10 @@ class XtreamUISessionClient:
         self.session = requests.Session()
         self.session.verify = ssl_verify
         self.session.cookies = MozillaCookieJar(self.cookie_file)
+        
+        # Set proxy if provided
+        if proxy_url:
+            self.session.proxies = {'http': proxy_url, 'https': proxy_url}
         
         # Load existing cookies
         if os.path.exists(self.cookie_file):
@@ -263,8 +273,12 @@ class XtreamUISessionClient:
             logger.info(f"Searching for user: {username}")
             logger.info(f"Query URL: {query_string_url[:200]}...")
             
-            # POST with parameters in both URL and body (WHMCS pattern!) + HTTP Basic Auth
-            response = self.session.post(query_string_url, data=search_params, auth=self.http_auth, timeout=10)
+            # GET with parameters (some panels only respond to GET for table_search.php)
+            response = self.session.get(search_url, params=search_params, auth=self.http_auth, timeout=15)
+            
+            # Fallback to POST if GET returns empty
+            if response.status_code == 200 and len(response.text.strip()) == 0:
+                response = self.session.post(search_url, data=search_params, auth=self.http_auth, timeout=15)
             
             logger.info(f"Search response: {response.status_code}")
             logger.info(f"Response: {response.text[:300]}")
@@ -378,7 +392,11 @@ class XtreamUISessionClient:
             
             logger.info(f"Extending subscriber: Searching for {username}")
             
-            response = self.session.post(query_string_url, data=search_params, auth=self.http_auth, timeout=10)
+            response = self.session.get(search_url, params=search_params, auth=self.http_auth, timeout=15)
+            
+            # Fallback to POST if GET returns empty
+            if response.status_code == 200 and len(response.text.strip()) == 0:
+                response = self.session.post(search_url, data=search_params, auth=self.http_auth, timeout=15)
             
             logger.info(f"Search response status: {response.status_code}")
             logger.info(f"Search response content: {response.text[:500]}")
@@ -452,7 +470,9 @@ class XtreamUISessionClient:
                             # PHP method: Don't check edit response - search again to verify!
                             # Search again to verify the date changed
                             logger.info("Verifying extension by searching again...")
-                            verify_response = self.session.post(query_string_url, data=search_params, auth=self.http_auth, timeout=10)
+                            verify_response = self.session.get(search_url, params=search_params, auth=self.http_auth, timeout=15)
+                            if verify_response.status_code == 200 and len(verify_response.text.strip()) == 0:
+                                verify_response = self.session.post(search_url, data=search_params, auth=self.http_auth, timeout=15)
                             
                             if verify_response.status_code == 200:
                                 try:
@@ -735,4 +755,102 @@ class XtreamUISessionClient:
             
         except Exception as e:
             logger.error(f"Error fetching packages: {e}")
+            return []
+
+
+    def fetch_bouquets_from_packages(self) -> List[Dict]:
+        """Fetch bouquets by getting them from the first available package"""
+        if not self.logged_in:
+            if not self.login():
+                return []
+        try:
+            from bs4 import BeautifulSoup
+            page_response = self.session.get(f"{self.panel_url}/user_reseller.php", auth=self.http_auth, timeout=30)
+            if page_response.status_code != 200:
+                return []
+            soup = BeautifulSoup(page_response.text, 'html.parser')
+            package_select = soup.find('select', {'id': 'package'})
+            if not package_select:
+                return []
+            package_ids = [opt.get('value') for opt in package_select.find_all('option') if opt.get('value', '').isdigit()]
+            if not package_ids:
+                return []
+            api_response = self.session.get(
+                f"{self.panel_url}/api.php?action=get_package&package_id={package_ids[0]}",
+                auth=self.http_auth, timeout=10
+            )
+            if api_response.status_code == 200:
+                data = api_response.json()
+                if data.get('result') == True and 'bouquets' in data:
+                    return [{'id': b['id'], 'name': b.get('bouquet_name', f"Bouquet {b['id']}")} for b in data['bouquets']]
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching bouquets: {e}")
+            return []
+
+    def fetch_trial_packages(self) -> List[Dict]:
+        """Fetch trial packages accessible to this reseller"""
+        if not self.logged_in:
+            if not self.login():
+                return []
+        try:
+            from bs4 import BeautifulSoup
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            page_response = self.session.get(f"{self.panel_url}/user_reseller.php?trial", auth=self.http_auth, timeout=30)
+            if page_response.status_code != 200:
+                return []
+            soup = BeautifulSoup(page_response.text, 'html.parser')
+            package_select = soup.find('select', {'id': 'package'})
+            if not package_select:
+                return []
+            trial_map = {}
+            for opt in package_select.find_all('option'):
+                pid = opt.get('value')
+                if pid and pid.isdigit():
+                    trial_map[int(pid)] = opt.text.strip()
+
+            def fetch_details(package_id, package_name):
+                try:
+                    r = self.session.get(
+                        f"{self.panel_url}/api.php?action=get_package_trial&package_id={package_id}",
+                        auth=self.http_auth, timeout=5
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        if data.get('result') == True:
+                            pd = data.get('data', {})
+                            dur = pd.get('trial_duration', 0)
+                            dur = int(dur) if str(dur).isdigit() else 0
+                            pkg_bouquet_ids = []
+                            try:
+                                raw = pd.get('bouquets', '[]')
+                                pkg_bouquet_ids = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, list) else [])
+                            except:
+                                pass
+                            if not pkg_bouquet_ids and data.get('bouquets'):
+                                top = data.get('bouquets', [])
+                                if isinstance(top, list) and top and isinstance(top[0], dict):
+                                    pkg_bouquet_ids = [int(b['id']) for b in top if 'id' in b]
+                            return {
+                                'id': int(package_id), 'name': package_name,
+                                'credits': float(pd.get('cost_credits', 0) or 0),
+                                'duration': dur, 'duration_unit': pd.get('trial_duration_in', 'days'),
+                                'max_connections': pd.get('max_connections', 1),
+                                'bouquets': pkg_bouquet_ids, 'is_trial': True
+                            }
+                except:
+                    pass
+                return None
+
+            packages = []
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(fetch_details, pid, name): pid for pid, name in trial_map.items()}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        packages.append(result)
+            logger.info(f"Found {len(packages)} trial packages")
+            return packages
+        except Exception as e:
+            logger.error(f"Error fetching trial packages: {e}")
             return []

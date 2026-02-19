@@ -401,6 +401,52 @@ function PanelFormModal({ panel, onClose, onSave }) {
             </label>
           </div>
 
+          {/* Advanced: Proxy & HTTP Basic Auth */}
+          <details className="border border-gray-200 dark:border-gray-600 rounded-lg">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg">
+              Advanced Settings (Proxy / HTTP Basic Auth)
+            </summary>
+            <div className="px-4 pb-4 pt-2 space-y-4 border-t border-gray-200 dark:border-gray-600">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proxy URL</label>
+                <input
+                  type="text"
+                  value={formData.proxy_url || ''}
+                  onChange={(e) => setFormData({ ...formData, proxy_url: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  placeholder="http://user:pass@proxy.example.com:port"
+                  data-testid="panel-proxy-url"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Residential proxy to bypass Cloudflare WAF (optional)</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HTTP Basic Auth User</label>
+                  <input
+                    type="text"
+                    value={formData.http_basic_user || ''}
+                    onChange={(e) => setFormData({ ...formData, http_basic_user: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    placeholder="Leave blank if same as panel user"
+                    data-testid="panel-http-basic-user"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HTTP Basic Auth Pass</label>
+                  <input
+                    type="password"
+                    value={formData.http_basic_pass || ''}
+                    onChange={(e) => setFormData({ ...formData, http_basic_pass: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    placeholder="Leave blank if same as panel pass"
+                    data-testid="panel-http-basic-pass"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">If the panel has a separate nginx basic auth popup (different from panel login), enter those credentials here.</p>
+            </div>
+          </details>
+
           <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
               type="button"

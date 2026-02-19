@@ -11,14 +11,24 @@ logger = logging.getLogger(__name__)
 class XtreamUIService:
     """XtreamUI R22F API Service - Python version of WHMCS module"""
     
-    def __init__(self, panel_url: str, admin_username: str, admin_password: str, ssl_verify: bool = False):
+    def __init__(self, panel_url: str, admin_username: str, admin_password: str, ssl_verify: bool = False,
+                 http_basic_user: str = None, http_basic_pass: str = None, proxy_url: str = None):
         self.panel_url = panel_url.rstrip('/')
         self.admin_username = admin_username
         self.admin_password = admin_password
         self.ssl_verify = ssl_verify
+        self.http_basic_user = http_basic_user
+        self.http_basic_pass = http_basic_pass
+        self.proxy_url = proxy_url
         self.session = requests.Session()
-        self.session.auth = (admin_username, admin_password)
+        # Use separate basic auth if provided, otherwise panel creds
+        if http_basic_user and http_basic_pass:
+            self.session.auth = (http_basic_user, http_basic_pass)
+        else:
+            self.session.auth = (admin_username, admin_password)
         self.session.verify = ssl_verify
+        if proxy_url:
+            self.session.proxies = {'http': proxy_url, 'https': proxy_url}
         self._session_client = None  # Persistent session client
     
     def _make_request(self, endpoint: str, method: str = 'GET', data: Optional[Dict] = None) -> Dict[str, Any]:
@@ -246,7 +256,10 @@ class XtreamUIService:
                 panel_url=self.panel_url,
                 username=self.admin_username,
                 password=self.admin_password,
-                ssl_verify=self.ssl_verify
+                ssl_verify=self.ssl_verify,
+                http_basic_user=self.http_basic_user,
+                http_basic_pass=self.http_basic_pass,
+                proxy_url=self.proxy_url
             )
         
         return self._session_client
@@ -386,13 +399,22 @@ class XtreamUIService:
             
             logger.info("Fetching users from table_search.php...")
             
-            # Make request with session and HTTP auth
-            response = session_client.session.post(
-                query_string_url,
-                data=search_params,
+            # Try GET first (some panels only respond to GET), fallback to POST
+            search_url = f"{session_client.panel_url}/table_search.php"
+            response = session_client.session.get(
+                search_url,
+                params=search_params,
                 auth=session_client.http_auth,
                 timeout=30
             )
+            
+            if response.status_code == 200 and len(response.text.strip()) == 0:
+                response = session_client.session.post(
+                    search_url,
+                    data=search_params,
+                    auth=session_client.http_auth,
+                    timeout=30
+                )
             
             logger.info(f"Response: status={response.status_code}, length={len(response.text)}")
             
@@ -516,13 +538,21 @@ class XtreamUIService:
             
             logger.info("Fetching subresellers from table_search.php (reg_users)...")
             
-            # Make request with session and HTTP auth
-            response = session_client.session.post(
-                query_string_url,
-                data=search_params,
+            # Try GET first (some panels only respond to GET), fallback to POST
+            response = session_client.session.get(
+                search_url,
+                params=search_params,
                 auth=session_client.http_auth,
                 timeout=30
             )
+            
+            if response.status_code == 200 and len(response.text.strip()) == 0:
+                response = session_client.session.post(
+                    search_url,
+                    data=search_params,
+                    auth=session_client.http_auth,
+                    timeout=30
+                )
             
             logger.info(f"Response: status={response.status_code}, length={len(response.text)}")
             
@@ -1058,7 +1088,10 @@ def get_xtream_service(settings: Optional[Dict] = None) -> Optional[XtreamUIServ
             panel_url=settings.get('panel_url', ''),
             admin_username=settings.get('admin_username', ''),
             admin_password=settings.get('admin_password', ''),
-            ssl_verify=settings.get('ssl_verify', False)
+            ssl_verify=settings.get('ssl_verify', False),
+            http_basic_user=settings.get('http_basic_user', ''),
+            http_basic_pass=settings.get('http_basic_pass', ''),
+            proxy_url=settings.get('proxy_url', '')
         )
     
     return _xtream_service

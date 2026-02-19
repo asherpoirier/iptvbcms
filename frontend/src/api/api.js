@@ -157,7 +157,7 @@ export const adminAPI = {
   deleteImportedUser: (id) => api.delete(`/api/admin/imported-users/${id}`),
   createImportedUser: (data) => api.post('/api/admin/imported-users/create', data),
   extendImportedUser: (id, data) => api.post(`/api/admin/imported-users/${id}/extend`, data),
-  syncAllUsers: () => api.post('/api/admin/sync-all-users'),
+  syncAllUsers: (config) => api.post('/api/admin/sync-all-users', null, { timeout: 120000, ...config }),
   // Customer creation
   createCustomer: (data) => api.post('/api/admin/customers/create', data),
 
