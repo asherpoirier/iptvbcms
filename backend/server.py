@@ -6474,6 +6474,78 @@ async def get_email_templates(current_user: dict = Depends(get_current_admin_use
         templates.append(template)
     return templates
 
+@app.post("/api/admin/email/templates/reset-defaults")
+async def reset_email_templates_to_defaults(current_user: dict = Depends(get_current_admin_user)):
+    """Reset all email templates to clean, spam-filter-friendly defaults"""
+    clean_templates = {
+        "email_verification": {
+            "subject": "Confirm your email",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>\n<p style="margin: 24px 0; text-align: center;">\n    <a href="{{verification_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Confirm Email</a>\n</p>\n<p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>\n<p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{{verification_link}}</p>',
+            "text_content": "Hi {{customer_name}},\n\nPlease confirm your email by visiting:\n{{verification_link}}\n\nThis link expires in 24 hours."
+        },
+        "welcome": {
+            "subject": "Welcome, {{customer_name}}",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your account has been verified and is ready to use.</p>\n<p style="margin: 24px 0; text-align: center;">\n    <a href="{{dashboard_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Go to Dashboard</a>\n</p>',
+            "text_content": "Hi {{customer_name}},\n\nYour account has been verified. Visit your dashboard:\n{{dashboard_link}}"
+        },
+        "order_confirmation": {
+            "subject": "Order confirmed - {{order_id}}",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your order <strong>{{order_id}}</strong> has been confirmed.</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;"><strong>Total:</strong> ${{total}}</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">We are setting up your service now. You will receive another email once it is ready.</p>',
+            "text_content": "Hi {{customer_name}},\n\nYour order {{order_id}} has been confirmed.\nTotal: ${{total}}\n\nWe are setting up your service now."
+        },
+        "service_activated": {
+            "subject": "Your service is ready",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your service has been activated. Here are your connection details:</p>\n<div style="background-color: #f9fafb; padding: 16px; border-radius: 4px; border-left: 3px solid #16a34a; margin: 16px 0;">\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Service:</strong> {{service_name}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Username:</strong> {{username}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Password:</strong> {{password}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Server:</strong> {{streaming_url}}</p>\n    <p style="margin: 0; font-size: 14px;"><strong>Valid until:</strong> {{expiry_date}}</p>\n</div>\n{{provision_notes}}',
+            "text_content": "Hi {{customer_name}},\n\nYour service is ready.\n\nService: {{service_name}}\nUsername: {{username}}\nPassword: {{password}}\nServer: {{streaming_url}}\nValid until: {{expiry_date}}"
+        },
+        "payment_received": {
+            "subject": "Payment received - Order {{order_id}}",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">We received your payment of ${{amount}} for order {{order_id}}. Your service is being set up now.</p>',
+            "text_content": "Hi {{customer_name}},\n\nPayment of ${{amount}} received for order {{order_id}}. Your service is being set up."
+        },
+        "service_expiry_warning": {
+            "subject": "Your service expires in {{days_remaining}} days",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your service <strong>{{service_name}}</strong> expires on <strong>{{expiry_date}}</strong> ({{days_remaining}} days from now).</p>\n<p style="margin: 24px 0; text-align: center;">\n    <a href="{{renewal_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Renew Now</a>\n</p>',
+            "text_content": "Hi {{customer_name}},\n\nYour service {{service_name}} expires on {{expiry_date}} ({{days_remaining}} days).\n\nRenew at: {{renewal_link}}"
+        },
+        "service_expired": {
+            "subject": "Your service has expired",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your service <strong>{{service_name}}</strong> has expired and has been suspended.</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">To reactivate your service, please renew your subscription.</p>\n<p style="margin: 24px 0; text-align: center;">\n    <a href="{{renewal_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Reactivate Service</a>\n</p>',
+            "text_content": "Hi {{customer_name}},\n\nYour service {{service_name}} has expired and been suspended.\n\nRenew at: {{renewal_link}}"
+        },
+        "service_renewed": {
+            "subject": "Service renewed - {{service_name}}",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your service has been renewed successfully.</p>\n<div style="background-color: #f9fafb; padding: 16px; border-radius: 4px; border-left: 3px solid #16a34a; margin: 16px 0;">\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Service:</strong> {{service_name}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Username:</strong> {{username}}</p>\n    <p style="margin: 0; font-size: 14px;"><strong>New expiry:</strong> {{new_expiry_date}}</p>\n</div>',
+            "text_content": "Hi {{customer_name}},\n\nService renewed.\nService: {{service_name}}\nUsername: {{username}}\nNew expiry: {{new_expiry_date}}"
+        },
+        "ticket_reply": {
+            "subject": "Reply on ticket #{{ticket_id}}",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">There is a new reply on your support ticket <strong>#{{ticket_id}}</strong>.</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6; padding: 12px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #d1d5db;">{{reply_preview}}</p>\n<p style="margin: 24px 0; text-align: center;">\n    <a href="{{ticket_link}}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">View Ticket</a>\n</p>',
+            "text_content": "Hi {{customer_name}},\n\nNew reply on ticket #{{ticket_id}}:\n\n{{reply_preview}}\n\nView ticket: {{ticket_link}}"
+        },
+        "reseller_activated": {
+            "subject": "Your reseller panel is ready",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your reseller panel has been set up with <strong>{{credits}} credits</strong>.</p>\n<div style="background-color: #f9fafb; padding: 16px; border-radius: 4px; border-left: 3px solid #1a56db; margin: 16px 0;">\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Panel URL:</strong> {{panel_url}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Username:</strong> {{username}}</p>\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Password:</strong> {{password}}</p>\n    <p style="margin: 0; font-size: 14px;"><strong>Credits:</strong> {{credits}}</p>\n</div>',
+            "text_content": "Hi {{customer_name}},\n\nYour reseller panel is ready.\n\nPanel URL: {{panel_url}}\nUsername: {{username}}\nPassword: {{password}}\nCredits: {{credits}}"
+        },
+        "credits_added": {
+            "subject": "Credits added to your panel",
+            "html_content": '<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {{customer_name}},</p>\n<p style="font-size: 15px; color: #374151; line-height: 1.6;"><strong>{{credits}} credits</strong> have been added to your reseller panel.</p>\n<div style="background-color: #f9fafb; padding: 16px; border-radius: 4px; border-left: 3px solid #1a56db; margin: 16px 0;">\n    <p style="margin: 0 0 8px; font-size: 14px;"><strong>Credits added:</strong> {{credits}}</p>\n    <p style="margin: 0; font-size: 14px;"><strong>Panel:</strong> {{panel_url}}</p>\n</div>',
+            "text_content": "Hi {{customer_name}},\n\n{{credits}} credits have been added to your reseller panel.\n\nPanel: {{panel_url}}"
+        }
+    }
+    
+    updated = 0
+    for template_type, data in clean_templates.items():
+        result = await email_templates_collection.update_one(
+            {"template_type": template_type},
+            {"$set": {**data, "updated_at": datetime.utcnow()}}
+        )
+        if result.modified_count:
+            updated += 1
+    
+    return {"message": f"Reset {updated} templates to spam-filter-friendly defaults"}
+
 @app.get("/api/admin/email/templates/{template_id}")
 async def get_email_template(template_id: str, current_user: dict = Depends(get_current_admin_user)):
     """Get a single email template"""
@@ -6578,12 +6650,20 @@ async def test_email_template(
             html_content = html_content.replace(f"{{{{{key}}}}}", str(value))
     
     wrapped_html = email_service._wrap_email(html_content, template["name"])
+    text_content = template.get("text_content", "")
+    for key, value in test_data.items():
+        if key != "test_email":
+            text_content = text_content.replace(f"{{{{{key}}}}}", str(value))
+    if not text_content:
+        text_content = email_service._html_to_text(html_content)
     
     # Send test email
     success = await email_service.send_email(
-        test_data["test_email"],
-        f"[TEST] {subject}",
-        wrapped_html
+        to_email=test_data["test_email"],
+        subject=f"[TEST] {subject}",
+        html_content=wrapped_html,
+        text_content=text_content,
+        email_type="transactional"
     )
     
     if success:
@@ -6830,10 +6910,10 @@ async def resend_email(log_id: str, current_user: dict = Depends(get_current_adm
     
     # Send email (will be automatically logged by email service)
     success = await email_service.send_email(
-        log["recipient_email"],
-        f"[RESENT] {log['subject']}",
-        log["html_content"],
-        log.get("text_content"),
+        to_email=log["recipient_email"],
+        subject=f"[RESENT] {log['subject']}",
+        html_content=log["html_content"],
+        text_content=log.get("text_content", ""),
         email_type="transactional",
         customer_id=log.get("customer_id"),
         sent_by=current_user["sub"]

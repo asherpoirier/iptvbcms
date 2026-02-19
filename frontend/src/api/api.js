@@ -127,6 +127,7 @@ export const adminAPI = {
   updateEmailTemplate: (id, data) => api.put(`/api/admin/email/templates/${id}`, data),
   previewEmailTemplate: (id, sampleData) => api.post(`/api/admin/email/templates/${id}/preview`, sampleData),
   testEmailTemplate: (id, testData) => api.post(`/api/admin/email/templates/${id}/test`, testData),
+  resetEmailTemplates: () => api.post('/api/admin/email/templates/reset-defaults'),
   // Advanced email endpoints
   getAllEmailLogs: (params) => api.get('/api/admin/email/logs/all', { params }),
   getEmailLogDetail: (id) => api.get(`/api/admin/email/logs/${id}`),
