@@ -138,8 +138,8 @@ class EmailService:
             logger.warning(f"Email not sent (SMTP not configured): {subject} to {to_email}")
             return False
         
-        # Check if user is unsubscribed
-        if self.unsubscribe_manager:
+        # Check if user is unsubscribed (skip for auth-critical emails like verification)
+        if self.unsubscribe_manager and template_type not in ("email_verification", "password_reset"):
             if email_type == "marketing":
                 can_send = await self.unsubscribe_manager.can_send_marketing(to_email)
                 if not can_send:
@@ -611,60 +611,20 @@ class EmailService:
         verification_link: str,
         customer_id: str = None
     ):
-        """Send email verification using template"""
-        if self.db is None:
-            logger.error("send_email_verification: db is None, cannot send")
-            return False
-        
-        template = await self.db.email_templates.find_one({
-            "template_type": "email_verification",
-            "is_active": True
-        })
-        
-        if not template:
-            logger.warning("Email verification template not found, using fallback")
-            content = f"""
-            <p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {customer_name},</p>
-            <p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
-            <p style="margin: 24px 0; text-align: center;">
-                <a href="{verification_link}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">
-                    Confirm Email
-                </a>
-            </p>
-            <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
-            <p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{verification_link}</p>
-            """
-            plain = f"Hi {customer_name},\n\nPlease confirm your email by visiting the link below:\n\n{verification_link}\n\nThis link expires in 24 hours.\n\n{self.from_name}"
-            return await self.send_email(
-                to_email=customer_email,
-                subject=f"Confirm your email - {self.from_name}",
-                html_content=self._wrap_email(content, "Confirm Your Email", customer_email, "transactional"),
-                text_content=plain,
-                email_type="transactional",
-                customer_id=customer_id,
-                recipient_name=customer_name
-            )
-        
-        # Use template
-        subject = template["subject"]
-        content = template["html_content"]
-        content = content.replace("{{customer_name}}", customer_name)
-        content = content.replace("{{verification_link}}", verification_link)
-        
-        plain_text = template.get("text_content", "")
-        if plain_text:
-            plain_text = plain_text.replace("{{customer_name}}", customer_name)
-            plain_text = plain_text.replace("{{verification_link}}", verification_link)
-        else:
-            plain_text = f"Hi {customer_name},\n\nPlease confirm your email by visiting:\n\n{verification_link}\n\n{self.from_name}"
-        
-        wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
-        
+        """Send email verification - uses hardcoded clean template to avoid spam filters"""
+        content = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {customer_name},</p>
+<p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
+<p style="margin: 24px 0; text-align: center;">
+    <a href="{verification_link}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Confirm Email</a>
+</p>
+<p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
+<p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{verification_link}</p>"""
+        plain = f"Hi {customer_name},\n\nPlease confirm your email by visiting the link below:\n\n{verification_link}\n\nThis link expires in 24 hours.\n\n{self.from_name}"
         return await self.send_email(
             to_email=customer_email,
-            subject=subject,
-            html_content=wrapped_content,
-            text_content=plain_text,
+            subject=f"Confirm your email - {self.from_name}",
+            html_content=self._wrap_email(content, "", customer_email, "transactional"),
+            text_content=plain,
             email_type="transactional",
             template_type="email_verification",
             customer_id=customer_id,
