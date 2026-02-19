@@ -5585,33 +5585,22 @@ async def test_email_notification_endpoint(data: dict, current_user: dict = Depe
         if not email_service or not email_service.enabled:
             raise HTTPException(status_code=400, detail="SMTP is not configured. Please set up SMTP in Email Settings first.")
         settings = await get_settings()
-        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
-        subject = f"Test Notification from {site_name}"
-        html_body = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            {email_service._get_email_header("Test Notification")}
-            <div style="padding: 30px;">
-                <p style="font-size: 16px; color: #333;">This is a test notification from <strong>{site_name}</strong>.</p>
-                <p style="font-size: 14px; color: #666;">Your admin email notifications are configured correctly!</p>
-            </div>
-            {email_service._get_email_footer(site_name)}
-        </div>
-        """
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"{email_service.from_name} <{email_service.from_email}>"
-        msg["To"] = recipient
-        msg["Subject"] = subject
-        msg.attach(MIMEText(html_body, "html"))
-        await aiosmtplib.send(
-            msg,
-            hostname=email_service.smtp_host,
-            port=email_service.smtp_port,
-            username=email_service.smtp_username,
-            password=email_service.smtp_password,
-            use_tls=False,
-            start_tls=True,
+        site_name = email_service.from_name
+        subject = f"Test notification from {site_name}"
+        html_body = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6;">This is a test notification from <strong>{site_name}</strong>.</p>
+<p style="font-size: 15px; color: #374151; line-height: 1.6;">Your admin email notifications are configured correctly.</p>"""
+        text_body = f"This is a test notification from {site_name}.\n\nYour admin email notifications are configured correctly."
+        result = await email_service.send_email(
+            to_email=recipient,
+            subject=subject,
+            html_content=email_service._wrap_email(html_body, subject, recipient, "transactional"),
+            text_content=text_body,
+            email_type="transactional"
         )
-        return {"message": "Test email sent successfully!"}
+        if result:
+            return {"message": "Test email sent successfully!"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send test email. Please check your SMTP settings and server logs for details.")
     except HTTPException:
         raise
     except Exception as e:
@@ -5675,31 +5664,17 @@ async def send_email_notification(event_type: str, subject: str, message: str):
         if not email_service or not email_service.enabled:
             return False
         
-        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
-        html_body = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            {email_service._get_email_header(subject)}
-            <div style="padding: 30px;">
-                <pre style="font-family: Arial, sans-serif; font-size: 14px; color: #333; white-space: pre-wrap;">{message}</pre>
-            </div>
-            {email_service._get_email_footer(site_name)}
-        </div>
-        """
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"{email_service.from_name} <{email_service.from_email}>"
-        msg["To"] = recipient
-        msg["Subject"] = f"[{site_name}] {subject}"
-        msg.attach(MIMEText(html_body, "html"))
-        await aiosmtplib.send(
-            msg,
-            hostname=email_service.smtp_host,
-            port=email_service.smtp_port,
-            username=email_service.smtp_username,
-            password=email_service.smtp_password,
-            use_tls=False,
-            start_tls=True,
+        site_name = email_service.from_name
+        html_body = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6; white-space: pre-wrap;">{message}</p>"""
+        wrapped = email_service._wrap_email(html_body, subject, recipient, "transactional")
+        
+        return await email_service.send_email(
+            to_email=recipient,
+            subject=f"[{site_name}] {subject}",
+            html_content=wrapped,
+            text_content=message,
+            email_type="transactional"
         )
-        return True
     except Exception as e:
         logger.error(f"Failed to send admin email notification: {str(e)}")
         return False
