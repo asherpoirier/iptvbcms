@@ -119,6 +119,9 @@ export const adminAPI = {
   updateSettings: (data) => api.put('/api/admin/settings', data),
   // Email endpoints
   sendTestEmail: (email) => api.post('/api/admin/email/test', { email }),
+  getEmailProvider: () => api.get('/api/admin/email-provider'),
+  updateEmailProvider: (data) => api.put('/api/admin/email-provider', data),
+  testEmailProvider: (data) => api.post('/api/admin/email-provider/test', data),
   sendMassEmail: (subject, content, recipientFilter) => api.post('/api/admin/email/mass', { subject, content, recipient_filter: recipientFilter }),
   getEmailLogs: () => api.get('/api/admin/email/logs'),
   // Email template endpoints
@@ -174,6 +177,8 @@ export const adminAPI = {
   testTelegramNotification: (data) => api.post('/api/admin/notifications/telegram/test', data),
   updateEmailNotificationSettings: (data) => api.put('/api/admin/notifications/email', data),
   testEmailNotification: (data) => api.post('/api/admin/notifications/email/test', data),
+  updateSmsNotificationSettings: (data) => api.put('/api/admin/notifications/sms', data),
+  testSmsNotification: (data) => api.post('/api/admin/notifications/sms/test', data),
 
   syncTrialPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync-trial?panel_index=${panelIndex}`),
   updateBouquets: (data) => api.put('/api/admin/bouquets', data),

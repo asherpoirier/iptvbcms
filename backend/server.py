@@ -210,7 +210,14 @@ async def get_configured_email_service():
     settings = await get_settings()
     smtp_settings = settings.get("smtp", {})
     branding = settings.get("branding", {})
-    return get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding)
+    email_provider = settings.get("email_provider", "smtp")
+    email_provider_config = settings.get("email_provider_config", {})
+    # Use from_email from provider config if not in SMTP
+    if email_provider != "smtp" and not smtp_settings.get("from_email") and email_provider_config.get("from_email"):
+        smtp_settings = {**smtp_settings, "from_email": email_provider_config["from_email"]}
+    if email_provider != "smtp" and not smtp_settings.get("from_name") and email_provider_config.get("from_name"):
+        smtp_settings = {**smtp_settings, "from_name": email_provider_config["from_name"]}
+    return get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding, email_provider, email_provider_config)
 
 
 def safe_int(value, default=1):
@@ -225,6 +232,12 @@ def safe_int(value, default=1):
     if m:
         return int(m.group(1))
     return default
+
+
+async def get_verification_base_url():
+    """Get the base URL for verification links - uses VERIFICATION_URL env var, then BACKEND_PUBLIC_URL"""
+    url = os.getenv('VERIFICATION_URL', '') or os.getenv('BACKEND_PUBLIC_URL', '') or os.getenv('PUBLIC_URL', 'http://localhost:8001')
+    return url.rstrip('/')
 
 def str_to_objectid(id_str: str) -> ObjectId:
     """Convert string ID to ObjectId"""
@@ -967,8 +980,7 @@ async def register(user_data: UserCreate):
         await referral_service.track_referral(user_data.referral_code, user_data.email)
     
     # Send verification email
-    # Use frontend route for verification to avoid redirect issues
-    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
+    verification_link = f"{os.getenv('SITE_URL', os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001'))}/api/verify-email?redirect=true&token={verification_token}"
     
     try:
         email_service = await get_configured_email_service()
@@ -1002,6 +1014,7 @@ async def register(user_data: UserCreate):
         "New User Registration",
         f"Name: {user_data.name}\nEmail: {user_data.email}"
     )
+    await send_sms_notification("new_user_registration", f"Name: {user_data.name}\nEmail: {user_data.email}")
     
     return {
         "message": "Registration successful! Please check your email to verify your account.",
@@ -1113,7 +1126,7 @@ async def resend_verification(data: ResendVerificationRequest):
         {"$set": {"verification_token": verification_token}}
     )
     
-    verification_link = f"{os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001')}/api/verify-email?redirect=true&token={verification_token}"
+    verification_link = f"{os.getenv('SITE_URL', os.getenv('BACKEND_PUBLIC_URL', 'http://localhost:8001'))}/api/verify-email?redirect=true&token={verification_token}"
     logger.info(f"Resend verification: new token generated for {target_email}, link={verification_link[:80]}...")
     
     try:
@@ -1280,7 +1293,7 @@ async def link_email_to_account(data: dict, current_user: dict = Depends(get_cur
         try:
             user = await users_collection.find_one({"_id": str_to_objectid(current_user["sub"])})
             customer_name = user.get("name", user.get("panel_username", "Customer"))
-            verify_url = f"{os.getenv('BACKEND_PUBLIC_URL', os.getenv('PUBLIC_URL', ''))}/api/verify-email?redirect=true&token={verification_token}"
+            verify_url = f"{os.getenv('SITE_URL', os.getenv('BACKEND_PUBLIC_URL', os.getenv('PUBLIC_URL', '')))}/api/verify-email?redirect=true&token={verification_token}"
             await email_service.send_email_verification(email, customer_name, verify_url, customer_id=current_user["sub"])
         except Exception as e:
             logger.warning(f"Failed to send verification email: {e}")
@@ -2525,6 +2538,7 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
         "New Order Created",
         f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nTotal: ${final_total:.2f}\n\nItems:\n{order_items_text}"
     )
+    await send_sms_notification("new_order", f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nTotal: ${final_total:.2f}\n\nItems:\n{order_items_text}")
     
     # If fully paid with credits, mark order as paid and provision service
     if final_total == 0:
@@ -2747,6 +2761,7 @@ async def create_ticket(ticket_data: TicketCreate, current_user: dict = Depends(
         "New Support Ticket",
         f"From: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nSubject: {ticket_data.subject}\nPriority: {ticket_data.priority}\n\nMessage:\n{ticket_data.message[:200]}..."
     )
+    await send_sms_notification("new_support_ticket", f"From: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nSubject: {ticket_data.subject}\nPriority: {ticket_data.priority}\n\nMessage:\n{ticket_data.message[:200]}...")
     
     return {"message": "Ticket created successfully", "ticket_id": ticket_dict["id"]}
 
@@ -2835,6 +2850,7 @@ async def reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depe
         "Ticket Reply",
         f"Ticket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nAdmin replied:\n{reply['message'][:200]}..."
     )
+    await send_sms_notification("ticket_reply", f"Ticket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nCustomer: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nAdmin replied:\n{reply['message'][:200]}...")
     
     return {"message": "Ticket status updated"}
 
@@ -3382,6 +3398,7 @@ async def mark_order_paid(order_id: str, background_tasks: BackgroundTasks,
         "Payment Received",
         f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nAmount: ${order['total']:.2f}\n\nItems:\n{order_items_text}"
     )
+    await send_sms_notification("payment_received", f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nAmount: ${order['total']:.2f}\n\nItems:\n{order_items_text}")
     
     # Provision services
     background_tasks.add_task(provision_order_services, order_id, order, user)
@@ -3840,6 +3857,7 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             "Service Activated",
                             f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {actual_expiry.strftime('%Y-%m-%d')}"
                         )
+                        await send_sms_notification("service_activated", f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XtreamUI)\nUsername: {username}\nExpiry: {actual_expiry.strftime('%Y-%m-%d')}")
                         
                         logger.info(f"Subscriber provisioned: {username}")
                     else:
@@ -4365,6 +4383,7 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                     "Service Activated",
                     f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XuiOne)\nUsername: {username}\nExpiry: {expiry_date_str}"
                 )
+                await send_sms_notification("service_activated", f"Customer: {user.get('name', 'Unknown')}\nEmail: {user.get('email', 'N/A')}\nService: {item['product_name']}\nPanel: {panel_name} (XuiOne)\nUsername: {username}\nExpiry: {expiry_date_str}")
         
         else:
             # RESELLER PROVISIONING
@@ -4702,6 +4721,7 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
                     "Service Activated (1-Stream)",
                     f"Customer: {user.get('name')}\nEmail: {user.get('email')}\nService: {item['product_name']}\nPanel: {panel_name}\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}"
                 )
+                await send_sms_notification("service_activated", f"Customer: {user.get('name')}\nEmail: {user.get('email')}\nService: {item['product_name']}\nPanel: {panel_name}\nUsername: {username}\nExpiry: {expiry_date.strftime('%Y-%m-%d')}")
                 
                 logger.info(f"1-Stream subscriber provisioned: {username}")
             else:
@@ -5332,6 +5352,77 @@ async def get_admin_settings(current_user: dict = Depends(get_current_admin_user
         del settings["_id"]
     return settings
 
+@app.get("/api/admin/email-provider")
+async def get_email_provider_settings(current_user: dict = Depends(get_current_admin_user)):
+    """Get email provider configuration"""
+    settings = await get_settings()
+    return {
+        "email_provider": settings.get("email_provider", "smtp"),
+        "email_provider_config": settings.get("email_provider_config", {}),
+        "smtp": {
+            "host": settings.get("smtp", {}).get("host", ""),
+            "port": settings.get("smtp", {}).get("port", 587),
+            "from_email": settings.get("smtp", {}).get("from_email", ""),
+            "from_name": settings.get("smtp", {}).get("from_name", ""),
+        }
+    }
+
+@app.put("/api/admin/email-provider")
+async def update_email_provider_settings(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update email provider and config"""
+    provider = data.get("email_provider", "smtp")
+    config = data.get("email_provider_config", {})
+    
+    await settings_collection.update_one(
+        {},
+        {"$set": {"email_provider": provider, "email_provider_config": config}},
+        upsert=True
+    )
+    return {"message": f"Email provider updated to {provider}"}
+
+@app.post("/api/admin/email-provider/test")
+async def test_email_provider(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Test the email provider by sending a test email"""
+    test_email = data.get("test_email", "")
+    if not test_email:
+        raise HTTPException(status_code=400, detail="test_email is required")
+    
+    provider = data.get("email_provider", "smtp")
+    config = data.get("email_provider_config", {})
+    
+    if provider == "smtp":
+        # Use existing SMTP test
+        email_service = await get_configured_email_service()
+        if not email_service or not email_service.enabled:
+            raise HTTPException(status_code=400, detail="SMTP is not configured")
+        site_name = email_service.from_name
+        success = await email_service.send_email(
+            to_email=test_email,
+            subject=f"Test email from {site_name}",
+            html_content=email_service._wrap_email(f'<p style="font-size:15px;color:#374151;">Test email from {site_name}. Your email settings are working.</p>', "", test_email),
+            text_content=f"Test email from {site_name}. Your email settings are working.",
+            email_type="transactional"
+        )
+    else:
+        from email_providers import send_via_provider
+        from_email = config.get("from_email", "")
+        from_name = config.get("from_name", "")
+        if not from_email:
+            raise HTTPException(status_code=400, detail="From email is required")
+        success = await send_via_provider(
+            provider=provider, config=config,
+            from_email=from_email, from_name=from_name or "Test",
+            to_email=test_email,
+            subject=f"Test email from {from_name or provider}",
+            html=f'<p style="font-size:15px;color:#374151;">Test email sent via {provider}. Your email settings are working.</p>',
+            text=f"Test email sent via {provider}. Your email settings are working."
+        )
+    
+    if success:
+        return {"message": f"Test email sent to {test_email} via {provider}"}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to send via {provider}. Check your API key and settings.")
+
 @app.put("/api/admin/settings")
 async def update_admin_settings(settings_update: Settings, 
                                current_user: dict = Depends(get_current_admin_user)):
@@ -5500,6 +5591,13 @@ async def get_notification_settings(current_user: dict = Depends(get_current_adm
             "enabled": False,
             "recipient_email": settings.get("support_email", ""),
             "events": DEFAULT_NOTIFICATION_EVENTS.copy()
+        }),
+        "sms": notifications.get("sms", {
+            "enabled": False,
+            "provider": "twilio",
+            "admin_phone": "",
+            "config": {},
+            "events": DEFAULT_NOTIFICATION_EVENTS.copy()
         })
     }
 
@@ -5622,6 +5720,42 @@ async def test_email_notification_endpoint(data: dict, current_user: dict = Depe
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
 
+@app.put("/api/admin/notifications/sms")
+async def update_sms_notification_settings(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update SMS notification settings"""
+    settings = await get_settings()
+    if "notifications" not in settings:
+        settings["notifications"] = {}
+    settings["notifications"]["sms"] = data
+    await settings_collection.update_one(
+        {},
+        {"$set": {"notifications": settings["notifications"]}},
+        upsert=True
+    )
+    return {"message": "SMS notification settings updated successfully"}
+
+@app.post("/api/admin/notifications/sms/test")
+async def test_sms_notification(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Send a test SMS notification"""
+    phone = data.get("phone", "")
+    provider = data.get("provider", "")
+    config = data.get("config", {})
+    if not phone or not provider:
+        raise HTTPException(status_code=400, detail="Phone number and provider are required")
+    try:
+        from sms_providers import send_sms
+        settings = await get_settings()
+        site_name = settings.get("branding", {}).get("site_name", "Billing System")
+        result = await send_sms(provider, config, phone, f"Test notification from {site_name}. SMS notifications are working.")
+        if result:
+            return {"message": f"Test SMS sent to {phone}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send test SMS. Check your provider credentials.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SMS test failed: {str(e)}")
+
 # Helper function to send Telegram notifications
 async def send_telegram_notification(event_type: str, message: str):
     """Send a Telegram notification if enabled for the event type"""
@@ -5693,6 +5827,33 @@ async def send_email_notification(event_type: str, subject: str, message: str):
         )
     except Exception as e:
         logger.error(f"Failed to send admin email notification: {str(e)}")
+        return False
+
+# Helper function to send SMS notifications
+async def send_sms_notification(event_type: str, message: str):
+    """Send an admin SMS notification if enabled for the event type"""
+    try:
+        settings = await get_settings()
+        sms_settings = settings.get("notifications", {}).get("sms", {})
+        
+        if not sms_settings.get("enabled"):
+            return False
+        
+        events = sms_settings.get("events", {})
+        if not events.get(event_type, False):
+            return False
+        
+        admin_phone = sms_settings.get("admin_phone", "")
+        provider = sms_settings.get("provider", "")
+        config = sms_settings.get("config", {})
+        
+        if not admin_phone or not provider:
+            return False
+        
+        from sms_providers import send_sms
+        return await send_sms(provider, config, admin_phone, message)
+    except Exception as e:
+        logger.error(f"Failed to send SMS notification: {str(e)}")
         return False
 
 # ===== XUIONE PANEL ENDPOINTS =====

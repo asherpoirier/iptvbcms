@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Bell, Send, MessageSquare, Mail, CheckCircle, AlertCircle } from 'lucide-react';
+import { Bell, Send, MessageSquare, Mail, Smartphone, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const eventLabels = {
@@ -66,9 +66,17 @@ export default function NotificationSettings({ settings }) {
     recipient_email: '',
     events: { ...defaultEvents }
   });
+  const [smsConfig, setSmsConfig] = useState({
+    enabled: false,
+    provider: 'twilio',
+    admin_phone: '',
+    config: {},
+    events: { ...defaultEvents }
+  });
   const [creditThreshold, setCreditThreshold] = useState(10);
   const [telegramTestStatus, setTelegramTestStatus] = useState(null);
   const [emailTestStatus, setEmailTestStatus] = useState(null);
+  const [smsTestStatus, setSmsTestStatus] = useState(null);
 
   const { data: notificationSettings, isLoading } = useQuery({
     queryKey: ['notification-settings'],
@@ -85,6 +93,9 @@ export default function NotificationSettings({ settings }) {
     if (notificationSettings?.email) {
       setEmailConfig(prev => ({ ...prev, ...notificationSettings.email }));
     }
+    if (notificationSettings?.sms) {
+      setSmsConfig(prev => ({ ...prev, ...notificationSettings.sms }));
+    }
     if (settings?.credit_alert_threshold !== undefined) {
       setCreditThreshold(settings.credit_alert_threshold);
     }
@@ -94,6 +105,7 @@ export default function NotificationSettings({ settings }) {
     mutationFn: async () => {
       await adminAPI.updateTelegramSettings(telegramConfig);
       await adminAPI.updateEmailNotificationSettings(emailConfig);
+      await adminAPI.updateSmsNotificationSettings(smsConfig);
       const { notifications, ...settingsWithoutNotifications } = (settings || {});
       await adminAPI.updateSettings({ ...settingsWithoutNotifications, credit_alert_threshold: creditThreshold });
     },
@@ -132,6 +144,19 @@ export default function NotificationSettings({ settings }) {
     },
   });
 
+  const smsTestMutation = useMutation({
+    mutationFn: (data) => adminAPI.testSmsNotification(data),
+    onSuccess: () => {
+      setSmsTestStatus('success');
+      setTimeout(() => setSmsTestStatus(null), 3000);
+    },
+    onError: (error) => {
+      setSmsTestStatus('error');
+      toast.error('SMS test failed: ' + (error.response?.data?.detail || error.message));
+      setTimeout(() => setSmsTestStatus(null), 3000);
+    },
+  });
+
   const handleTelegramEventToggle = (event) => {
     setTelegramConfig(prev => ({ ...prev, events: { ...prev.events, [event]: !prev.events[event] } }));
   };
@@ -139,6 +164,35 @@ export default function NotificationSettings({ settings }) {
   const handleEmailEventToggle = (event) => {
     setEmailConfig(prev => ({ ...prev, events: { ...prev.events, [event]: !prev.events[event] } }));
   };
+
+  const handleSmsEventToggle = (event) => {
+    setSmsConfig(prev => ({ ...prev, events: { ...prev.events, [event]: !prev.events[event] } }));
+  };
+
+  const smsProviders = [
+    { id: 'twilio', name: 'Twilio', fields: [
+      { key: 'twilio_account_sid', label: 'Account SID', placeholder: 'ACxxxxxxxx' },
+      { key: 'twilio_auth_token', label: 'Auth Token', placeholder: 'Your auth token', type: 'password' },
+      { key: 'twilio_from_number', label: 'From Number', placeholder: '+15551234567' },
+    ]},
+    { id: 'vonage', name: 'Vonage (Nexmo)', fields: [
+      { key: 'vonage_api_key', label: 'API Key', placeholder: 'Your API key' },
+      { key: 'vonage_api_secret', label: 'API Secret', placeholder: 'Your API secret', type: 'password' },
+      { key: 'vonage_from_name', label: 'From Name/Number', placeholder: 'Billing or +15551234567' },
+    ]},
+    { id: 'plivo', name: 'Plivo', fields: [
+      { key: 'plivo_auth_id', label: 'Auth ID', placeholder: 'Your auth ID' },
+      { key: 'plivo_auth_token', label: 'Auth Token', placeholder: 'Your auth token', type: 'password' },
+      { key: 'plivo_from_number', label: 'From Number', placeholder: '+15551234567' },
+    ]},
+    { id: 'aws_sns', name: 'AWS SNS', fields: [
+      { key: 'aws_access_key', label: 'Access Key', placeholder: 'AKIA...' },
+      { key: 'aws_secret_key', label: 'Secret Key', placeholder: 'Your secret key', type: 'password' },
+      { key: 'aws_region', label: 'Region', placeholder: 'us-east-1' },
+    ]},
+  ];
+
+  const currentSmsProvider = smsProviders.find(p => p.id === smsConfig.provider) || smsProviders[0];
 
   if (isLoading) {
     return (
@@ -235,6 +289,77 @@ export default function NotificationSettings({ settings }) {
         </div>
       </div>
 
+      {/* SMS Section */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-orange-100 dark:bg-orange-900 rounded-lg">
+              <Smartphone className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">SMS Notifications</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Receive notifications via text message</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={smsConfig.enabled}
+              onChange={(e) => setSmsConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+              className="sr-only peer" data-testid="sms-enabled" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
+          </label>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SMS Provider</label>
+            <select value={smsConfig.provider}
+              onChange={e => setSmsConfig(prev => ({ ...prev, provider: e.target.value }))}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              data-testid="sms-provider-select">
+              {smsProviders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Admin Phone Number</label>
+            <input type="tel" value={smsConfig.admin_phone}
+              onChange={e => setSmsConfig(prev => ({ ...prev, admin_phone: e.target.value }))}
+              placeholder="+15551234567"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+              data-testid="sms-admin-phone" />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Phone number where admin notifications will be sent (E.164 format)</p>
+          </div>
+          {currentSmsProvider.fields.map(field => (
+            <div key={field.key}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{field.label}</label>
+              <input type={field.type || 'text'}
+                value={smsConfig.config?.[field.key] || ''}
+                onChange={e => setSmsConfig(prev => ({ ...prev, config: { ...prev.config, [field.key]: e.target.value } }))}
+                placeholder={field.placeholder}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                data-testid={`sms-${field.key}`} />
+            </div>
+          ))}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => smsTestMutation.mutate({ phone: smsConfig.admin_phone, provider: smsConfig.provider, config: smsConfig.config })}
+              disabled={smsTestMutation.isPending || !smsConfig.admin_phone}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="sms-test-btn">
+              <Send className="w-4 h-4" />
+              {smsTestMutation.isPending ? 'Sending...' : 'Send Test SMS'}
+            </button>
+            {smsTestStatus === 'success' && <span className="flex items-center text-green-600 text-sm"><CheckCircle className="w-4 h-4 mr-1" /> Sent</span>}
+            {smsTestStatus === 'error' && <span className="flex items-center text-red-600 text-sm"><AlertCircle className="w-4 h-4 mr-1" /> Failed</span>}
+          </div>
+        </div>
+
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-4">Notification Events</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose which events should trigger an SMS notification</p>
+          <EventToggles events={smsConfig.events} onToggle={handleSmsEventToggle} idPrefix="sms" />
+        </div>
+      </div>
+
       {/* Telegram Section */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-6">
         <div className="flex items-center justify-between mb-6">
@@ -320,7 +445,7 @@ export default function NotificationSettings({ settings }) {
       </div>
 
       {/* Credit Alert Threshold */}
-      {(telegramConfig.events?.credit_low_alert || emailConfig.events?.credit_low_alert) && (
+      {(telegramConfig.events?.credit_low_alert || emailConfig.events?.credit_low_alert || smsConfig.events?.credit_low_alert) && (
         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
           <label className="block text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
             Credit Alert Threshold

@@ -173,27 +173,27 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
           : service.account_type === 'reseller' 
             ? 'from-purple-600 to-purple-700' 
             : 'from-blue-600 to-blue-700'
-      } p-6 text-white`}>
+      } p-4 sm:p-6 text-white`}>
         <div className="flex justify-between items-start">
-          <div>
-            <h2 className="text-2xl font-bold mb-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg sm:text-2xl font-bold mb-1 sm:mb-2 truncate">
               {service.account_type === 'reseller' 
                 ? (service.panel_name || `Server ${(service.panel_index || 0) + 1}`)
                 : service.product_name
               }
             </h2>
-            <p className={service.account_type === 'reseller' ? 'text-purple-100' : 'text-blue-100'}>
+            <p className={`text-sm ${service.account_type === 'reseller' ? 'text-purple-100' : 'text-blue-100'}`}>
               {service.account_type === 'subscriber' ? 'Subscriber Account' : 'Reseller Panel'}
             </p>
           </div>
-          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(service.status)}`}>
+          <span className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-semibold flex-shrink-0 ${getStatusColor(service.status)}`}>
             {service.status}
           </span>
         </div>
       </div>
 
-      <div className="p-6">
-        <div className="grid md:grid-cols-2 gap-6">
+      <div className="p-4 sm:p-6">
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
           {/* Connection Details */}
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -298,10 +298,10 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
 
         {/* Renew and Refund buttons for subscribers */}
         {service.account_type === 'subscriber' && ['active', 'expired', 'suspended'].includes(service.status) && (
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 flex gap-3">
+          <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
             <button
               onClick={handleRenew}
-              className={`inline-flex items-center gap-2 px-6 py-3 text-white rounded-lg font-semibold ${service.status === 'active' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}
+              className={`inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-white rounded-lg font-semibold text-sm sm:text-base ${service.status === 'active' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}
               data-testid="renew-service-btn"
             >
               <Package className="w-5 h-5" />

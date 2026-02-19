@@ -7,7 +7,7 @@ import BrandingSettings from '../components/BrandingSettings';
 import PanelManagement from '../components/PanelManagement';
 import XuiOnePanelManagement from '../components/XuiOnePanelManagement';
 import PaymentGatewaySettings from '../components/PaymentGatewaySettings';
-import EmailSettings from '../components/EmailSettings';
+import EmailProviderSettings from '../components/EmailProviderSettings';
 import CreditReferralSettings from '../components/CreditReferralSettings';
 import LicenseSettings from '../components/LicenseSettings';
 import AdminPasswordChange from '../components/AdminPasswordChange';
@@ -112,12 +112,12 @@ export default function AdminSettings() {
                 Payment Gateways
               </button>
               <button
-                onClick={() => setActiveTab('smtp')}
+                onClick={() => setActiveTab('email')}
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'smtp' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  activeTab === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                Email (SMTP)
+                Email
               </button>
               <button
                 onClick={() => setActiveTab('credits')}
@@ -251,9 +251,9 @@ export default function AdminSettings() {
               <PaymentGatewaySettings settings={settings} />
             )}
 
-            {/* SMTP Tab */}
-            {activeTab === 'smtp' && (
-              <EmailSettings settings={settings} />
+            {/* Email Tab (combined SMTP + Provider) */}
+            {activeTab === 'email' && (
+              <EmailProviderSettings settings={settings} />
             )}
 
             {/* Credits & Referrals Tab */}

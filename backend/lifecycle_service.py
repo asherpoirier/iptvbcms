@@ -127,7 +127,7 @@ class ServiceLifecycleManager:
                 
                 # Send Telegram notification
                 try:
-                    from server import send_telegram_notification, send_email_notification
+                    from server import send_telegram_notification, send_email_notification, send_sms_notification
                     await send_telegram_notification(
                         "service_expired",
                         f"⏰ *Service Expired*\n\nCustomer: {customer_name}\nEmail: {customer_email}\nService: {service.get('product_name', 'Unknown')}\nExpired: {service.get('expiry_date').strftime('%Y-%m-%d %H:%M') if service.get('expiry_date') else 'N/A'}\n\nService has been automatically suspended."
@@ -137,6 +137,7 @@ class ServiceLifecycleManager:
                         "Service Expired",
                         f"Customer: {customer_name}\nEmail: {customer_email}\nService: {service.get('product_name', 'Unknown')}\nExpired: {service.get('expiry_date').strftime('%Y-%m-%d %H:%M') if service.get('expiry_date') else 'N/A'}\n\nService has been automatically suspended."
                     )
+                    await send_sms_notification("service_expired", f"Service expired: {customer_name} - {service.get('product_name', 'Unknown')}")
                 except Exception as notif_error:
                     logger.error(f"Failed to send notification for expired service: {str(notif_error)}")
                 
@@ -244,7 +245,7 @@ class ServiceLifecycleManager:
 
                 # Send Telegram notification
                 try:
-                    from server import send_telegram_notification, send_email_notification
+                    from server import send_telegram_notification, send_email_notification, send_sms_notification
                     await send_telegram_notification(
                         "service_expiry_warning",
                         f"⚠️ *Service Expiring in {days_before} Day{'s' if days_before != 1 else ''}*\n\nCustomer: {customer_name}\nEmail: {customer_email or 'N/A'}\nService: {service_name}\nExpires: {expiry_str}"
@@ -254,6 +255,7 @@ class ServiceLifecycleManager:
                         f"Service Expiring in {days_before} Day{'s' if days_before != 1 else ''}",
                         f"Customer: {customer_name}\nEmail: {customer_email or 'N/A'}\nService: {service_name}\nExpires: {expiry_str}"
                     )
+                    await send_sms_notification("service_expiry_warning", f"Service expiring in {days_before} days: {customer_name} - {service_name}")
                 except Exception:
                     pass
 
@@ -328,13 +330,14 @@ class ServiceLifecycleManager:
                 if not recent:
                     msg = f"🔴 *Low Panel Credits Alert*\n\n" + "\n".join(alerts) + f"\n\nThreshold: {low_threshold} credits"
                     try:
-                        from server import send_telegram_notification, send_email_notification
+                        from server import send_telegram_notification, send_email_notification, send_sms_notification
                         await send_telegram_notification("credit_low_alert", msg)
                         await send_email_notification(
                             "credit_low_alert",
                             "Low Panel Credits Alert",
                             "\n".join(alerts) + f"\n\nThreshold: {low_threshold} credits"
                         )
+                        await send_sms_notification("credit_low_alert", "\n".join(alerts) + f"\nThreshold: {low_threshold} credits")
                     except Exception:
                         pass
                     await self.log_action(

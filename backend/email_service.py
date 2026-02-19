@@ -14,7 +14,8 @@ class EmailService:
     
     def __init__(self, smtp_host: str, smtp_port: int, smtp_username: str, 
                  smtp_password: str, from_email: str, from_name: str = "Digital Services",
-                 email_logger=None, unsubscribe_manager=None, db=None, branding=None):
+                 email_logger=None, unsubscribe_manager=None, db=None, branding=None,
+                 email_provider: str = "smtp", email_provider_config: dict = None):
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
         self.smtp_username = smtp_username
@@ -22,7 +23,21 @@ class EmailService:
         self.from_email = from_email
         # Use SMTP from_name first, then branding site_name, then default
         self.from_name = from_name or (branding.get("site_name") if branding else None) or "Digital Services"
-        self.enabled = bool(smtp_host and smtp_username and smtp_password)
+        
+        # Email provider: "smtp", "resend", "postmark", "mailgun", "mandrill"
+        self.email_provider = email_provider or "smtp"
+        self.email_provider_config = email_provider_config or {}
+        
+        # Enabled if SMTP is configured OR an API provider is configured
+        if self.email_provider == "smtp":
+            self.enabled = bool(smtp_host and smtp_username and smtp_password)
+        else:
+            self.enabled = bool(self._provider_has_credentials())
+        
+        if not self.enabled and from_email:
+            # Check API providers even without SMTP
+            if self.email_provider != "smtp" and self._provider_has_credentials():
+                self.enabled = True
         
         # Integration with logging and unsubscribe
         self.email_logger = email_logger
@@ -30,7 +45,21 @@ class EmailService:
         self.db = db
         
         # Get backend public URL for unsubscribe links
-        self.backend_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
+        self.backend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001"))
+    
+    def _provider_has_credentials(self) -> bool:
+        """Check if the selected API provider has required credentials"""
+        p = self.email_provider
+        c = self.email_provider_config
+        if p == "resend":
+            return bool(c.get("resend_api_key"))
+        elif p == "postmark":
+            return bool(c.get("postmark_server_token"))
+        elif p == "mailgun":
+            return bool(c.get("mailgun_api_key") and c.get("mailgun_domain"))
+        elif p == "mandrill":
+            return bool(c.get("mandrill_api_key"))
+        return False
     
     def _get_email_header(self, title: str) -> str:
         """Common email header - clean, professional, spam-filter friendly"""
@@ -70,20 +99,18 @@ class EmailService:
         return footer
     
     def _wrap_email(self, content: str, title: str = "", recipient_email: str = "", email_type: str = "transactional") -> str:
-        """Wrap email content - minimal, spam-filter friendly"""
-        footer = f"<p style=\"color: #9ca3af; font-size: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb;\">{self.from_name}</p>"
+        """Wrap email - looks like a plain personal email to bypass spam filters"""
+        footer = ""
         if email_type == "marketing" and recipient_email:
             unsub = f"{self.backend_url}/api/unsubscribe?email={recipient_email}"
-            footer = f"<p style=\"color: #9ca3af; font-size: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb;\">{self.from_name} &middot; <a href=\"{unsub}\" style=\"color: #9ca3af;\">Unsubscribe</a></p>"
+            footer = f'<p><small><a href="{unsub}">Unsubscribe</a></small></p>'
         
         return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #ffffff;">
-<div style="max-width: 560px; margin: 0 auto; padding: 32px 20px;">
+<html>
+<head><meta charset="utf-8"></head>
+<body>
 {content}
 {footer}
-</div>
 </body>
 </html>"""
     
@@ -132,10 +159,10 @@ class EmailService:
         recipient_name: str = "",
         attachments: List[str] = []
     ) -> bool:
-        """Send email via SMTP with logging and unsubscribe checks"""
+        """Send email via configured provider (SMTP or API)"""
         
         if not self.enabled:
-            logger.warning(f"Email not sent (SMTP not configured): {subject} to {to_email}")
+            logger.warning(f"Email not sent (not configured): {subject} to {to_email}")
             return False
         
         # Check if user is unsubscribed (skip for auth-critical emails like verification)
@@ -151,6 +178,9 @@ class EmailService:
                     logger.info(f"Email not sent to {to_email} - unsubscribed from all emails")
                     return False
         
+        # Generate plain text if not provided
+        plain_text = text_content or self._html_to_text(html_content)
+        
         # Log email before sending
         log_id = None
         if self.email_logger:
@@ -165,10 +195,45 @@ class EmailService:
                     order_id=order_id,
                     sent_by=sent_by,
                     recipient_name=recipient_name,
-                    text_content=text_content or ""
+                    text_content=plain_text
                 )
             except Exception as e:
                 logger.error(f"Failed to log email: {str(e)}")
+        
+        # Route through API provider if not SMTP
+        if self.email_provider != "smtp":
+            try:
+                from email_providers import send_via_provider
+                logger.info(f"Sending via {self.email_provider} to {to_email}: {subject}")
+                success = await send_via_provider(
+                    provider=self.email_provider,
+                    config=self.email_provider_config,
+                    from_email=self.from_email,
+                    from_name=self.from_name,
+                    to_email=to_email,
+                    subject=subject,
+                    html=html_content,
+                    text=plain_text
+                )
+                if success and self.email_logger and log_id:
+                    try:
+                        await self.email_logger.mark_sent(log_id)
+                    except Exception:
+                        pass
+                elif not success and self.email_logger and log_id:
+                    try:
+                        await self.email_logger.mark_failed(log_id, f"{self.email_provider} send failed")
+                    except Exception:
+                        pass
+                return success
+            except Exception as e:
+                logger.error(f"API provider send failed: {e}")
+                if self.email_logger and log_id:
+                    try:
+                        await self.email_logger.mark_failed(log_id, str(e))
+                    except Exception:
+                        pass
+                return False
         
         try:
             import email.utils
@@ -510,7 +575,7 @@ class EmailService:
         # Use template with variable replacement
         from datetime import datetime
         
-        subject = template["subject"].replace("{{amount}}", f"{total:.2f}")
+        subject = template["subject"].replace("{{amount}}", f"{total:.2f}").replace("{{order_id}}", order_id)
         content = template["html_content"]
         content = content.replace("{{customer_name}}", user_name)
         content = content.replace("{{amount}}", f"{total:.2f}")
@@ -619,20 +684,18 @@ class EmailService:
             logger.error(f"send_email_verification: SMTP not enabled, aborting")
             return False
         
-        content = f"""<p style="font-size: 15px; color: #374151; line-height: 1.6;">Hi {customer_name},</p>
-<p style="font-size: 15px; color: #374151; line-height: 1.6;">Please confirm your email address to complete your account setup.</p>
-<p style="margin: 24px 0; text-align: center;">
-    <a href="{verification_link}" style="background-color: #1a56db; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 4px; display: inline-block; font-size: 15px; font-weight: 600;">Confirm Email</a>
-</p>
-<p style="font-size: 13px; color: #6b7280; line-height: 1.5;">If the button does not work, copy this link into your browser:</p>
-<p style="font-size: 13px; color: #6b7280; word-break: break-all; background: #f9fafb; padding: 10px; border-radius: 4px;">{verification_link}</p>"""
-        plain = f"Hi {customer_name},\n\nPlease confirm your email by visiting the link below:\n\n{verification_link}\n\nThis link expires in 24 hours.\n\n{self.from_name}"
+        content = f"""<p>Hi {customer_name},</p>
+<p>Please confirm your email address by clicking the link below:</p>
+<p><a href="{verification_link}">Confirm my email</a></p>
+<p>Or copy this link into your browser:<br>{verification_link}</p>
+<p>This link expires in 24 hours.</p>"""
+        plain = f"Hi {customer_name},\n\nPlease confirm your email:\n\n{verification_link}\n\nThis link expires in 24 hours."
         
         logger.info(f"send_email_verification: calling send_email to {customer_email}")
         try:
             result = await self.send_email(
                 to_email=customer_email,
-                subject=f"Confirm your email - {self.from_name}",
+                subject=f"Confirm your email",
                 html_content=self._wrap_email(content, "", customer_email, "transactional"),
                 text_content=plain,
                 email_type="transactional",
@@ -676,6 +739,7 @@ class EmailService:
         content = content.replace("{{company_name}}", self.from_name)
         content = content.replace("{{dashboard_link}}", f"{self.backend_url}/dashboard")
         subject = subject.replace("{{company_name}}", self.from_name)
+        subject = subject.replace("{{customer_name}}", customer_name)
         
         wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
         
@@ -713,9 +777,9 @@ class EmailService:
         
         # Use template
         subject = template["subject"]
+        subject = subject.replace("{{service_name}}", service_name)
+        subject = subject.replace("{{customer_name}}", customer_name)
         content = template["html_content"]
-        content = content.replace("{{customer_name}}", customer_name)
-        content = content.replace("{{service_name}}", service_name)
         content = content.replace("{{username}}", username)
         content = content.replace("{{new_expiry_date}}", new_expiry_date)
         
@@ -834,24 +898,30 @@ class EmailService:
 _email_service = None
 
 
-def get_email_service(smtp_settings: dict, email_logger=None, unsubscribe_manager=None, db=None, branding=None):
+def get_email_service(smtp_settings: dict, email_logger=None, unsubscribe_manager=None, db=None, branding=None,
+                      email_provider: str = "smtp", email_provider_config: dict = None):
     """Get or create email service instance"""
     global _email_service
     
-    if not smtp_settings.get("host"):
-        return None
+    # For API providers, we don't need SMTP host
+    if email_provider == "smtp" and not smtp_settings.get("host"):
+        # Check if an API provider is configured
+        if not email_provider_config:
+            return None
     
     _email_service = EmailService(
         smtp_host=smtp_settings.get("host", ""),
         smtp_port=smtp_settings.get("port", 587),
         smtp_username=smtp_settings.get("username", ""),
         smtp_password=smtp_settings.get("password", ""),
-        from_email=smtp_settings.get("from_email", ""),
+        from_email=smtp_settings.get("from_email", "") or email_provider_config.get("from_email", "") if email_provider_config else smtp_settings.get("from_email", ""),
         from_name=smtp_settings.get("from_name", "Digital Services"),
         email_logger=email_logger,
         unsubscribe_manager=unsubscribe_manager,
         db=db,
-        branding=branding
+        branding=branding,
+        email_provider=email_provider,
+        email_provider_config=email_provider_config or {}
     )
     
     return _email_service

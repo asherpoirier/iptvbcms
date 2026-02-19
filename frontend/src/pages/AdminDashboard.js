@@ -135,14 +135,14 @@ export default function AdminDashboard() {
                 <BookOpen className="w-5 h-5" />
                 <span className="hidden md:inline">User Guide</span>
               </button>
-              <span className="text-gray-700 dark:text-gray-200">Admin: {user?.name}</span>
+              <span className="text-gray-700 dark:text-gray-200 text-sm hidden sm:inline">Admin: {user?.name}</span>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-gray-600 hover:text-red-600 transition-colors"
                 data-testid="logout-button"
               >
                 <LogOut className="w-5 h-5" />
-                Logout
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           </div>
@@ -241,7 +241,7 @@ export default function AdminDashboard() {
             ) : (
               <>
                 {/* Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                   {/* Total Customers */}
                   <Card 
                     className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1" 
@@ -253,7 +253,7 @@ export default function AdminDashboard() {
                           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
                             Total Customers
                           </p>
-                          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                          <p className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white mt-2">
                             {stats?.total_customers || 0}
                           </p>
                           <p className="text-sm text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
@@ -279,7 +279,7 @@ export default function AdminDashboard() {
                           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
                             Active Services
                           </p>
-                          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                          <p className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white mt-2">
                             {stats?.active_services || 0}
                           </p>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
@@ -304,7 +304,7 @@ export default function AdminDashboard() {
                           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
                             Total Revenue
                           </p>
-                          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                          <p className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white mt-2">
                             {currencySymbol}{stats?.total_revenue?.toFixed(2) || '0.00'}
                           </p>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
@@ -329,7 +329,7 @@ export default function AdminDashboard() {
                           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
                             Awaiting Reply
                           </p>
-                          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+                          <p className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white mt-2">
                             {stats?.ticket_status?.awaiting_reply || 0}
                           </p>
                           <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">
