@@ -225,6 +225,9 @@ class XtreamPanel(BaseModel):
     admin_password: str
     ssl_verify: bool = False
     active: bool = True
+    http_basic_user: str = ""  # Separate nginx basic auth user (if different from panel login)
+    http_basic_pass: str = ""  # Separate nginx basic auth password
+    proxy_url: str = ""  # Residential proxy URL to bypass Cloudflare WAF
 
 
 

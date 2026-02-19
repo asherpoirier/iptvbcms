@@ -53,7 +53,7 @@ from auth import (
     get_current_user, get_current_admin_user, get_current_staff_user
 )
 from xtreamui_service import get_xtream_service, XtreamUIService
-from xtream_session_client import XtreamUISessionClient
+from xtreamui_session_client import XtreamUISessionClient
 from onestream_service import OneStreamService, get_onestream_service
 from nxtdash_service import NxtDashService, get_nxtdash_service
 from email_service import get_email_service
@@ -211,6 +211,20 @@ async def get_configured_email_service():
     smtp_settings = settings.get("smtp", {})
     branding = settings.get("branding", {})
     return get_email_service(smtp_settings, email_logger, unsubscribe_manager, db, branding)
+
+
+def safe_int(value, default=1):
+    """Safely parse an int from a value that may contain HTML or other junk"""
+    if value is None:
+        return default
+    s = str(value).strip()
+    # Strip HTML tags
+    s = re.sub(r'<[^>]+>', '', s).strip()
+    # Extract first number (e.g. "1 / 1" -> "1")
+    m = re.search(r'(\d+)', s)
+    if m:
+        return int(m.group(1))
+    return default
 
 def str_to_objectid(id_str: str) -> ObjectId:
     """Convert string ID to ObjectId"""
@@ -3536,7 +3550,10 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             panel_url=panel["panel_url"],
             admin_username=panel["admin_username"],
             admin_password=panel["admin_password"],
-            ssl_verify=panel.get("ssl_verify", False)
+            ssl_verify=panel.get("ssl_verify", False),
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         # Generate or use custom credentials
@@ -3651,13 +3668,12 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     # Get actual expiry from the panel instead of calculating
                     new_expiry = None
                     if extend_result.get("success") and extend_result.get("new_expiry"):
-                        try:
-                            new_expiry = datetime.strptime(extend_result["new_expiry"], "%Y-%m-%d %H:%M:%S")
-                        except Exception:
+                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                             try:
-                                new_expiry = datetime.strptime(extend_result["new_expiry"], "%Y-%m-%d")
-                            except Exception:
-                                pass
+                                new_expiry = datetime.strptime(str(extend_result["new_expiry"]).strip(), fmt)
+                                break
+                            except (ValueError, TypeError):
+                                continue
                     
                     # Fallback: try to fetch expiry from panel
                     if not new_expiry:
@@ -3666,12 +3682,15 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             fetch_client = XtreamUISessionClient(
                                 panel_url=panel["panel_url"],
                                 username=panel["admin_username"],
-                                password=panel["admin_password"]
+                                password=panel["admin_password"],
+                                http_basic_user=panel.get("http_basic_user", ""),
+                                http_basic_pass=panel.get("http_basic_pass", ""),
+                                proxy_url=panel.get("proxy_url", "")
                             )
                             user_info = fetch_client.get_user_info(existing_subscriber["xtream_username"])
                             if user_info and user_info.get("exp_date"):
                                 exp_str = user_info["exp_date"]
-                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                                     try:
                                         new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
                                         break
@@ -3754,7 +3773,10 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             fetch_client = XtreamUISessionClient(
                                 panel_url=panel["panel_url"],
                                 username=panel["admin_username"],
-                                password=panel["admin_password"]
+                                password=panel["admin_password"],
+                                http_basic_user=panel.get("http_basic_user", ""),
+                                http_basic_pass=panel.get("http_basic_pass", ""),
+                                proxy_url=panel.get("proxy_url", "")
                             )
                             user_info = fetch_client.get_user_info(username)
                             if user_info and user_info.get("exp_date"):
@@ -3762,7 +3784,7 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                                 if str(exp_str).isdigit():
                                     actual_expiry = datetime.fromtimestamp(int(exp_str))
                                 else:
-                                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                                         try:
                                             actual_expiry = datetime.strptime(str(exp_str).strip(), fmt)
                                             break
@@ -4024,7 +4046,7 @@ async def extend_xuione_line(xuione_service, existing_service: dict, item: dict,
                                 if str(line.get('id')) == str(line_id) or line.get('username') == existing_service.get('xtream_username'):
                                     exp_str = line.get('exp_date', '')
                                     if exp_str:
-                                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                                             try:
                                                 actual_expiry = datetime.strptime(str(exp_str).strip(), fmt)
                                                 logger.info(f"Got actual expiry from XuiOne panel: {actual_expiry}")
@@ -5863,7 +5885,7 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             expiry_str = user_data.get("expiry", "")
             expiry_date = None
             if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
                 for fmt in date_formats:
                     try:
                         expiry_date = datetime.strptime(expiry_str.strip(), fmt)
@@ -5883,7 +5905,7 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 "password": user_data.get("password", ""),
                 "expiry_date": expiry_date,
                 "status": status,
-                "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                "max_connections": safe_int(user_data.get("max_connections", 1)),
                 "account_type": "subscriber",
                 "xtream_user_id": user_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
@@ -5917,7 +5939,7 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
             expiry_str = reseller_data.get("expiry", "NEVER")
             expiry_date = None
             if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+                date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
                 for fmt in date_formats:
                     try:
                         expiry_date = datetime.strptime(expiry_str.strip(), fmt)
@@ -7083,7 +7105,10 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
-            password=panel["admin_password"]
+            password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         bouquets = client.fetch_bouquets_from_packages()
@@ -7130,7 +7155,10 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
-            password=panel["admin_password"]
+            password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         # Fetch BOTH regular and trial packages
@@ -7187,7 +7215,10 @@ async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dic
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
-            password=panel["admin_password"]
+            password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         trial_packages = client.fetch_trial_packages()
@@ -7515,7 +7546,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     expiry_str = user_data.get("expiry", "")
                     expiry_date = None
                     if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                             try:
                                 expiry_date = datetime.strptime(expiry_str.strip(), fmt)
                                 break
@@ -7535,7 +7566,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "password": user_data.get("password", ""),
                         "expiry_date": expiry_date,
                         "status": status,
-                        "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                        "max_connections": safe_int(user_data.get("max_connections", 1)),
                         "account_type": "subscriber",
                         "created_by_reseller": user_data.get("created_by", ""),
                         "last_synced": datetime.utcnow()
@@ -7646,7 +7677,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     expiry_str = user_data.get("expiry", "")
                     expiry_date = None
                     if expiry_str and expiry_str not in ["Unlimited", "NEVER", ""]:
-                        date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+                        date_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
                         for fmt in date_formats:
                             try:
                                 expiry_date = datetime.strptime(expiry_str.strip(), fmt)
@@ -7667,7 +7698,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "password": user_data.get("password", ""),
                         "expiry_date": expiry_date,
                         "status": status,
-                        "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                        "max_connections": safe_int(user_data.get("max_connections", 1)),
                         "account_type": "subscriber",
                         "last_synced": datetime.utcnow()
                     }
@@ -8059,6 +8090,7 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 # Try multiple date formats
                 date_formats = [
                     "%Y-%m-%d %H:%M:%S",  # Full datetime: 2026-03-01 17:16:52
+                    "%Y-%m-%d %H:%M",      # Without seconds: 2026-08-18 07:59
                     "%Y-%m-%d",            # Date only: 2026-02-26
                 ]
                 for fmt in date_formats:
@@ -8083,7 +8115,7 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 "password": user_data.get("password", ""),
                 "expiry_date": expiry_date,
                 "status": status,
-                "max_connections": int(float(user_data.get("max_connections", 1) or 1)),
+                "max_connections": safe_int(user_data.get("max_connections", 1)),
                 "account_type": "subscriber",
                 "xtream_user_id": user_data.get("user_id", 0),
                 "last_synced": datetime.utcnow()
@@ -8240,7 +8272,10 @@ async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_c
         xtream_service = XtreamUIService(
             panel_url=panel["panel_url"],
             admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
+            admin_password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         # Use stored user_id if available
@@ -8360,7 +8395,10 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
         xtream_service = XtreamUIService(
             panel_url=panel["panel_url"],
             admin_username=panel["admin_username"],
-            admin_password=panel["admin_password"]
+            admin_password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         # Use stored user_id if available
@@ -8483,7 +8521,10 @@ async def add_credits_to_imported_user(user_id: str, data: AddCreditsRequest, cu
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
-            password=panel["admin_password"]
+            password=panel["admin_password"],
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         result = client.add_credits(username=username, email="", credits=credits)
         if result.get("success"):
@@ -8853,6 +8894,9 @@ async def bulk_action_imported_users(data: dict, current_user: dict = Depends(ge
                                 panel_url=panels[pi]["panel_url"],
                                 admin_username=panels[pi]["admin_username"],
                                 admin_password=panels[pi]["admin_password"],
+                                http_basic_user=panels[pi].get("http_basic_user", ""),
+                                http_basic_pass=panels[pi].get("http_basic_pass", ""),
+                                proxy_url=panels[pi].get("proxy_url", ""),
                             )
                             svc.suspend_account(user["username"], user.get("password", ""))
                     except Exception:
@@ -8878,6 +8922,9 @@ async def bulk_action_imported_users(data: dict, current_user: dict = Depends(ge
                                 panel_url=panels[pi]["panel_url"],
                                 admin_username=panels[pi]["admin_username"],
                                 admin_password=panels[pi]["admin_password"],
+                                http_basic_user=panels[pi].get("http_basic_user", ""),
+                                http_basic_pass=panels[pi].get("http_basic_pass", ""),
+                                proxy_url=panels[pi].get("proxy_url", ""),
                             )
                             svc.unsuspend_account(user["username"], user.get("password", ""))
                     except Exception:
@@ -8937,7 +8984,10 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
             session_client = ExtendSessionClient(
                 panel_url=panel["panel_url"],
                 username=panel["admin_username"],
-                password=panel["admin_password"]
+                password=panel["admin_password"],
+                http_basic_user=panel.get("http_basic_user", ""),
+                http_basic_pass=panel.get("http_basic_pass", ""),
+                proxy_url=panel.get("proxy_url", "")
             )
             
             # Fetch packages using the same method as sync endpoint
@@ -9124,51 +9174,65 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
     # Get actual expiry from panel after extension
     new_expiry = None
     
-    try:
-        if panel_type == "xtream":
-            from xtreamui_session_client import XtreamUISessionClient
-            fetch_client = XtreamUISessionClient(
-                panel_url=panel["panel_url"],
-                username=panel["admin_username"],
-                password=panel["admin_password"]
-            )
-            user_info = fetch_client.get_user_info(username)
-            if user_info and user_info.get("exp_date"):
-                exp_str = user_info["exp_date"]
-                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
-                    try:
-                        new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-        elif panel_type == "onestream" and panel_extend_result.get("expire_at"):
-            exp_at = panel_extend_result["expire_at"]
-            new_expiry = datetime.fromisoformat(exp_at.replace("Z", "+00:00"))
-            if new_expiry.tzinfo:
-                new_expiry = new_expiry.replace(tzinfo=None)
-        elif panel_type == "xuione":
-            # Try to fetch from panel
-            lines_result = xuione_service.get_users()
-            if lines_result.get("success"):
-                for u in lines_result.get("users", []):
-                    if u.get("username") == username:
-                        exp_str = u.get("expiry", "")
-                        if exp_str and exp_str not in ["Unlimited", "NEVER"]:
-                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
-                                try:
-                                    new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
-                                    break
-                                except ValueError:
-                                    continue
-                        break
-        elif panel_type == "nxtdash" and panel_extend_result and panel_extend_result.get("expire_date"):
+    # First try to use expiry returned directly from the extend result
+    if panel_extend_result and panel_extend_result.get("new_expiry"):
+        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
             try:
-                from datetime import timezone
-                new_expiry = datetime.fromtimestamp(int(panel_extend_result["expire_date"]), tz=timezone.utc).replace(tzinfo=None)
-            except Exception:
-                pass
-    except Exception as e:
-        logger.warning(f"Could not fetch panel expiry after extend: {e}")
+                new_expiry = datetime.strptime(str(panel_extend_result["new_expiry"]).strip(), fmt)
+                logger.info(f"Using expiry from extend result: {new_expiry}")
+                break
+            except (ValueError, TypeError):
+                continue
+    
+    # Fallback: fetch from panel
+    if not new_expiry:
+        try:
+            if panel_type == "xtream":
+                from xtreamui_session_client import XtreamUISessionClient
+                fetch_client = XtreamUISessionClient(
+                    panel_url=panel["panel_url"],
+                    username=panel["admin_username"],
+                    password=panel["admin_password"],
+                    http_basic_user=panel.get("http_basic_user", ""),
+                    http_basic_pass=panel.get("http_basic_pass", ""),
+                    proxy_url=panel.get("proxy_url", "")
+                )
+                user_info = fetch_client.get_user_info(username)
+                if user_info and user_info.get("exp_date"):
+                    exp_str = user_info["exp_date"]
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                        try:
+                            new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
+                            break
+                        except ValueError:
+                            continue
+            elif panel_type == "onestream" and panel_extend_result.get("expire_at"):
+                exp_at = panel_extend_result["expire_at"]
+                new_expiry = datetime.fromisoformat(exp_at.replace("Z", "+00:00"))
+                if new_expiry.tzinfo:
+                    new_expiry = new_expiry.replace(tzinfo=None)
+            elif panel_type == "xuione":
+                lines_result = xuione_service.get_users()
+                if lines_result.get("success"):
+                    for u in lines_result.get("users", []):
+                        if u.get("username") == username:
+                            exp_str = u.get("expiry", "")
+                            if exp_str and exp_str not in ["Unlimited", "NEVER"]:
+                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                    try:
+                                        new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
+                                        break
+                                    except ValueError:
+                                        continue
+                            break
+            elif panel_type == "nxtdash" and panel_extend_result and panel_extend_result.get("expire_date"):
+                try:
+                    from datetime import timezone
+                    new_expiry = datetime.fromtimestamp(int(panel_extend_result["expire_date"]), tz=timezone.utc).replace(tzinfo=None)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Could not fetch panel expiry after extend: {e}")
     
     # Fallback: calculate if panel didn't return expiry
     if not new_expiry:
@@ -9247,7 +9311,10 @@ async def create_imported_user(data: CreateImportedUserRequest, current_user: di
             panel_url=panel["panel_url"],
             admin_username=panel["admin_username"],
             admin_password=panel["admin_password"],
-            ssl_verify=panel.get("ssl_verify", False)
+            ssl_verify=panel.get("ssl_verify", False),
+            http_basic_user=panel.get("http_basic_user", ""),
+            http_basic_pass=panel.get("http_basic_pass", ""),
+            proxy_url=panel.get("proxy_url", "")
         )
         
         if data.account_type == "subscriber":
@@ -10316,7 +10383,10 @@ async def approve_refund_endpoint(
                         xtream_service = XtreamUIService(
                             panel_url=panel["panel_url"],
                             admin_username=panel["admin_username"],
-                            admin_password=panel["admin_password"]
+                            admin_password=panel["admin_password"],
+                            http_basic_user=panel.get("http_basic_user", ""),
+                            http_basic_pass=panel.get("http_basic_pass", ""),
+                            proxy_url=panel.get("proxy_url", "")
                         )
                         result = xtream_service.suspend_account(
                             username=service["xtream_username"],
@@ -10384,7 +10454,10 @@ async def reject_refund_endpoint(
         panel_url=panel["panel_url"],
         admin_username=panel["admin_username"],
         admin_password=panel["admin_password"],
-        ssl_verify=panel.get("ssl_verify", False)
+        ssl_verify=panel.get("ssl_verify", False),
+        http_basic_user=panel.get("http_basic_user", ""),
+        http_basic_pass=panel.get("http_basic_pass", ""),
+        proxy_url=panel.get("proxy_url", "")
     )
     
     result = xtream_service.test_connection()
