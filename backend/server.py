@@ -1765,7 +1765,7 @@ async def stripe_payment_success(session_id: str, order_id: str, background_task
     if stripe:
         result = await stripe.get_payment_status(session_id)
         
-        if result["success"] and result["payment_status"] == "paid":
+        if result.get("success") and (result.get("payment_status") or result.get("status")) == "paid":
             # Mark order as paid
             order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
             
@@ -1804,7 +1804,7 @@ async def check_stripe_payment_status(session_id: str, background_tasks: Backgro
     # Get payment status from Stripe
     result = await stripe.get_payment_status(session_id)
     
-    if result["success"] and result["payment_status"] == "paid":
+    if result.get("success") and (result.get("payment_status") or result.get("status")) == "paid":
         # Find payment transaction
         transaction = await db.payment_transactions.find_one({"session_id": session_id})
         
@@ -2382,7 +2382,7 @@ async def blockonomics_webhook(request: Request, background_tasks: BackgroundTas
     if stripe:
         result = await stripe.handle_webhook(body, signature)
         
-        if result["success"] and result["payment_status"] == "paid":
+        if result.get("success") and (result.get("payment_status") or result.get("status")) == "paid":
             session_id = result["session_id"]
             # Process payment (same as status check above)
             # ...
