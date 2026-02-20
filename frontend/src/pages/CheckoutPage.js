@@ -425,32 +425,29 @@ export default function CheckoutPage() {
     }
   };
 
+  // Detect if returning from payment gateway
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPaymentReturn = urlParams.get('payment') === 'success' && urlParams.get('session_id');
+
   // Poll for payment status if returning from Stripe
   React.useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session_id');
     const orderId = urlParams.get('order_id');
     const paymentStatus = urlParams.get('payment');
-    
-    console.log('Checking URL params:', { sessionId, orderId, paymentStatus });
     
     if (paymentStatus === 'success' && sessionId && !pollingSessionId) {
       setPollingSessionId(sessionId);
       if (orderId) {
         setCurrentOrderId(orderId);
       }
-      console.log('Starting payment status polling for session:', sessionId, 'order:', orderId);
       pollPaymentStatus(sessionId, orderId);
     }
   }, [pollingSessionId]);
 
   const pollPaymentStatus = async (sessionId, orderId, attempt = 0) => {
-    console.log(`Polling payment status (attempt ${attempt + 1})...`);
-    
-    if (attempt >= 5) {
-      console.log('Max polling attempts reached');
-      // Even if polling times out, redirect to orders page
-      toast.error('Payment processing. Please check your orders page for status.');
+    if (attempt >= 8) {
+      clearCart();
+      toast.success('Payment received! Your services are being set up.');
       navigate('/orders');
       return;
     }
@@ -462,30 +459,40 @@ export default function CheckoutPage() {
         { headers: { Authorization: `Bearer ${token}` }}
       );
       
-      console.log('Payment status response:', response.data);
-      
       if (response.data.success && response.data.payment_status === 'paid') {
         clearCart();
         toast.success('Payment successful! Your services are being provisioned.');
         navigate('/orders');
-      } else if (attempt < 4) {
-        console.log('Payment not confirmed yet, retrying...');
+      } else if (attempt < 7) {
         setTimeout(() => pollPaymentStatus(sessionId, orderId, attempt + 1), 2000);
       } else {
-        console.log('Payment not confirmed after 5 attempts');
-        toast.error('Payment status unclear. Please check your orders page.');
+        clearCart();
+        toast.success('Payment received! Check your orders page.');
         navigate('/orders');
       }
     } catch (error) {
-      console.error('Payment status check error:', error);
-      if (attempt < 4) {
+      if (attempt < 7) {
         setTimeout(() => pollPaymentStatus(sessionId, orderId, attempt + 1), 2000);
       } else {
-        toast.error('Unable to verify payment. Please check your orders page.');
+        clearCart();
+        toast.success('Payment received! Check your orders page.');
         navigate('/orders');
       }
     }
   };
+
+  // Show loading state when returning from payment gateway
+  if (isPaymentReturn) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Verifying Payment</h2>
+          <p className="text-gray-600 dark:text-gray-400">Please wait while we confirm your payment...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (

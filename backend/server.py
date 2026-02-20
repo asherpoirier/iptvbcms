@@ -1788,11 +1788,11 @@ async def stripe_payment_success(session_id: str, order_id: str, background_task
 
 @app.get("/api/payments/stripe/status/{session_id}")
 async def check_stripe_payment_status(session_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    """Check Stripe payment status"""
+    """Check Stripe payment status and provision if paid"""
     settings = await get_settings()
     stripe_settings = settings.get("stripe", {})
     
-    base_url = os.getenv("REACT_APP_BACKEND_URL", "http://localhost:8001")
+    base_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
     webhook_url = f"{base_url}/api/webhooks/stripe"
     
     from stripe_service import get_stripe_service
@@ -1801,42 +1801,44 @@ async def check_stripe_payment_status(session_id: str, background_tasks: Backgro
     if not stripe:
         raise HTTPException(status_code=500, detail="Stripe not configured")
     
-    # Get payment status
+    # Get payment status from Stripe
     result = await stripe.get_payment_status(session_id)
     
     if result["success"] and result["payment_status"] == "paid":
         # Find payment transaction
         transaction = await db.payment_transactions.find_one({"session_id": session_id})
         
-        if transaction and transaction.get("payment_status") != "completed":
-            # Mark as completed (idempotent)
-            await db.payment_transactions.update_one(
-                {"session_id": session_id},
-                {"$set": {"payment_status": "completed", "updated_at": datetime.utcnow()}}
-            )
-            
-            # Get order
+        if transaction:
             order_id = transaction["order_id"]
             order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
             
             if order and order["status"] != "paid":
+                logger.info(f"Stripe status check: marking order {order_id} as paid and provisioning")
                 # Mark order as paid
                 await orders_collection.update_one(
                     {"_id": str_to_objectid(order_id)},
                     {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "stripe", "payment_id": session_id}}
                 )
-                
-                # Update invoice
                 await invoices_collection.update_one(
                     {"order_id": order_id},
                     {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
                 )
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"payment_status": "paid", "updated_at": datetime.utcnow()}}
+                )
                 
-                # Get user
                 user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
-                
-                # Provision services
-                background_tasks.add_task(provision_order_services, order_id, order, user)
+                if user:
+                    background_tasks.add_task(provision_order_services, order_id, order, user)
+            elif order and order["status"] == "paid":
+                # Already paid — check if services need provisioning (webhook may have set paid but not provisioned)
+                existing_services = await services_collection.count_documents({"order_id": order_id})
+                if existing_services == 0:
+                    logger.info(f"Stripe status check: order {order_id} paid but no services found, re-provisioning")
+                    user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                    if user:
+                        background_tasks.add_task(provision_order_services, order_id, order, user)
     
     return result
 
