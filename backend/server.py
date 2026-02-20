@@ -10808,13 +10808,23 @@ async def get_admin_analytics(period: str = "30d", current_user: dict = Depends(
     by_product = [{"name": p["_id"] or "Unknown", "revenue": round(p["revenue"], 2), "orders": p["count"]} for p in top_products]
 
     active_services = await services_collection.count_documents({"status": "active"})
+    expired_services = await services_collection.count_documents({"status": {"$in": ["expired", "suspended"]}})
+    total_services = active_services + expired_services
     total_customers = await users_collection.count_documents({"role": "user"})
+    
+    avg_order_value = round(cur_revenue / cur_orders, 2) if cur_orders > 0 else 0
+    mrr = round(cur_revenue / max(days / 30, 1), 2)
+    churn_rate = round((expired_services / total_services * 100), 1) if total_services > 0 else 0
 
     return {
         "revenue": {"current": round(cur_revenue, 2), "previous": round(prev_revenue, 2), "change": round(rev_change, 1)},
         "orders": {"current": cur_orders, "previous": prev_orders, "change": round(order_change, 1)},
         "customers": {"current": cur_customers, "previous": prev_customers, "change": round(cust_change, 1), "total": total_customers},
         "active_services": active_services,
+        "expired_services": expired_services,
+        "avg_order_value": avg_order_value,
+        "mrr": mrr,
+        "churn_rate": churn_rate,
         "chart": chart_data,
         "by_method": by_method,
         "by_product": by_product,

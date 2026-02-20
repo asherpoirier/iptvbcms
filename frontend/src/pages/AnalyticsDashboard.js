@@ -69,25 +69,25 @@ export default function AnalyticsDashboard() {
           <StatCard title="Revenue" value={d.revenue?.current?.toFixed(2)} change={d.revenue?.change} prefix={symbol} icon={DollarSign} color="bg-blue-600" />
           <StatCard title="Orders" value={d.orders?.current} change={d.orders?.change} prefix="" icon={ShoppingBag} color="bg-green-600" />
           <StatCard title="New Customers" value={d.customers?.current} change={d.customers?.change} prefix="" icon={Users} color="bg-purple-600" />
-          <StatCard title="Avg Order Value" value={d.avg_order_value?.toFixed(2)} prefix={symbol} icon={BarChart3} color="bg-amber-600" />
+          <StatCard title="Avg Order Value" value={(d.avg_order_value || 0).toFixed(2)} prefix={symbol} icon={BarChart3} color="bg-amber-600" />
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
             <span className="text-sm text-gray-500 dark:text-gray-400">Est. MRR</span>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{symbol}{d.mrr?.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{symbol}{(d.mrr || 0).toFixed(2)}</div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
             <span className="text-sm text-gray-500 dark:text-gray-400">Churn Rate</span>
-            <div className={`text-2xl font-bold mt-1 ${d.churn_rate > 10 ? 'text-red-500' : d.churn_rate > 5 ? 'text-amber-500' : 'text-green-600'}`}>{d.churn_rate}%</div>
+            <div className={`text-2xl font-bold mt-1 ${(d.churn_rate || 0) > 10 ? 'text-red-500' : (d.churn_rate || 0) > 5 ? 'text-amber-500' : 'text-green-600'}`}>{d.churn_rate || 0}%</div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
             <span className="text-sm text-gray-500 dark:text-gray-400">Active Services</span>
-            <div className="text-2xl font-bold text-green-600 mt-1">{d.services?.active}</div>
+            <div className="text-2xl font-bold text-green-600 mt-1">{d.active_services || 0}</div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
             <span className="text-sm text-gray-500 dark:text-gray-400">Expired / Churned</span>
-            <div className="text-2xl font-bold text-red-500 mt-1">{d.services?.churned}</div>
+            <div className="text-2xl font-bold text-red-500 mt-1">{d.expired_services || 0}</div>
           </div>
         </div>
 
