@@ -289,10 +289,18 @@ if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     # Remove emergentintegrations and other hosted-only packages
     grep -v "emergentintegrations" "$INSTALL_DIR/backend/requirements.txt" | \
     grep -v "^-e " | \
-    grep -v "^#" > "$INSTALL_DIR/backend/requirements_clean.txt"
+    grep -v "^#" | \
+    grep -v "^google-genai" > "$INSTALL_DIR/backend/requirements_clean.txt"
     
-    # Remove strict pins that cause conflicts - let pip resolve versions
+    # Remove strict pins that cause dependency conflicts
     sed -i '/^tenacity==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    sed -i '/^httpcore==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    sed -i '/^h11==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    sed -i '/^anyio==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    sed -i '/^sniffio==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    
+    # Replace strict mega.py pin with flexible one
+    sed -i 's/^mega\.py==.*/mega.py/' "$INSTALL_DIR/backend/requirements_clean.txt"
     
     # Add production dependencies if not present (without strict version pins to avoid conflicts)
     if ! grep -q "^stripe" "$INSTALL_DIR/backend/requirements_clean.txt"; then
