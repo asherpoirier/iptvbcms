@@ -286,35 +286,39 @@ print_success "Backend .env configured"
 if [ -f "$INSTALL_DIR/backend/requirements.txt" ]; then
     print_info "Preparing Python dependencies..."
     
-    # Remove emergentintegrations (only for hosted environment)
-    grep -v "emergentintegrations" "$INSTALL_DIR/backend/requirements.txt" > "$INSTALL_DIR/backend/requirements_clean.txt"
+    # Remove emergentintegrations and other hosted-only packages
+    grep -v "emergentintegrations" "$INSTALL_DIR/backend/requirements.txt" | \
+    grep -v "^-e " | \
+    grep -v "^#" > "$INSTALL_DIR/backend/requirements_clean.txt"
     
-    # Add stripe SDK (replaces emergentintegrations for payments)
+    # Remove strict pins that cause conflicts - let pip resolve versions
+    sed -i '/^tenacity==/d' "$INSTALL_DIR/backend/requirements_clean.txt"
+    
+    # Add production dependencies if not present (without strict version pins to avoid conflicts)
     if ! grep -q "^stripe" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "stripe==14.1.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "stripe" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
-    
-    # Add cloud backup dependencies if not present
     if ! grep -q "gitpython" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "gitpython==3.1.43" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "gitpython" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
     if ! grep -q "dropbox" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "dropbox==12.0.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "dropbox" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
     if ! grep -q "webdavclient3" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "webdavclient3==3.14.6" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "webdavclient3" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
-    
-    # Add 2FA dependencies if not present
     if ! grep -q "pyotp" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "pyotp==2.9.0" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "pyotp" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
     if ! grep -q "qrcode" "$INSTALL_DIR/backend/requirements_clean.txt"; then
-        echo "qrcode==7.4.2" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+        echo "qrcode" >> "$INSTALL_DIR/backend/requirements_clean.txt"
     fi
-    # Note: Pillow is already in requirements.txt, no need to add
-    
-    # Note: google-* packages are already in requirements.txt, no need to add
+    if ! grep -q "httpx" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "httpx" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
+    if ! grep -q "boto3" "$INSTALL_DIR/backend/requirements_clean.txt"; then
+        echo "boto3" >> "$INSTALL_DIR/backend/requirements_clean.txt"
+    fi
     
     print_info "Installing Python dependencies (this may take a few minutes)..."
     cd "$INSTALL_DIR/backend"
