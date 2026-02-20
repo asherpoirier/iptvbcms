@@ -1608,7 +1608,7 @@ async def paypal_success(order_id: str, paymentId: str, PayerID: str, background
             background_tasks.add_task(provision_order_services, order_id, order, user)
             
             # Redirect to success page
-            frontend_url = os.getenv("REACT_APP_BACKEND_URL", "http://localhost:3000").replace(":8001", ":3000")
+            frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000"))
             return RedirectResponse(url=f"{frontend_url}/orders?payment=success")
     
     return {"error": "Payment failed"}
@@ -1616,7 +1616,7 @@ async def paypal_success(order_id: str, paymentId: str, PayerID: str, background
 @app.get("/api/orders/{order_id}/pay/paypal/cancel")
 async def paypal_cancel(order_id: str):
     """Handle PayPal payment cancellation"""
-    frontend_url = os.getenv("REACT_APP_BACKEND_URL", "http://localhost:3000").replace(":8001", ":3000")
+    frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000"))
     return RedirectResponse(url=f"{frontend_url}/orders?payment=cancelled")
 
 @app.post("/api/webhooks/paypal")
@@ -1717,8 +1717,8 @@ async def create_stripe_payment(order_id: str, request: Request, current_user: d
     if not stripe:
         raise HTTPException(status_code=500, detail="Stripe service not available. Check your Stripe API keys.")
     
-    # Get frontend URL for redirects
-    frontend_url = os.getenv("BACKEND_PUBLIC_URL", base_url)
+    # Get frontend URL for redirects - use SITE_URL for customer-facing pages
+    frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", base_url))
     
     # Create payment session
     settings = await get_settings()
@@ -1755,9 +1755,9 @@ async def stripe_payment_success(session_id: str, order_id: str, background_task
     settings = await get_settings()
     stripe_settings = settings.get("stripe", {})
     
-    base_url = os.getenv("REACT_APP_BACKEND_URL", "http://localhost:8001")
+    base_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
     webhook_url = f"{base_url}/api/webhooks/stripe"
-    frontend_url = base_url.replace(':8001', ':3000') if ':8001' in base_url else base_url
+    frontend_url = os.getenv("SITE_URL", base_url)
     
     from stripe_service import get_stripe_service
     stripe = get_stripe_service(stripe_settings, webhook_url)
