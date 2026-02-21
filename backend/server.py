@@ -268,28 +268,33 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
     if not username:
         return None
 
+    # If already linked, verify the customer still exists
+    existing_uid = imported_user.get("user_id")
+    if existing_uid:
+        try:
+            customer = await users_collection.find_one({"_id": str_to_objectid(existing_uid)})
+            if customer:
+                return existing_uid  # Already linked and customer exists
+            # Customer was deleted — clear the stale link and re-create
+            logger.info(f"Imported user {username} linked to deleted customer {existing_uid}, re-linking...")
+        except Exception:
+            pass
+
     # Check if customer already exists with this panel_username
     existing = await users_collection.find_one({"panel_username": username})
     if existing:
-        # Link the imported user to the existing customer
         user_id = str(existing["_id"])
-        if not imported_user.get("user_id"):
-            await imported_users_collection.update_one(
-                {"_id": imported_user["_id"]},
-                {"$set": {"user_id": user_id}}
-            )
+        await imported_users_collection.update_one(
+            {"_id": imported_user["_id"]},
+            {"$set": {"user_id": user_id}}
+        )
         return user_id
 
-    # Create new customer account
-    # Use a placeholder email since most panel users don't have one
+    # Check by placeholder email
     placeholder_email = f"{username}@panel.local"
-
-    # Check if placeholder email collides
     email_exists = await users_collection.find_one({"email": placeholder_email})
     if email_exists:
-        # Link to existing account with same placeholder email
         user_id = str(email_exists["_id"])
-        # Add panel_username if missing
         if not email_exists.get("panel_username"):
             await users_collection.update_one({"_id": email_exists["_id"]}, {"$set": {"panel_username": username}})
         await imported_users_collection.update_one(
@@ -298,11 +303,12 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
         )
         return user_id
 
+    # Create new customer account
     import secrets
     try:
         customer_doc = {
             "email": placeholder_email,
-            "password": get_password_hash(password),
+            "password": get_password_hash(password or secrets.token_hex(8)),
             "name": username,
             "role": "user",
             "panel_username": username,
@@ -315,12 +321,12 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
         result = await users_collection.insert_one(customer_doc)
         user_id = str(result.inserted_id)
     except Exception as dup_err:
-        # Duplicate email - find and link
         existing_by_email = await users_collection.find_one({"email": placeholder_email})
         if existing_by_email:
             user_id = str(existing_by_email["_id"])
         else:
-            raise dup_err
+            logger.error(f"Failed to create customer for {username}: {dup_err}")
+            return None
 
     # Link the imported user
     await imported_users_collection.update_one(
@@ -936,21 +942,18 @@ async def startup_event():
     
     # One-time: create customer accounts for any existing unlinked imported users
     try:
-        unlinked = imported_users_collection.find({
-            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
-        })
-        unlinked_list = await unlinked.to_list(length=10000)
-        if unlinked_list:
+        all_imported = await imported_users_collection.find({}).to_list(length=10000)
+        if all_imported:
             created = 0
-            for iu in unlinked_list:
+            for iu in all_imported:
                 try:
                     uid = await create_customer_for_imported_user(iu)
-                    if uid:
+                    if uid and not iu.get("user_id"):
                         created += 1
                 except Exception:
                     pass
             if created > 0:
-                logger.info(f"Startup: created {created} customer accounts for {len(unlinked_list)} unlinked imported users")
+                logger.info(f"Startup: created/linked {created} customer accounts for imported users")
     except Exception as e:
         logger.warning(f"Startup account creation failed: {e}")
     

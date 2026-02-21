@@ -356,33 +356,27 @@ class BackgroundJobScheduler:
             logger.error(f"Error in create_customer_accounts job: {e}")
     
     async def _create_accounts_for_unlinked(self):
-        """Find all imported users without customer accounts and create them"""
+        """Find all imported users and ensure each has a valid customer account"""
         try:
             from server import create_customer_for_imported_user
             
-            unlinked = self.db.imported_users.find({
-                "$or": [
-                    {"user_id": {"$exists": False}},
-                    {"user_id": ""},
-                    {"user_id": None}
-                ]
-            })
-            unlinked_list = await unlinked.to_list(length=10000)
+            all_imported = await self.db.imported_users.find({}).to_list(length=10000)
             
-            if not unlinked_list:
+            if not all_imported:
                 return
             
             created = 0
-            for iu in unlinked_list:
+            for iu in all_imported:
                 try:
+                    old_uid = iu.get("user_id")
                     uid = await create_customer_for_imported_user(iu)
-                    if uid:
+                    if uid and not old_uid:
                         created += 1
                 except Exception:
                     pass
             
             if created > 0:
-                logger.info(f"Auto-created {created} customer accounts for unlinked imported users ({len(unlinked_list)} checked)")
+                logger.info(f"Auto-created {created} customer accounts for imported users ({len(all_imported)} checked)")
         except Exception as e:
             logger.error(f"Error creating accounts for unlinked users: {e}")
     
