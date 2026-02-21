@@ -38,6 +38,7 @@ import AdminDownloads from './pages/AdminDownloads';
 import AdminKnowledgeBase from './pages/AdminKnowledgeBase';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import SEOHead from './components/SEOHead';
+import ChatbotWidget from './components/ChatbotWidget';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
 import AdminImportedUsers from './pages/AdminImportedUsers';
 import TicketsPage from './pages/TicketsPage';
@@ -401,6 +402,7 @@ function App() {
         </div>
       </Router>
       <SEOHead />
+      <ChatbotWidget />
       <Toaster position="top-center" richColors closeButton duration={4000} />
       </LicenseCheck>
       </GoogleReCaptchaProvider>

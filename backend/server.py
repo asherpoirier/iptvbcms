@@ -934,6 +934,26 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start background jobs: {str(e)}")
     
+    # One-time: create customer accounts for any existing unlinked imported users
+    try:
+        unlinked = imported_users_collection.find({
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        })
+        unlinked_list = await unlinked.to_list(length=10000)
+        if unlinked_list:
+            created = 0
+            for iu in unlinked_list:
+                try:
+                    uid = await create_customer_for_imported_user(iu)
+                    if uid:
+                        created += 1
+                except Exception:
+                    pass
+            if created > 0:
+                logger.info(f"Startup: created {created} customer accounts for {len(unlinked_list)} unlinked imported users")
+    except Exception as e:
+        logger.warning(f"Startup account creation failed: {e}")
+    
     logger.info("IPTV Billing System started successfully!")
 
 # Health check
@@ -5345,6 +5365,29 @@ async def get_branding():
     })
     return branding
 
+@app.get("/api/chatbot/config")
+async def get_chatbot_config():
+    """Public endpoint - get chatbot widget config if enabled"""
+    settings = await get_settings()
+    chatbot = settings.get("chatbot", {})
+    if chatbot.get("enabled") and chatbot.get("widget_key"):
+        return {
+            "enabled": True,
+            "widget_key": chatbot["widget_key"],
+            "api_url": chatbot.get("api_url", "https://banterbot.ai")
+        }
+    return {"enabled": False}
+
+@app.put("/api/admin/chatbot")
+async def update_chatbot_settings(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update only the chatbot settings without touching other settings"""
+    await settings_collection.update_one(
+        {},
+        {"$set": {"chatbot": data}},
+        upsert=True
+    )
+    return {"message": "Chatbot settings updated"}
+
 @app.get("/api/admin/settings")
 async def get_admin_settings(current_user: dict = Depends(get_current_admin_user)):
     """Get system settings"""
@@ -6145,12 +6188,32 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
         await imported_users_collection.delete_many({"_id": {"$in": [s["_id"] for s in stale_resellers]}})
         removed_count += len(stale_resellers)
     
+    # Auto-create customer accounts for newly synced XuiOne users
+    accounts_created = 0
+    try:
+        unlinked_list = await imported_users_collection.find({
+            "panel_name": panel_name,
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        }).to_list(length=10000)
+        for iu in unlinked_list:
+            try:
+                uid = await create_customer_for_imported_user(iu)
+                if uid:
+                    accounts_created += 1
+            except Exception:
+                pass
+        if accounts_created > 0:
+            logger.info(f"Auto-created {accounts_created} customer accounts from {panel_name} sync")
+    except Exception as e:
+        logger.warning(f"Account creation after XuiOne sync failed: {e}")
+    
     return {
         "success": True,
         "synced": synced_count,
         "updated": updated_count,
         "removed": removed_count,
         "total": total_users,
+        "accounts_created": accounts_created,
         "panel_name": panel_name
     }
 
@@ -6331,7 +6394,27 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                         {"$set": reseller_doc}
                         )
                     updated_count += 1
-    return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
+    
+    # Auto-create customer accounts for newly synced 1-Stream users
+    accounts_created = 0
+    try:
+        unlinked_list = await imported_users_collection.find({
+            "panel_name": panel_name,
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        }).to_list(length=10000)
+        for iu in unlinked_list:
+            try:
+                uid = await create_customer_for_imported_user(iu)
+                if uid:
+                    accounts_created += 1
+            except Exception:
+                pass
+        if accounts_created > 0:
+            logger.info(f"Auto-created {accounts_created} customer accounts from {panel_name} sync")
+    except Exception as e:
+        logger.warning(f"Account creation after 1-Stream sync failed: {e}")
+    
+    return {"success": True, "synced": synced_count, "updated": updated_count, "accounts_created": accounts_created, "panel_name": panel_name}
 
 # ===== NXT DASH PANEL ROUTES =====
 
@@ -6519,7 +6602,26 @@ async def sync_nxtdash_users(panel_index: int = 0, current_user: dict = Depends(
             break
         page += 1
 
-    return {"success": True, "synced": synced_count, "updated": updated_count, "panel_name": panel_name}
+    # Auto-create customer accounts for newly synced NXT Dash users
+    accounts_created = 0
+    try:
+        unlinked_list = await imported_users_collection.find({
+            "panel_name": panel_name,
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        }).to_list(length=10000)
+        for iu in unlinked_list:
+            try:
+                uid = await create_customer_for_imported_user(iu)
+                if uid:
+                    accounts_created += 1
+            except Exception:
+                pass
+        if accounts_created > 0:
+            logger.info(f"Auto-created {accounts_created} customer accounts from {panel_name} sync")
+    except Exception as e:
+        logger.warning(f"Account creation after NXT Dash sync failed: {e}")
+
+    return {"success": True, "synced": synced_count, "updated": updated_count, "accounts_created": accounts_created, "panel_name": panel_name}
 
 
 # ===== EMAIL MANAGEMENT ENDPOINTS =====
@@ -8438,12 +8540,33 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
         await imported_users_collection.delete_many({"_id": {"$in": stale_ids}})
         removed_count += len(stale_resellers)
     
+    # Auto-create customer accounts for newly synced users
+    accounts_created = 0
+    try:
+        unlinked = imported_users_collection.find({
+            "panel_name": panel_name,
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        })
+        unlinked_list = await unlinked.to_list(length=10000)
+        for iu in unlinked_list:
+            try:
+                uid = await create_customer_for_imported_user(iu)
+                if uid:
+                    accounts_created += 1
+            except Exception:
+                pass
+        if accounts_created > 0:
+            logger.info(f"Auto-created {accounts_created} customer accounts from {panel_name} sync")
+    except Exception as e:
+        logger.warning(f"Account creation after panel sync failed: {e}")
+    
     return {
         "success": True,
         "synced": synced_count,
         "updated": updated_count,
         "removed": removed_count,
         "total": total_users,
+        "accounts_created": accounts_created,
         "panel_name": panel_name,
         "details": {
             "subscribers": {"synced": synced_count - reseller_synced, "updated": updated_count - reseller_updated},

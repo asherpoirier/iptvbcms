@@ -101,6 +101,24 @@ class BackgroundJobScheduler:
             replace_existing=True
         )
         
+        # Job 8: Sync imported users from all panels (every hour)
+        self.scheduler.add_job(
+            self.job_sync_imported_users,
+            trigger=IntervalTrigger(hours=1),
+            id="sync_imported_users",
+            name="Sync Imported Users",
+            replace_existing=True
+        )
+        
+        # Job 9: Create customer accounts for unlinked imported users (every 30 min)
+        self.scheduler.add_job(
+            self.job_create_customer_accounts,
+            trigger=IntervalTrigger(minutes=30),
+            id="create_customer_accounts",
+            name="Create Customer Accounts for Imported Users",
+            replace_existing=True
+        )
+        
         self.scheduler.start()
         logger.info("Background jobs started successfully")
     
@@ -239,6 +257,134 @@ class BackgroundJobScheduler:
                     
         except Exception as e:
             logger.error(f"Error in retry_failed_payments job: {str(e)}")
+    
+    async def job_sync_imported_users(self):
+        """Sync users from all configured panels automatically"""
+        try:
+            settings = await self.db.settings.find_one()
+            if not settings:
+                return
+            
+            from server import (
+                get_xtream_service, get_settings, imported_users_collection,
+                create_customer_for_imported_user
+            )
+            from xtreamui_service import XtreamUIService
+            
+            total_synced = 0
+            total_updated = 0
+            
+            # Sync XtreamUI panels
+            xtream_panels = settings.get("xtream", {}).get("panels", [])
+            for i, panel in enumerate(xtream_panels):
+                if not panel.get("active", True):
+                    continue
+                try:
+                    svc = XtreamUIService(
+                        panel_url=panel.get("panel_url", ""),
+                        admin_username=panel.get("admin_username", ""),
+                        admin_password=panel.get("admin_password", ""),
+                        ssl_verify=panel.get("ssl_verify", False),
+                        http_basic_user=panel.get("http_basic_user", ""),
+                        http_basic_pass=panel.get("http_basic_pass", ""),
+                        proxy_url=panel.get("proxy_url", "")
+                    )
+                    panel_name = panel.get("name", f"Panel {i+1}")
+                    
+                    # Sync subscribers
+                    result = svc.get_reseller_users()
+                    if result.get("success"):
+                        for user_data in result.get("users", []):
+                            username = user_data.get("username", "")
+                            if not username:
+                                continue
+                            from datetime import datetime
+                            expiry_date = None
+                            exp_str = user_data.get("expiry", "")
+                            if exp_str and exp_str not in ["Unlimited", "NEVER", ""]:
+                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                    try:
+                                        expiry_date = datetime.strptime(str(exp_str).strip(), fmt)
+                                        break
+                                    except (ValueError, TypeError):
+                                        continue
+                            import re
+                            max_conn_raw = user_data.get("max_connections", 1)
+                            max_conn_str = re.sub(r'<[^>]+>', '', str(max_conn_raw)).strip()
+                            m = re.search(r'(\d+)', max_conn_str)
+                            max_connections = int(m.group(1)) if m else 1
+                            
+                            doc = {
+                                "username": username,
+                                "password": user_data.get("password", ""),
+                                "panel_type": "xtream",
+                                "panel_index": i,
+                                "panel_name": panel_name,
+                                "account_type": "subscriber",
+                                "max_connections": max_connections,
+                                "expiry_date": expiry_date,
+                                "status": user_data.get("status", "active"),
+                                "last_synced": datetime.utcnow()
+                            }
+                            r = await imported_users_collection.update_one(
+                                {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                                {"$set": doc},
+                                upsert=True
+                            )
+                            if r.upserted_id:
+                                total_synced += 1
+                            elif r.modified_count:
+                                total_updated += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Auto-sync failed for xtream panel {panel.get('name', i)}: {e}")
+            
+            if total_synced > 0 or total_updated > 0:
+                logger.info(f"Auto-sync: {total_synced} new, {total_updated} updated across all panels")
+            
+            # Create accounts for any unlinked users
+            await self._create_accounts_for_unlinked()
+            
+        except Exception as e:
+            logger.error(f"Error in sync_imported_users job: {e}")
+    
+    async def job_create_customer_accounts(self):
+        """Create customer accounts for all imported users that don't have one"""
+        try:
+            await self._create_accounts_for_unlinked()
+        except Exception as e:
+            logger.error(f"Error in create_customer_accounts job: {e}")
+    
+    async def _create_accounts_for_unlinked(self):
+        """Find all imported users without customer accounts and create them"""
+        try:
+            from server import create_customer_for_imported_user
+            
+            unlinked = self.db.imported_users.find({
+                "$or": [
+                    {"user_id": {"$exists": False}},
+                    {"user_id": ""},
+                    {"user_id": None}
+                ]
+            })
+            unlinked_list = await unlinked.to_list(length=10000)
+            
+            if not unlinked_list:
+                return
+            
+            created = 0
+            for iu in unlinked_list:
+                try:
+                    uid = await create_customer_for_imported_user(iu)
+                    if uid:
+                        created += 1
+                except Exception:
+                    pass
+            
+            if created > 0:
+                logger.info(f"Auto-created {created} customer accounts for unlinked imported users ({len(unlinked_list)} checked)")
+        except Exception as e:
+            logger.error(f"Error creating accounts for unlinked users: {e}")
     
     def stop(self):
         """Stop scheduler"""
