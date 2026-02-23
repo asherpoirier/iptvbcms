@@ -8,7 +8,7 @@ export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
   
   // Default payment method order
-  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics'];
+  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay'];
   
   const [formData, setFormData] = useState({
     paypal_enabled: settings?.paypal?.enabled || false,
@@ -28,6 +28,8 @@ export default function PaymentGatewaySettings({ settings }) {
     blockonomics_enabled: settings?.blockonomics?.enabled || false,
     blockonomics_api_key: settings?.blockonomics?.api_key || '',
     blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
+    ghostpay_enabled: settings?.ghostpay?.enabled || false,
+    ghostpay_api_key: settings?.ghostpay?.api_key || '',
     emt_enabled: settings?.emt?.enabled || false,
     emt_instructions: settings?.emt?.instructions || '',
     zelle_enabled: settings?.zelle?.enabled || false,
@@ -43,7 +45,7 @@ export default function PaymentGatewaySettings({ settings }) {
     helcim_enabled: settings?.helcim?.enabled || false,
     helcim_api_token: settings?.helcim?.api_token || '',
     helcim_terminal_id: settings?.helcim?.terminal_id || '',
-    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
   });
 
   React.useEffect(() => {
@@ -66,6 +68,8 @@ export default function PaymentGatewaySettings({ settings }) {
         blockonomics_enabled: settings?.blockonomics?.enabled || false,
         blockonomics_api_key: settings?.blockonomics?.api_key || '',
         blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
+        ghostpay_enabled: settings?.ghostpay?.enabled || false,
+        ghostpay_api_key: settings?.ghostpay?.api_key || '',
         emt_enabled: settings?.emt?.enabled || false,
         emt_instructions: settings?.emt?.instructions || '',
         zelle_enabled: settings?.zelle?.enabled || false,
@@ -81,7 +85,7 @@ export default function PaymentGatewaySettings({ settings }) {
         helcim_enabled: settings?.helcim?.enabled || false,
         helcim_api_token: settings?.helcim?.api_token || '',
         helcim_terminal_id: settings?.helcim?.terminal_id || '',
-        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
       });
     }
   }, [settings]);
@@ -116,6 +120,10 @@ export default function PaymentGatewaySettings({ settings }) {
           enabled: data.blockonomics_enabled,
           api_key: data.blockonomics_api_key,
           confirmations_required: data.blockonomics_confirmations
+        },
+        ghostpay: {
+          enabled: data.ghostpay_enabled,
+          api_key: data.ghostpay_api_key
         },
         emt: {
           enabled: data.emt_enabled,
@@ -184,6 +192,7 @@ export default function PaymentGatewaySettings({ settings }) {
     wise: { name: 'Wise', icon: DollarSign, color: 'text-green-600' },
     helcim: { name: 'Helcim', icon: CreditCard, color: 'text-teal-600' },
     blockonomics: { name: 'Bitcoin (Blockonomics)', icon: Bitcoin, color: 'text-orange-500' },
+    ghostpay: { name: 'Crypto (GhostPay)', icon: Bitcoin, color: 'text-purple-500' },
   };
 
   return (
@@ -537,6 +546,54 @@ export default function PaymentGatewaySettings({ settings }) {
                   </code>
                 </li>
               </ol>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* GhostPay (Crypto) */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Bitcoin className="w-6 h-6 text-purple-500" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">GhostPay (Crypto)</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept BTC, ETH, LTC, USDT and more</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox"
+              checked={formData.ghostpay_enabled}
+              onChange={(e) => setFormData({ ...formData, ghostpay_enabled: e.target.checked })}
+              className="sr-only peer" data-testid="ghostpay-enabled" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+          </label>
+        </div>
+        {formData.ghostpay_enabled && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+              <input type="password"
+                value={formData.ghostpay_api_key}
+                onChange={(e) => setFormData({ ...formData, ghostpay_api_key: e.target.value })}
+                placeholder="gpay_your_key_here"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                data-testid="ghostpay-api-key" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Get your API key from <a href="https://gateway.ghostpay.cash" target="_blank" rel="noopener noreferrer" className="text-purple-500 hover:underline">gateway.ghostpay.cash</a>
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook / Callback URL</label>
+              <div className="flex items-center gap-2">
+                <input type="text" readOnly
+                  value={`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/ghostpay`}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono" />
+                <button type="button" onClick={() => {
+                  navigator.clipboard.writeText(`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/ghostpay`);
+                }} className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 text-sm">Copy</button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Add this URL as the callback URL in your GhostPay dashboard</p>
             </div>
           </div>
         )}

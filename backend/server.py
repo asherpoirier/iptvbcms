@@ -2095,6 +2095,207 @@ async def create_square_payment(order_id: str, data: dict, background_tasks: Bac
     
     raise HTTPException(status_code=500, detail=result.get("error", "Payment failed"))
 
+
+# ===== GHOSTPAY (CRYPTO) ROUTES =====
+
+@app.get("/api/ghostpay/cryptos")
+async def get_ghostpay_cryptos(current_user: dict = Depends(get_current_user)):
+    """Get available cryptocurrencies from GhostPay"""
+    settings = await get_settings()
+    from ghostpay_service import get_ghostpay_service
+    gp = get_ghostpay_service(settings)
+    if not gp:
+        raise HTTPException(status_code=400, detail="GhostPay not configured")
+    result = await gp.get_cryptos()
+    if result["success"]:
+        return result["cryptos"]
+    raise HTTPException(status_code=500, detail=result.get("error"))
+
+@app.post("/api/orders/{order_id}/pay/ghostpay")
+async def create_ghostpay_payment(order_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Create GhostPay crypto payment for order"""
+    user_id = current_user["sub"]
+    body = await request.json()
+    crypto = body.get("crypto", "BTC")
+    
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id), "user_id": user_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Order already paid")
+    
+    settings = await get_settings()
+    from ghostpay_service import get_ghostpay_service
+    gp = get_ghostpay_service(settings)
+    if not gp:
+        raise HTTPException(status_code=400, detail="GhostPay not enabled")
+    
+    base_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
+    callback_url = f"{base_url}/api/webhooks/ghostpay"
+    currency = settings.get("currency", "USD")
+    
+    result = await gp.create_payment(
+        crypto=crypto,
+        amount=order["total"],
+        external_id=order_id,
+        fiat=currency,
+        callback_url=callback_url
+    )
+    
+    if result["success"]:
+        await db.payment_transactions.insert_one({
+            "order_id": order_id,
+            "user_id": user_id,
+            "gateway": "ghostpay",
+            "invoice_id": result["invoice_id"],
+            "crypto": crypto,
+            "amount_fiat": order["total"],
+            "amount_crypto": result.get("amount_crypto"),
+            "wallet": result.get("wallet"),
+            "payment_status": "pending",
+            "created_at": datetime.utcnow()
+        })
+        return {
+            "success": True,
+            "invoice_id": result["invoice_id"],
+            "payment_url": result["payment_url"],
+            "wallet": result["wallet"],
+            "amount_crypto": result["amount_crypto"],
+            "crypto": crypto,
+            "expires_at": result.get("expires_at")
+        }
+    raise HTTPException(status_code=500, detail=result.get("error", "Payment creation failed"))
+
+@app.get("/api/payments/ghostpay/status/{invoice_id}")
+async def check_ghostpay_status(invoice_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """Check GhostPay invoice status"""
+    from ghostpay_service import GhostPayService
+    gp = GhostPayService("")  # Public endpoint, no key needed
+    result = await gp.check_invoice(invoice_id)
+    
+    if result.get("success") and result.get("status") in ("PAID", "OVERPAID"):
+        tx = await db.payment_transactions.find_one({"invoice_id": invoice_id})
+        if tx:
+            order_id = tx["order_id"]
+            order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
+            if order and order["status"] != "paid":
+                await orders_collection.update_one(
+                    {"_id": str_to_objectid(order_id)},
+                    {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "ghostpay", "payment_id": invoice_id}}
+                )
+                await invoices_collection.update_one(
+                    {"order_id": order_id},
+                    {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+                )
+                await db.payment_transactions.update_one(
+                    {"invoice_id": invoice_id},
+                    {"$set": {"payment_status": "paid"}}
+                )
+                user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                if user:
+                    background_tasks.add_task(provision_order_services, order_id, order, user)
+            elif order and order["status"] == "paid":
+                existing = await services_collection.count_documents({"order_id": order_id})
+                if existing == 0:
+                    user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                    if user:
+                        background_tasks.add_task(provision_order_services, order_id, order, user)
+    
+    return {"success": True, "payment_status": result.get("status", "UNKNOWN"), "amount_received": result.get("amount_received"), "transactions": result.get("transactions", [])}
+
+@app.get("/api/ghostpay/prices")
+async def get_ghostpay_prices():
+    """Get live crypto prices - public, no auth"""
+    from ghostpay_service import GhostPayService
+    gp = GhostPayService("")
+    result = await gp.get_prices()
+    if result.get("success"):
+        return result["prices"]
+    return []
+
+@app.post("/api/webhooks/ghostpay")
+async def ghostpay_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Handle GhostPay webhook notifications
+    Events: invoice.paid, invoice.partial, invoice.expired
+    Payload may contain: event, external_id/orderId, crypto, fiat, balance_fiat, balance_crypto, paid, status, transactions
+    Must return 200 OK
+    """
+    try:
+        body = await request.json()
+        event = body.get("event", "")
+        # GhostPay may send order ID as external_id or orderId
+        external_id = body.get("external_id") or body.get("orderId") or body.get("order_id") or ""
+        status = body.get("status", "")
+        paid = body.get("paid", False)
+        
+        logger.info(f"GhostPay webhook received: event={event}, external_id={external_id}, status={status}, paid={paid}, body_keys={list(body.keys())}")
+        
+        # Determine if payment is confirmed
+        is_paid = (event == "invoice.paid") or (status in ("PAID", "OVERPAID")) or (paid == True)
+        is_partial = (event == "invoice.partial") or (status == "PARTIAL")
+        is_expired = (event == "invoice.expired") or (status == "EXPIRED")
+        
+        if is_paid and external_id:
+            try:
+                order = await orders_collection.find_one({"_id": str_to_objectid(external_id)})
+            except Exception:
+                # Try finding by string ID or payment transaction
+                order = None
+                tx = await db.payment_transactions.find_one({"gateway": "ghostpay", "$or": [{"order_id": external_id}, {"invoice_id": external_id}]})
+                if tx:
+                    order = await orders_collection.find_one({"_id": str_to_objectid(tx["order_id"])})
+                    external_id = tx["order_id"]
+            
+            if order and order["status"] != "paid":
+                logger.info(f"GhostPay webhook: marking order {external_id} as paid")
+                await orders_collection.update_one(
+                    {"_id": str_to_objectid(external_id)},
+                    {"$set": {
+                        "status": "paid",
+                        "paid_at": datetime.utcnow(),
+                        "payment_method": "ghostpay",
+                        "payment_details": {
+                            "crypto": body.get("crypto"),
+                            "balance_crypto": body.get("balance_crypto"),
+                            "balance_fiat": body.get("balance_fiat"),
+                            "transactions": body.get("transactions", [])
+                        }
+                    }}
+                )
+                await invoices_collection.update_one(
+                    {"order_id": external_id},
+                    {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+                )
+                # Update payment transaction
+                await db.payment_transactions.update_one(
+                    {"order_id": external_id, "gateway": "ghostpay"},
+                    {"$set": {"payment_status": "paid", "updated_at": datetime.utcnow()}}
+                )
+                user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                if user:
+                    background_tasks.add_task(provision_order_services, external_id, order, user)
+                    logger.info(f"GhostPay: order {external_id} paid and provisioning triggered")
+        
+        elif is_partial and external_id:
+            logger.info(f"GhostPay: partial payment for order {external_id}")
+            await db.payment_transactions.update_one(
+                {"order_id": external_id, "gateway": "ghostpay"},
+                {"$set": {"payment_status": "partial", "amount_received": body.get("balance_crypto"), "updated_at": datetime.utcnow()}}
+            )
+        
+        elif is_expired and external_id:
+            logger.info(f"GhostPay: invoice expired for order {external_id}")
+            await db.payment_transactions.update_one(
+                {"order_id": external_id, "gateway": "ghostpay"},
+                {"$set": {"payment_status": "expired", "updated_at": datetime.utcnow()}}
+            )
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"GhostPay webhook error: {e}")
+        return {"status": "error"}
+
+
 # ===== BLOCKONOMICS (BITCOIN) ROUTES =====
 
 @app.post("/api/orders/{order_id}/pay/blockonomics")
@@ -3357,10 +3558,14 @@ async def get_payment_config():
         "helcim": {
             "enabled": settings.get("helcim", {}).get("enabled", False)
         },
+        "ghostpay": {
+            "enabled": settings.get("ghostpay", {}).get("enabled", False),
+            "api_key": settings.get("ghostpay", {}).get("api_key", "")
+        },
         "manual": {
             "enabled": True
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics"]),
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay"]),
         "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
     }
 
@@ -3483,6 +3688,17 @@ async def cancel_order(order_id: str, current_user: dict = Depends(get_current_a
 async def provision_order_services(order_id: str, order: dict, user: dict):
     """Provision services (XtreamUI or XuiOne) for paid order"""
     try:
+        # Atomic provisioning lock — prevents duplicate provisioning from concurrent calls
+        lock_result = await orders_collection.update_one(
+            {"_id": str_to_objectid(order_id), "provisioning": {"$ne": True}},
+            {"$set": {"provisioning": True, "provisioning_started_at": datetime.utcnow()}}
+        )
+        if lock_result.modified_count == 0:
+            logger.info(f"Order {order_id} already being provisioned, skipping")
+            return
+        
+        logger.info(f"Provisioning order {order_id} — lock acquired")
+        
         settings = await get_settings()
         
         # Get configured email service with all required params
@@ -3573,6 +3789,12 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
         logger.error(f"Provisioning error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+    finally:
+        # Mark provisioning complete (release lock but keep flag for idempotency)
+        await orders_collection.update_one(
+            {"_id": str_to_objectid(order_id)},
+            {"$set": {"provisioned": True, "provisioned_at": datetime.utcnow()}}
+        )
 
 async def provision_xtream_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
     """Provision XtreamUI service"""

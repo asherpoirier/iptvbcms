@@ -40,6 +40,9 @@ export default function CheckoutPage() {
   const [btcPolling, setBtcPolling] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
+  // GhostPay state
+  const [ghostpayLoading, setGhostpayLoading] = useState(false);
+
   // Helcim payment state
   const [helcimLoading, setHelcimLoading] = useState(false);
 
@@ -748,7 +751,7 @@ export default function CheckoutPage() {
                 
                 <div className="space-y-3 mb-6">
                   {/* Render payment methods in order from settings */}
-                  {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics']).map((method) => {
+                  {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay']).map((method) => {
                     // Manual Payment
                     if (method === 'manual') {
                       return (
@@ -857,6 +860,24 @@ export default function CheckoutPage() {
                             <div>
                               <p className="font-semibold text-gray-900 dark:text-white">Bitcoin</p>
                               <p className="text-sm text-gray-600 dark:text-gray-400">Pay directly with Bitcoin (BTC)</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
+                    if (method === 'ghostpay' && settings?.ghostpay?.enabled) {
+                      return (
+                        <label key="ghostpay" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-purple-500 transition bg-white dark:bg-gray-800" data-testid="payment-ghostpay">
+                          <input type="radio" name="payment" value="ghostpay"
+                            checked={paymentMethod === 'ghostpay'}
+                            onChange={(e) => setPaymentMethod(e.target.value)}
+                            className="w-4 h-4 text-purple-500" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <Bitcoin className="w-5 h-5 text-purple-500" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">Crypto (GhostPay)</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay with BTC, ETH, LTC, USDT and more</p>
                             </div>
                           </div>
                         </label>
@@ -1254,6 +1275,43 @@ export default function CheckoutPage() {
                       Pay with Bitcoin
                     </button>
                   )
+                ) : paymentMethod === 'ghostpay' && settings?.ghostpay?.enabled ? (
+                  <div className="space-y-3">
+                    <button
+                      onClick={async () => {
+                        try {
+                          setError('');
+                          setGhostpayLoading(true);
+                          const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+                          // Create order first
+                          const orderRes = await axios.post(`${API_URL}/api/orders`, {
+                            items: items.map(i => ({ product_id: i.product_id, product_name: i.product_name, term_months: i.term_months, price: i.price, account_type: i.account_type })),
+                            total: getTotal(), coupon_code: appliedCouponCode, use_credits: creditsUsed
+                          }, { headers: { Authorization: `Bearer ${authToken}` }});
+                          const orderId = orderRes.data.order_id || orderRes.data.id;
+                          // Redirect to GhostPay hosted checkout
+                          const gpApiKey = settings?.ghostpay?.api_key || '';
+                          const amount = getTotal().toFixed(2);
+                          const siteUrl = window.location.origin;
+                          const fiat = typeof settings?.currency === 'string' ? settings.currency : settings?.currency?.code || 'USD';
+                          const callbackUrl = encodeURIComponent(`${API_URL}/api/webhooks/ghostpay`);
+                          const returnUrl = encodeURIComponent(`${siteUrl}/orders?payment=success&order_id=${orderId}`);
+                          clearCart();
+                          window.location.href = `https://gateway.ghostpay.cash/checkout?amount=${amount}&fiat=${fiat}&orderId=${orderId}&apiKey=${gpApiKey}&callbackUrl=${callbackUrl}&returnUrl=${returnUrl}`;
+                        } catch (err) {
+                          setError(err.response?.data?.detail || 'Failed to create order');
+                          setGhostpayLoading(false);
+                        }
+                      }}
+                      disabled={ghostpayLoading}
+                      className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                      data-testid="ghostpay-pay-btn"
+                    >
+                      <Bitcoin className="w-5 h-5" />
+                      {ghostpayLoading ? 'Redirecting to GhostPay...' : 'Pay with Crypto (GhostPay)'}
+                    </button>
+                    <p className="text-xs text-center text-gray-500 dark:text-gray-400">You will be redirected to GhostPay to select your cryptocurrency and complete payment</p>
+                  </div>
                 ) : (
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-600 rounded-lg p-4">
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
