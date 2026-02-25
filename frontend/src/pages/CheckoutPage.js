@@ -33,6 +33,9 @@ export default function CheckoutPage() {
   // Reseller credentials state
   const [resellerUsername, setResellerUsername] = useState('');
   const [resellerPassword, setResellerPassword] = useState('');
+  const [resellerUsernameExists, setResellerUsernameExists] = useState(false);
+  const [resellerAddCredits, setResellerAddCredits] = useState(false);
+  const [checkingUsername, setCheckingUsername] = useState(false);
   
   // Blockonomics Bitcoin payment state
   const [btcPaymentData, setBtcPaymentData] = useState(null);
@@ -123,6 +126,11 @@ export default function CheckoutPage() {
       return;
     }
     
+    if (hasNewResellerProduct && resellerUsernameExists && !resellerAddCredits) {
+      setError('Please confirm whether to add credits to the existing username or choose a different one');
+      return;
+    }
+    
     const finalTotal = Math.max(0, getTotal() - discountAmount - creditsUsed);
     
     createOrderMutation.mutate({
@@ -132,7 +140,8 @@ export default function CheckoutPage() {
       use_credits: creditsUsed,
       reseller_credentials: hasNewResellerProduct ? {
         username: resellerUsername,
-        password: resellerPassword
+        password: resellerPassword,
+        add_credits_to_existing: resellerAddCredits
       } : null
     });
   };
@@ -663,7 +672,7 @@ export default function CheckoutPage() {
                 </div>
                 
                 <p className="text-sm text-purple-800 dark:text-purple-300 mb-4">
-                  Choose your username and password for your XtreamUI reseller panel. These will be your login credentials.
+                  Enter the username and password for your reseller panel. If the username already exists, credits will be added to that account.
                 </p>
                 
                 <div className="space-y-4">
@@ -675,14 +684,59 @@ export default function CheckoutPage() {
                       type="text"
                       required={hasNewResellerProduct}
                       value={resellerUsername}
-                      onChange={(e) => setResellerUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                      className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
-                      placeholder="myreselleraccount"
-                      maxLength="20"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setResellerUsername(val);
+                        setResellerUsernameExists(false);
+                        setResellerAddCredits(false);
+                        // Debounce username check
+                        if (val.length >= 3) {
+                          setCheckingUsername(true);
+                          clearTimeout(window._resellerCheckTimeout);
+                          window._resellerCheckTimeout = setTimeout(async () => {
+                            try {
+                              const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+                              const res = await axios.get(`${API_URL}/api/reseller/check-username/${val}`, {
+                                headers: { Authorization: `Bearer ${authToken}` }
+                              });
+                              if (res.data.exists) {
+                                setResellerUsernameExists(true);
+                              }
+                            } catch(e) {}
+                            setCheckingUsername(false);
+                          }, 500);
+                        }
+                      }}
+                      className={`w-full px-4 py-2 border-2 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${resellerUsernameExists ? 'border-yellow-400' : 'border-purple-300 dark:border-purple-600'} focus:border-purple-500`}
+                      placeholder="Enter reseller username"
+                      data-testid="reseller-username"
                     />
-                    <p className="text-xs text-purple-700 dark:text-purple-300 mt-1">
-                      Lowercase letters, numbers, and underscores only (max 20 chars)
-                    </p>
+                    {checkingUsername && (
+                      <p className="text-xs text-purple-500 mt-1">Checking username...</p>
+                    )}
+                    {resellerUsernameExists && !resellerAddCredits && (
+                      <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg">
+                        <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium">
+                          Username "{resellerUsername}" already exists on the panel.
+                        </p>
+                        <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                          Would you like to add credits to this existing account?
+                        </p>
+                        <div className="flex gap-2 mt-2">
+                          <button type="button" onClick={() => setResellerAddCredits(true)}
+                            className="px-3 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700" data-testid="reseller-add-credits-yes">
+                            Yes, add credits
+                          </button>
+                          <button type="button" onClick={() => { setResellerUsername(''); setResellerUsernameExists(false); }}
+                            className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white text-xs rounded hover:bg-gray-400" data-testid="reseller-add-credits-no">
+                            No, choose different username
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {resellerAddCredits && (
+                      <p className="text-xs text-green-600 mt-1 font-medium">Credits will be added to existing account "{resellerUsername}"</p>
+                    )}
                   </div>
                   
                   <div>
@@ -695,12 +749,8 @@ export default function CheckoutPage() {
                       value={resellerPassword}
                       onChange={(e) => setResellerPassword(e.target.value)}
                       className="w-full px-4 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-purple-500"
-                      placeholder="Choose a secure password"
-                      minLength="8"
+                      placeholder="Choose a password"
                     />
-                    <p className="text-xs text-purple-700 dark:text-purple-300 mt-1">
-                      Minimum 8 characters
-                    </p>
                   </div>
                 </div>
               </div>

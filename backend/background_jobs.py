@@ -101,22 +101,24 @@ class BackgroundJobScheduler:
             replace_existing=True
         )
         
-        # Job 8: Sync imported users from all panels (every hour)
+        # Job 8: Sync imported users from all panels (every hour, run immediately on start)
         self.scheduler.add_job(
             self.job_sync_imported_users,
             trigger=IntervalTrigger(hours=1),
             id="sync_imported_users",
             name="Sync Imported Users",
-            replace_existing=True
+            replace_existing=True,
+            next_run_time=datetime.utcnow() + timedelta(minutes=2)
         )
         
-        # Job 9: Create customer accounts for unlinked imported users (every 30 min)
+        # Job 9: Create customer accounts for unlinked imported users (every 30 min, run immediately)
         self.scheduler.add_job(
             self.job_create_customer_accounts,
             trigger=IntervalTrigger(minutes=30),
             id="create_customer_accounts",
             name="Create Customer Accounts for Imported Users",
-            replace_existing=True
+            replace_existing=True,
+            next_run_time=datetime.utcnow() + timedelta(minutes=1)
         )
         
         self.scheduler.start()

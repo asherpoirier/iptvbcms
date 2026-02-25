@@ -2620,6 +2620,32 @@ async def blockonomics_webhook(request: Request, background_tasks: BackgroundTas
     
     return {"status": "received"}
 
+@app.get("/api/reseller/check-username/{username}")
+async def check_reseller_username(username: str, current_user: dict = Depends(get_current_user)):
+    """Check if a reseller username already exists on any panel"""
+    # Check in services collection
+    existing_service = await services_collection.find_one(
+        {"xtream_username": username, "account_type": "reseller"},
+        {"_id": 0, "xtream_username": 1, "panel_name": 1, "status": 1, "user_id": 1}
+    )
+    # Check in imported users
+    existing_imported = await imported_users_collection.find_one(
+        {"username": username, "account_type": "reseller"},
+        {"_id": 0, "username": 1, "panel_name": 1, "status": 1}
+    )
+    
+    exists = bool(existing_service or existing_imported)
+    is_own = False
+    if existing_service and existing_service.get("user_id") == current_user["sub"]:
+        is_own = True
+    
+    return {
+        "exists": exists,
+        "is_own": is_own,
+        "panel_name": (existing_service or existing_imported or {}).get("panel_name", ""),
+        "status": (existing_service or existing_imported or {}).get("status", "")
+    }
+
 @app.post("/api/orders")
 async def create_order(order_data: OrderCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """Create new order with coupon and credit support"""
@@ -3685,6 +3711,26 @@ async def cancel_order(order_id: str, current_user: dict = Depends(get_current_a
     
     return {"message": "Order cancelled successfully"}
 
+@app.delete("/api/admin/orders/{order_id}")
+async def delete_order(order_id: str, current_user: dict = Depends(get_current_admin_user)):
+    """Permanently delete an order and its related records"""
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Delete the order
+    await orders_collection.delete_one({"_id": str_to_objectid(order_id)})
+    
+    # Delete related invoice
+    await invoices_collection.delete_many({"order_id": order_id})
+    
+    # Delete related payment transactions
+    await db.payment_transactions.delete_many({"order_id": order_id})
+    
+    logger.info(f"Order {order_id} deleted by admin {current_user['sub']}")
+    
+    return {"message": "Order deleted successfully"}
+
 async def provision_order_services(order_id: str, order: dict, user: dict):
     """Provision services (XtreamUI or XuiOne) for paid order"""
     try:
@@ -3892,12 +3938,26 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             # For resellers, check if user already has a reseller account (to add credits instead)
             existing_reseller = None
             if item["account_type"] == "reseller":
-                existing_reseller = await services_collection.find_one({
-                    "user_id": order["user_id"],
-                    "account_type": "reseller",
-                    "status": "active",
-                    "panel_index": panel_index
-                })
+                # First check if customer chose to add credits to an existing username
+                reseller_creds = order.get("reseller_credentials", {})
+                if reseller_creds and reseller_creds.get("add_credits_to_existing"):
+                    # Find existing reseller by the username they specified
+                    existing_reseller = await services_collection.find_one({
+                        "xtream_username": reseller_creds.get("username", ""),
+                        "account_type": "reseller",
+                        "status": "active"
+                    })
+                    if existing_reseller:
+                        logger.info(f"Adding credits to existing reseller by username: {existing_reseller['xtream_username']}")
+                
+                # Fallback: check if this customer already has a reseller on this panel
+                if not existing_reseller:
+                    existing_reseller = await services_collection.find_one({
+                        "user_id": order["user_id"],
+                        "account_type": "reseller",
+                        "status": "active",
+                        "panel_index": panel_index
+                    })
             
             # Create service record
             service_dict = {

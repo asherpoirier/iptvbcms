@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
+import axios from 'axios';
 import { ArrowLeft, Check, Search, Filter, ChevronLeft, ChevronRight, X, CheckSquare, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -91,7 +92,19 @@ export default function AdminOrders() {
     mutationFn: (orderId) => adminAPI.cancelOrder(orderId),
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-orders']);
+      toast.success('Order cancelled');
     },
+  });
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: (orderId) => axios.delete(`${process.env.REACT_APP_BACKEND_URL}/api/admin/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token}` }
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['admin-orders']);
+      toast.success('Order deleted');
+    },
+    onError: (err) => toast.error(err.response?.data?.detail || 'Failed to delete order'),
   });
 
   const handleMarkPaid = (orderId) => {
@@ -103,6 +116,12 @@ export default function AdminOrders() {
   const handleCancelOrder = (orderId) => {
     if (window.confirm('Are you sure you want to cancel this order?\n\nThis action cannot be undone.')) {
       cancelOrderMutation.mutate(orderId);
+    }
+  };
+
+  const handleDeleteOrder = (orderId) => {
+    if (window.confirm('Permanently delete this order? This removes the order, invoice, and payment records.\n\nThis cannot be undone.')) {
+      deleteOrderMutation.mutate(orderId);
     }
   };
 
@@ -427,11 +446,27 @@ export default function AdminOrders() {
                                 <X className="w-4 h-4" />
                                 Cancel
                               </button>
+                              <button onClick={() => handleDeleteOrder(order.id)} title="Delete order"
+                                className="text-gray-400 hover:text-red-500 transition">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           ) : order.status === 'paid' ? (
-                            <span className="text-green-600 dark:text-green-400 font-semibold text-sm">Processed</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 dark:text-green-400 font-semibold text-sm">Processed</span>
+                              <button onClick={() => handleDeleteOrder(order.id)} title="Delete order"
+                                className="text-gray-400 hover:text-red-500 transition" data-testid={`delete-order-${order.id}`}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           ) : order.status === 'cancelled' ? (
-                            <span className="text-red-600 dark:text-red-400 font-semibold text-sm">Cancelled</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-red-600 dark:text-red-400 font-semibold text-sm">Cancelled</span>
+                              <button onClick={() => handleDeleteOrder(order.id)} title="Delete order"
+                                className="text-gray-400 hover:text-red-500 transition" data-testid={`delete-order-${order.id}`}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           ) : (
                             <span className="text-gray-500 text-sm">{order.status}</span>
                           )}
