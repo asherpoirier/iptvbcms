@@ -53,19 +53,19 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       <header className="bg-white dark:bg-gray-900 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4">
           <div className="flex justify-between items-center">
             <Link to="/" className="flex items-center gap-2">
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt={branding.site_name} className="h-8" />
+                <img src={branding.logo_url} alt={branding.site_name} className="h-7 sm:h-8" />
               ) : (
-                <Server className="w-8 h-8" style={{ color: branding.primary_color }} />
+                <Server className="w-7 h-7 sm:w-8 sm:h-8" style={{ color: branding.primary_color }} />
               )}
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{branding.site_name}</h1>
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">{branding.site_name}</h1>
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <CurrencySwitcher />
-              <span className="text-gray-700 dark:text-gray-200 hidden sm:inline">Welcome, {user?.name}</span>
+              <span className="text-gray-700 dark:text-gray-200 hidden sm:inline text-sm">Welcome, {user?.name}</span>
               <button onClick={handleLogout} className="flex items-center gap-2 text-gray-600 hover:text-red-600">
                 <LogOut className="w-5 h-5" />
               </button>
@@ -74,7 +74,27 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        {/* Mobile Quick Links */}
+        <div className="md:hidden grid grid-cols-4 gap-2 mb-4">
+          {[
+            { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
+            { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
+            { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
+            { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
+            { to: '/downloads', icon: Download, label: 'Downloads', color: 'text-cyan-600' },
+            { to: '/knowledge-base', icon: BookOpen, label: 'Guides', color: 'text-teal-600' },
+            { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
+            { to: '/referrals', icon: Gift, label: 'Referrals', color: 'text-indigo-600' },
+          ].map((link) => (
+            <Link key={link.to} to={link.to}
+              className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 hover:shadow-md transition text-center">
+              <link.icon className={`w-5 h-5 ${link.color} mx-auto mb-1`} />
+              <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300">{link.label}</p>
+            </Link>
+          ))}
+        </div>
+
         <div className="flex gap-6">
           {/* Sidebar Navigation */}
           <aside className="hidden md:block w-52 flex-shrink-0">
@@ -99,31 +119,11 @@ export default function DashboardPage() {
             </nav>
           </aside>
 
-          {/* Mobile Quick Links (visible only on small screens) */}
-          <div className="md:hidden grid grid-cols-4 gap-2 mb-6 w-full">
-            {[
-              { to: '/', icon: ShoppingCart, label: 'Shop', color: 'text-purple-600' },
-              { to: '/orders', icon: ShoppingBag, label: 'Orders', color: 'text-amber-600' },
-              { to: '/invoices', icon: FileText, label: 'Invoices', color: 'text-green-600' },
-              { to: '/services', icon: Tv, label: 'Services', color: 'text-blue-600' },
-              { to: '/downloads', icon: Download, label: 'Downloads', color: 'text-cyan-600' },
-              { to: '/knowledge-base', icon: BookOpen, label: 'Guides', color: 'text-teal-600' },
-              { to: '/tickets', icon: MessageSquare, label: 'Support', color: 'text-red-600' },
-              { to: '/referrals', icon: Gift, label: 'Referrals', color: 'text-indigo-600' },
-            ].map((link) => (
-              <Link key={link.to} to={link.to}
-                className="bg-white dark:bg-gray-900 rounded-lg shadow p-2 hover:shadow-md transition text-center">
-                <link.icon className={`w-5 h-5 ${link.color} mx-auto mb-0.5`} />
-                <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300">{link.label}</p>
-              </Link>
-            ))}
-          </div>
-
           {/* Main Content */}
           <div className="flex-1 min-w-0">
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
                 <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
                   <Tv className="w-5 h-5 text-green-600" />
                 </div>
@@ -132,7 +132,7 @@ export default function DashboardPage() {
                   <p className="text-xl font-bold text-gray-900 dark:text-white">{activeServices.length}</p>
                 </div>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
                 <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
                   <ShoppingBag className="w-5 h-5 text-amber-600" />
                 </div>
@@ -141,7 +141,7 @@ export default function DashboardPage() {
                   <p className="text-xl font-bold text-gray-900 dark:text-white">{pendingOrders.length}</p>
                 </div>
               </div>
-              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 flex items-center gap-3">
+              <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
                 <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
                   <FileText className="w-5 h-5 text-blue-600" />
                 </div>
@@ -157,9 +157,9 @@ export default function DashboardPage() {
 
         {/* Active Services - Visual Cards */}
         {activeServices.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">My Services</h2>
-            <div className="grid md:grid-cols-2 gap-4">
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">My Services</h2>
+            <div className="grid md:grid-cols-2 gap-3 sm:gap-4">
               {activeServices.map((service) => (
                 <ServiceCard key={service.id} service={service} navigate={navigate} />
               ))}

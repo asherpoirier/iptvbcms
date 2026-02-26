@@ -48,7 +48,7 @@ export default function InvoicesPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">Invoices</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-8">Invoices</h1>
 
         {isLoading ? (
           <div className="text-center py-12">
@@ -62,70 +62,62 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-800">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Invoice #
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Due Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                {invoices?.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-mono text-gray-900 dark:text-white">
-                        {invoice.invoice_number}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-white">
-                        {new Date(invoice.created_at).toLocaleDateString()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900 dark:text-white">
-                        {new Date(invoice.due_date).toLocaleDateString()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                        ${invoice.total.toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(invoice.status)}`}>
-                        {invoice.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleDownloadPDF(invoice.id, invoice.invoice_number)}
-                        className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold text-sm"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download PDF
-                      </button>
-                    </td>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {invoices?.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-4 py-3 text-sm font-mono text-gray-900 dark:text-white">{invoice.invoice_number}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(invoice.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(invoice.due_date).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">${invoice.total.toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(invoice.status)}`}>{invoice.status}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => handleDownloadPDF(invoice.id, invoice.invoice_number)}
+                          className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium">
+                          <Download className="w-4 h-4" /> PDF
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile cards */}
+            <div className="sm:hidden divide-y divide-gray-200 dark:divide-gray-700">
+              {invoices?.map((invoice) => (
+                <div key={invoice.id} className="p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-mono font-semibold text-gray-900 dark:text-white">{invoice.invoice_number}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(invoice.status)}`}>{invoice.status}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                    <span>{new Date(invoice.created_at).toLocaleDateString()}</span>
+                    <span>Due: {new Date(invoice.due_date).toLocaleDateString()}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-base font-bold text-gray-900 dark:text-white">${invoice.total.toFixed(2)}</span>
+                    <button onClick={() => handleDownloadPDF(invoice.id, invoice.invoice_number)}
+                      className="flex items-center gap-1 text-blue-600 text-sm font-medium">
+                      <Download className="w-4 h-4" /> Download
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>

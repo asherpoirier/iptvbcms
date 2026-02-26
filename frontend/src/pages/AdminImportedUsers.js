@@ -1499,22 +1499,22 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState(null);
 
-  // Fetch packages for the user's panel
+  // Fetch ALL packages for the user's panel — exclude trial packages (can't extend WITH trial)
   const { data: packages, isLoading: packagesLoading } = useQuery({
-    queryKey: ['packages', user.panel_type, user.panel_index],
+    queryKey: ['all-packages', user.panel_type, user.panel_index],
     queryFn: async () => {
-      // Determine panel type - default to xtream if not set or null
       const panelType = user.panel_type || 'xtream';
       
       if (panelType === 'xtream') {
         const response = await adminAPI.syncPackagesFromPanel(user.panel_index || 0);
+        // Only return regular packages — trial packages can't be used to extend
         return response.data?.packages || [];
       } else if (panelType === 'onestream') {
         const response = await adminAPI.syncOneStreamPackages(user.panel_index || 0);
-        return response.data?.packages || [];
+        return (response.data?.packages || []).filter(p => !p.is_trial);
       } else {
         const response = await adminAPI.syncXuiOnePackages(user.panel_index || 0);
-        return response.data?.packages || [];
+        return (response.data?.packages || []).filter(p => !p.is_trial);
       }
     },
   });

@@ -26,6 +26,7 @@ import EmailVerificationPage from './pages/EmailVerificationPage';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminOrders from './pages/AdminOrders';
+import AdminInvoices from './pages/AdminInvoices';
 import AdminProducts from './pages/AdminProducts';
 import AdminSettings from './pages/AdminSettings';
 import StaffManagement from './pages/StaffManagement';
@@ -288,6 +289,16 @@ function App() {
                 <ProtectedRoute>
                   <AdminRoute>
                     <AdminOrders />
+                  </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/invoices"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <AdminInvoices />
                   </AdminRoute>
                 </ProtectedRoute>
               }

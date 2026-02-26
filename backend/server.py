@@ -3414,8 +3414,15 @@ async def create_customer(data: CreateCustomerRequest, current_user: dict = Depe
     }
 
 @app.get("/api/admin/customers")
-async def get_all_customers(current_user: dict = Depends(get_current_admin_user)):
-    """Get all customers"""
+async def get_all_customers(search: str = "", current_user: dict = Depends(get_current_admin_user)):
+    """Get all customers with optional search"""
+    query = {"role": "user"}
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"panel_username": {"$regex": search, "$options": "i"}}
+        ]
     customers = []
     async for user in users_collection.find({"role": "user"}).sort("created_at", -1):
         # Get user's services count
@@ -3730,6 +3737,197 @@ async def delete_order(order_id: str, current_user: dict = Depends(get_current_a
     logger.info(f"Order {order_id} deleted by admin {current_user['sub']}")
     
     return {"message": "Order deleted successfully"}
+
+# ===== ADMIN INVOICES =====
+
+@app.get("/api/admin/invoices")
+async def get_all_invoices(search: str = "", status: str = "", current_user: dict = Depends(get_current_admin_user)):
+    """Get all invoices with optional search and filter"""
+    query = {}
+    if status:
+        query["status"] = status
+    
+    invoices = []
+    async for inv in invoices_collection.find(query).sort("created_at", -1):
+        inv["id"] = str(inv["_id"])
+        del inv["_id"]
+        
+        # Get user info
+        user = None
+        if inv.get("user_id"):
+            user = await users_collection.find_one({"_id": str_to_objectid(inv["user_id"])})
+        inv["customer_name"] = user["name"] if user else "Unknown"
+        inv["customer_email"] = user.get("email", "") if user else ""
+        
+        # Get order items for product/service info
+        if inv.get("order_id"):
+            order = await orders_collection.find_one({"_id": str_to_objectid(inv["order_id"])})
+            if order:
+                inv["items"] = order.get("items", [])
+                inv["payment_method"] = order.get("payment_method", "")
+        
+        # Get associated service username
+        if inv.get("order_id"):
+            service = await services_collection.find_one({"order_id": inv["order_id"]})
+            if service:
+                inv["line_username"] = service.get("xtream_username", "")
+        
+        # Apply search filter
+        if search:
+            s = search.lower()
+            searchable = f"{inv.get('invoice_number','')} {inv.get('customer_name','')} {inv.get('customer_email','')} {inv.get('line_username','')} {inv.get('order_id','')}".lower()
+            if s not in searchable:
+                continue
+        
+        invoices.append(inv)
+    
+    return invoices
+
+@app.post("/api/admin/invoices")
+async def create_manual_invoice(data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Create a manual invoice"""
+    user_id = data.get("user_id", "")
+    amount = float(data.get("amount", 0))
+    description = data.get("description", "")
+    due_date_str = data.get("due_date", "")
+    status = data.get("status", "pending")
+    
+    if not user_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="User and amount are required")
+    
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    import random
+    invoice_number = f"INV-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
+    
+    due_date = datetime.utcnow() + timedelta(days=7)
+    if due_date_str:
+        try:
+            due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    invoice_doc = {
+        "user_id": user_id,
+        "order_id": "",
+        "invoice_number": invoice_number,
+        "total": amount,
+        "status": status,
+        "description": description,
+        "due_date": due_date,
+        "paid_date": datetime.utcnow() if status == "paid" else None,
+        "created_at": datetime.utcnow(),
+        "created_by": current_user["sub"],
+        "is_manual": True
+    }
+    
+    result = await invoices_collection.insert_one(invoice_doc)
+    invoice_doc["id"] = str(result.inserted_id)
+    del invoice_doc["_id"]
+    
+    logger.info(f"Manual invoice {invoice_number} created by admin {current_user['sub']} for user {user_id}: ${amount}")
+    
+    return {"message": f"Invoice {invoice_number} created", "invoice": invoice_doc}
+
+@app.put("/api/admin/invoices/{invoice_id}")
+async def update_invoice(invoice_id: str, data: dict, current_user: dict = Depends(get_current_admin_user)):
+    """Update invoice status"""
+    update_fields = {}
+    if "status" in data:
+        update_fields["status"] = data["status"]
+        if data["status"] == "paid":
+            update_fields["paid_date"] = datetime.utcnow()
+    if "amount" in data:
+        update_fields["total"] = float(data["amount"])
+    if "due_date" in data:
+        try:
+            update_fields["due_date"] = datetime.strptime(data["due_date"], "%Y-%m-%d")
+        except ValueError:
+            pass
+    if "description" in data:
+        update_fields["description"] = data["description"]
+    
+    if update_fields:
+        await invoices_collection.update_one(
+            {"_id": str_to_objectid(invoice_id)},
+            {"$set": update_fields}
+        )
+    
+    return {"message": "Invoice updated"}
+
+@app.delete("/api/admin/invoices/{invoice_id}")
+async def delete_invoice(invoice_id: str, current_user: dict = Depends(get_current_admin_user)):
+    """Delete an invoice"""
+    await invoices_collection.delete_one({"_id": str_to_objectid(invoice_id)})
+    return {"message": "Invoice deleted"}
+
+@app.get("/api/admin/invoices/{invoice_id}/pdf")
+async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get_current_admin_user)):
+    """Generate and download invoice PDF"""
+    from invoice_pdf import generate_invoice_pdf
+    from fastapi.responses import Response
+    
+    invoice = await invoices_collection.find_one({"_id": str_to_objectid(invoice_id)})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    user = None
+    if invoice.get("user_id"):
+        user = await users_collection.find_one({"_id": str_to_objectid(invoice["user_id"])})
+    
+    items = []
+    if invoice.get("order_id"):
+        try:
+            order = await orders_collection.find_one({"_id": str_to_objectid(invoice["order_id"])})
+            if order:
+                items = order.get("items", [])
+        except Exception:
+            pass
+    
+    settings = await get_settings()
+    pdf_bytes = generate_invoice_pdf(invoice, user, items, settings)
+    
+    filename = f"{invoice.get('invoice_number', 'invoice')}.pdf"
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.get("/api/invoices/{invoice_id}/pdf")
+async def customer_download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """Customer download their own invoice PDF"""
+    from invoice_pdf import generate_invoice_pdf
+    from fastapi.responses import Response
+    
+    invoice = await invoices_collection.find_one({"_id": str_to_objectid(invoice_id)})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.get("user_id") != current_user["sub"]:
+        raise HTTPException(status_code=403, detail="Not your invoice")
+    
+    user = await users_collection.find_one({"_id": str_to_objectid(current_user["sub"])})
+    
+    items = []
+    if invoice.get("order_id"):
+        try:
+            order = await orders_collection.find_one({"_id": str_to_objectid(invoice["order_id"])})
+            if order:
+                items = order.get("items", [])
+        except Exception:
+            pass
+    
+    settings = await get_settings()
+    pdf_bytes = generate_invoice_pdf(invoice, user, items, settings)
+    
+    filename = f"{invoice.get('invoice_number', 'invoice')}.pdf"
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 async def provision_order_services(order_id: str, order: dict, user: dict):
     """Provision services (XtreamUI or XuiOne) for paid order"""

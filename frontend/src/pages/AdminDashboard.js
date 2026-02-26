@@ -59,6 +59,7 @@ export default function AdminDashboard() {
       subItems: [
         { id: 'customers-list', label: 'Customers', icon: Users, path: '/admin/customers' },
         { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
+        { id: 'invoices', label: 'Invoices', icon: FileText, path: '/admin/invoices' },
         { id: 'imported-users', label: 'Imported Users', icon: Users, path: '/admin/imported-users' }
       ]
     },

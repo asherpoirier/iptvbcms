@@ -267,7 +267,7 @@ export default function HomePage() {
         )}
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
-          <h1 className="text-5xl font-bold mb-6 drop-shadow-lg">{branding.hero_title || 'Premium IPTV Services'}</h1>
+          <h1 className="text-3xl sm:text-5xl font-bold mb-4 sm:mb-6 drop-shadow-lg">{branding.hero_title || 'Premium IPTV Services'}</h1>
           <p className="text-xl mb-8 opacity-90 drop-shadow-md">{branding.hero_description || 'Stream thousands of channels in HD quality'}</p>
           <a 
             href="#pricing" 
@@ -316,7 +316,7 @@ export default function HomePage() {
       {/* Products Section with Sidebar */}
       <section id="pricing" className="">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h2 className="text-4xl font-bold text-center mb-12 dark:text-white">Choose Your Plan</h2>
+        <h2 className="text-2xl sm:text-4xl font-bold text-center mb-6 sm:mb-12 dark:text-white">Choose Your Plan</h2>
 
         {isLoading ? (
           <div className="text-center py-12">
@@ -451,9 +451,9 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h3 className="text-2xl font-bold mb-4">{branding.site_name}</h3>
-            <p className="text-gray-400">Premium IPTV Services</p>
+            <p className="text-gray-400">{branding.footer_text || 'Premium IPTV Services'}</p>
             <p className="text-gray-500 mt-4 text-sm">
-              © 2025 {branding.site_name}. All rights reserved.
+              © {new Date().getFullYear()} {branding.site_name}. All rights reserved.
             </p>
           </div>
         </div>

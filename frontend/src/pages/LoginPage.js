@@ -146,7 +146,7 @@ export default function LoginPage() {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
                 <LogIn className="w-8 h-8 text-blue-600" />
               </div>
-              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome Back</h2>
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Welcome Back</h2>
               <p className="text-gray-600 mt-2">Sign in to your account</p>
             </div>
 
