@@ -1060,21 +1060,17 @@ class XtreamUIService:
         }
 
 # Singleton instance
-_xtream_service = None
-
 def get_xtream_service(settings: Optional[Dict] = None) -> Optional[XtreamUIService]:
-    """Get XtreamUI service instance"""
-    global _xtream_service
+    """Get XtreamUI service instance — creates a NEW instance per call to avoid session mixing between panels"""
+    if not settings or not settings.get('panel_url'):
+        return None
     
-    if settings:
-        _xtream_service = XtreamUIService(
-            panel_url=settings.get('panel_url', ''),
-            admin_username=settings.get('admin_username', ''),
-            admin_password=settings.get('admin_password', ''),
-            ssl_verify=settings.get('ssl_verify', False),
-            http_basic_user=settings.get('http_basic_user', ''),
-            http_basic_pass=settings.get('http_basic_pass', ''),
-            proxy_url=settings.get('proxy_url', '')
-        )
-    
-    return _xtream_service
+    return XtreamUIService(
+        panel_url=settings.get('panel_url', ''),
+        admin_username=settings.get('admin_username', ''),
+        admin_password=settings.get('admin_password', ''),
+        ssl_verify=settings.get('ssl_verify', False),
+        http_basic_user=settings.get('http_basic_user', ''),
+        http_basic_pass=settings.get('http_basic_pass', ''),
+        proxy_url=settings.get('proxy_url', '')
+    )
