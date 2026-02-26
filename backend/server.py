@@ -3878,14 +3878,35 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
         
         # Generate or use custom credentials
         if item["account_type"] == "reseller" and order.get("reseller_credentials"):
-            # Use customer's chosen credentials for reseller
             username = order["reseller_credentials"].get("username", generate_username())
             password = order["reseller_credentials"].get("password", generate_password())
             logger.info(f"Using custom reseller credentials: {username}")
         else:
-            # Auto-generate for subscribers or if not provided
             username = generate_username()
             password = generate_password()
+        
+        # For resellers, check if adding credits to existing account
+        existing_reseller = None
+        if item["account_type"] == "reseller":
+            reseller_creds = order.get("reseller_credentials", {})
+            if reseller_creds and reseller_creds.get("add_credits_to_existing"):
+                existing_reseller = await services_collection.find_one({
+                    "xtream_username": reseller_creds.get("username", ""),
+                    "account_type": "reseller",
+                    "status": "active"
+                })
+                if existing_reseller:
+                    logger.info(f"Found existing reseller to add credits: {existing_reseller['xtream_username']}")
+            
+            if not existing_reseller:
+                existing_reseller = await services_collection.find_one({
+                    "user_id": order["user_id"],
+                    "account_type": "reseller",
+                    "status": "active",
+                    "panel_index": panel_index
+                })
+                if existing_reseller:
+                    logger.info(f"Found existing reseller by user_id: {existing_reseller['xtream_username']}")
         
         # Calculate expiry date
         term_months = item["term_months"]
@@ -3935,47 +3956,25 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         logger.info(f"Legacy extend mode: extending {existing_subscriber['xtream_username']}")
                 # If action_type is "create_new" or not set, existing_subscriber remains None
             
-            # For resellers, check if user already has a reseller account (to add credits instead)
-            existing_reseller = None
-            if item["account_type"] == "reseller":
-                # First check if customer chose to add credits to an existing username
-                reseller_creds = order.get("reseller_credentials", {})
-                if reseller_creds and reseller_creds.get("add_credits_to_existing"):
-                    # Find existing reseller by the username they specified
-                    existing_reseller = await services_collection.find_one({
-                        "xtream_username": reseller_creds.get("username", ""),
-                        "account_type": "reseller",
-                        "status": "active"
-                    })
-                    if existing_reseller:
-                        logger.info(f"Adding credits to existing reseller by username: {existing_reseller['xtream_username']}")
-                
-                # Fallback: check if this customer already has a reseller on this panel
-                if not existing_reseller:
-                    existing_reseller = await services_collection.find_one({
-                        "user_id": order["user_id"],
-                        "account_type": "reseller",
-                        "status": "active",
-                        "panel_index": panel_index
-                    })
-            
-            # Create service record
-            service_dict = {
-                "user_id": order["user_id"],
-                "order_id": order_id,
-                "product_id": item["product_id"],
-                "product_name": item["product_name"],
-                "account_type": item["account_type"],
-                "term_months": term_months,
-                "xtream_username": existing_reseller["xtream_username"] if existing_reseller else (existing_subscriber["xtream_username"] if existing_subscriber else username),
-                "xtream_password": existing_reseller["xtream_password"] if existing_reseller else (existing_subscriber["xtream_password"] if existing_subscriber else password),
-                "status": "pending",
-                "panel_index": panel_index,
-                "panel_name": panel_name,  # Add panel name for display
-                "created_at": datetime.utcnow()
-            }
-            
-            if item["account_type"] == "subscriber":
+        # Create service record (runs for both subscribers and resellers)
+        service_dict = {
+            "user_id": order["user_id"],
+            "order_id": order_id,
+            "product_id": item["product_id"],
+            "product_name": item["product_name"],
+            "account_type": item["account_type"],
+            "term_months": term_months,
+            "xtream_username": (existing_reseller or {}).get("xtream_username") or (existing_subscriber or {}).get("xtream_username") or username,
+            "xtream_password": (existing_reseller or {}).get("xtream_password") or (existing_subscriber or {}).get("xtream_password") or password,
+            "status": "pending",
+            "panel_index": panel_index,
+            "panel_name": panel_name,
+            "created_at": datetime.utcnow()
+        }
+        
+        logger.info(f"Provisioning: account_type={item['account_type']}, existing_reseller={existing_reseller is not None}, existing_subscriber={existing_subscriber is not None}")
+        
+        if item["account_type"] == "subscriber":
                 # Check if this is a renewal (existing subscriber)
                 if existing_subscriber:
                     # Renewal - extend existing service in XtreamUI
@@ -4172,129 +4171,93 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         service_dict["status"] = "failed"
                         await services_collection.insert_one(service_dict)
                     
-            else:  # reseller
-                if existing_reseller:
-                    # User already has a reseller panel - add credits to XtreamUI
-                    logger.info(f"Adding {product['reseller_credits']} credits to existing reseller {existing_reseller['xtream_username']}")
-                    
-                    # Use the same xtream_service that's already configured with panel details
-                    # (panel variable is already retrieved above)
-                    if xtream_service:
-                        # Add credits via XtreamUI API
-                        credits_result = xtream_service.add_credits(
-                            username=existing_reseller["xtream_username"],
-                            email=user["email"],
-                            credits=product["reseller_credits"]
-                        )
-                        
-                        if credits_result.get("success"):
-                            logger.info(f"✓ Credits added to existing reseller in XtreamUI")
-                        else:
-                            logger.error(f"Failed to add credits: {credits_result.get('error')}")
+        else:  # reseller
+            logger.info(f"Reseller provisioning: existing_reseller={existing_reseller is not None}")
+            if existing_reseller:
+                # User already has a reseller panel - add credits
+                logger.info(f"Adding {product['reseller_credits']} credits to existing reseller {existing_reseller['xtream_username']}")
+                if xtream_service:
+                    credits_result = xtream_service.add_credits(
+                        username=existing_reseller["xtream_username"],
+                        email=user["email"],
+                        credits=product["reseller_credits"]
+                    )
+                    if credits_result.get("success"):
+                        logger.info(f"Credits added to existing reseller in XtreamUI")
                     else:
-                        logger.warning("XtreamUI service not available")
+                        logger.error(f"Failed to add credits: {credits_result.get('error')}")
+                else:
+                    logger.warning("XtreamUI service not available")
+                
+                service_dict.update({
+                    "reseller_credits": product["reseller_credits"],
+                    "reseller_max_lines": 0,
+                    "panel_url": product.get("custom_panel_url", ""),
+                    "status": "active",
+                    "start_date": datetime.utcnow(),
+                    "expiry_date": expiry_date,
+                    "is_credit_addon": True
+                })
+                await services_collection.insert_one(service_dict)
+                
+                if email_service:
+                    await email_service.send_credits_added(
+                        customer_email=user["email"],
+                        customer_name=user["name"],
+                        username=existing_reseller["xtream_username"],
+                        credits=product["reseller_credits"],
+                        customer_id=order["user_id"]
+                    )
+                logger.info(f"Credits added to existing reseller panel")
+            else:
+                # Create new reseller panel
+                result = xtream_service.create_reseller(
+                    username=username,
+                    password=password,
+                    credits=product["reseller_credits"],
+                    email=user["email"],
+                    member_group_id=2
+                )
+                if result["success"]:
+                    logger.info("Waiting 10 seconds for account creation...")
+                    await asyncio.sleep(10)
+                    if product["reseller_credits"] > 0:
+                        logger.info(f"Adding {product['reseller_credits']} credits to {username}")
+                        credits_result = xtream_service.add_credits(username=username, email=user["email"], credits=product["reseller_credits"])
+                        if credits_result.get("success"):
+                            logger.info(f"Credits added successfully")
+                        else:
+                            logger.warning(f"Failed to add credits: {credits_result.get('error')}")
                     
-                    # Create service record for the credit addition
                     service_dict.update({
                         "reseller_credits": product["reseller_credits"],
-                        "reseller_max_lines": 0,
-                        "panel_url": product.get("custom_panel_url", ""),  # Use custom URL only
+                        "reseller_max_lines": product.get("reseller_max_lines", 0),
+                        "panel_url": product.get("custom_panel_url", ""),
                         "status": "active",
                         "start_date": datetime.utcnow(),
-                        "expiry_date": expiry_date,
-                        "is_credit_addon": True  # Flag to indicate this is credit addition
+                        "expiry_date": expiry_date
                     })
-                    
                     await services_collection.insert_one(service_dict)
                     
-                    # Send email about credit addition
                     if email_service:
-                        await email_service.send_credits_added(
-                            customer_email=user["email"],
-                            customer_name=user["name"],
-                            username=existing_reseller["xtream_username"],
-                            credits=product["reseller_credits"],
-                            customer_id=order["user_id"]
-                        )
-                    
-                    logger.info(f"Credits added to existing reseller panel")
-                else:
-                    # Create new reseller panel
-                    result = xtream_service.create_reseller(
-                        username=username,
-                        password=password,
-                        credits=product["reseller_credits"],
-                        email=user["email"],  # Pass customer email
-                        member_group_id=2  # 2 for reseller (typically)
-                    )
-                    
-                    if result["success"]:
-                        # Wait for account to be created in XtreamUI
-                        logger.info("Waiting 10 seconds for account creation to complete...")
-                        await asyncio.sleep(10)
-                        
-                        # Add credits to newly created reseller
-                        if product["reseller_credits"] > 0:
-                            logger.info(f"Adding {product['reseller_credits']} credits to {username}")
-                            credits_result = xtream_service.add_credits(
-                                username=username,
-                                email=user["email"],
-                                credits=product["reseller_credits"]
+                        panel_url_for_email = product.get("custom_panel_url", "")
+                        if panel_url_for_email:
+                            await email_service.send_reseller_activated(
+                                customer_email=user["email"], customer_name=user["name"],
+                                service_name=item["product_name"], username=username, password=password,
+                                panel_url=panel_url_for_email, credits=product["reseller_credits"],
+                                expiry_date=expiry_date.strftime("%Y-%m-%d"), customer_id=order["user_id"]
                             )
-                            if credits_result.get("success"):
-                                logger.info(f"✓ Credits added successfully")
-                            else:
-                                logger.warning(f"Failed to add credits: {credits_result.get('error')}")
-                                # Log the error but don't fail the whole provisioning
-                        
-                        service_dict.update({
-                            "reseller_credits": product["reseller_credits"],
-                            "reseller_max_lines": product["reseller_max_lines"],
-                            "panel_url": product.get("custom_panel_url", ""),  # Use custom URL only, empty if not set
-                            "status": "active",
-                            "start_date": datetime.utcnow(),
-                            "expiry_date": expiry_date
-                        })
-                        
-                        # Insert service
-                        await services_collection.insert_one(service_dict)
-                        
-                        logger.info(f"Reseller service created in database")
-                        
-                        # Send activation email (reseller-specific)
-                        if email_service:
-                            logger.info(f"Sending reseller activation email to {user['email']}")
-                            panel_url_for_email = product.get("custom_panel_url", "")
-                            logger.info(f"Panel URL for email: {panel_url_for_email}")
-                            if panel_url_for_email:
-                                result = await email_service.send_reseller_activated(
-                                    customer_email=user["email"],
-                                    customer_name=user["name"],
-                                    service_name=item["product_name"],
-                                    username=username,
-                                    password=password,
-                                    panel_url=panel_url_for_email,
-                                    credits=product["reseller_credits"],
-                                    expiry_date=expiry_date.strftime("%Y-%m-%d"),
-                                    customer_id=order["user_id"]
-                                )
-                                if result:
-                                    logger.info(f"✓ Reseller activation email sent successfully")
-                                else:
-                                    logger.error(f"✗ Reseller activation email failed to send")
-                            else:
-                                logger.warning("No custom panel URL set - email not sent")
-                        else:
-                            logger.warning("Email service not available - email not sent")
-                        
-                        logger.info(f"Reseller provisioned: {username}")
-                    else:
-                        logger.error(f"Failed to provision reseller: {result.get('error')}")
-                        service_dict["status"] = "failed"
-                        await services_collection.insert_one(service_dict)
+                    logger.info(f"Reseller provisioned: {username}")
+                else:
+                    logger.error(f"Failed to provision reseller: {result.get('error')}")
+                    service_dict["status"] = "failed"
+                    await services_collection.insert_one(service_dict)
         
     except Exception as e:
         logger.error(f"Provisioning error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 async def extend_xuione_line(xuione_service, existing_service: dict, item: dict, product: dict, order: dict, order_id: str, user: dict, email_service):
     """Extend/renew an existing XuiOne line using edit_line API"""
