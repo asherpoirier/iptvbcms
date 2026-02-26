@@ -54,12 +54,13 @@ class XtreamUISessionClient:
         if proxy_url:
             logger.info(f"Using proxy: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
         
-        # Create cookie file
+        # Create cookie file — include username to prevent session mixing between different admins on the same panel
         cookie_dir = os.path.join(tempfile.gettempdir(), 'xtreamui_sessions')
         os.makedirs(cookie_dir, exist_ok=True)
         
         safe_panel_name = self.panel_url.replace('://', '_').replace('/', '_').replace(':', '_')
-        self.cookie_file = os.path.join(cookie_dir, f'{safe_panel_name}_cookies.txt')
+        safe_username = self.username.replace(' ', '_').replace('/', '_')
+        self.cookie_file = os.path.join(cookie_dir, f'{safe_panel_name}_{safe_username}_cookies.txt')
         
         # Create session with cookie jar
         self.session = requests.Session()

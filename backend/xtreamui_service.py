@@ -803,12 +803,16 @@ class XtreamUIService:
                     search_params[f'columns[{i}][search][value]'] = ''
                 
                 search_url = f"{session_client.panel_url}/table_search.php"
-                search_response = session_client.session.post(
+                search_response = session_client.session.get(
                     search_url,
-                    data=search_params,
+                    params=search_params,
                     auth=session_client.http_auth,
                     timeout=30
                 )
+                if search_response.status_code == 200 and len(search_response.text.strip()) == 0:
+                    search_response = session_client.session.post(
+                        search_url, data=search_params, auth=session_client.http_auth, timeout=30
+                    )
                 
                 logger.info(f"Search response: {search_response.status_code}")
                 
@@ -832,42 +836,33 @@ class XtreamUIService:
             logger.info(f"HTTP Basic Auth: {session_client.http_auth}")
             logger.info(f"Session has cookies: {len(session_client.session.cookies)}")
             
-            disable_url = f"{self.panel_url}/api.php?action=user&sub=disable&user_id={user_id}"
-            
-            # Use POST method with complete headers and explicit cookie
-            # Extract PHPSESSID from session
-            phpsessid = None
-            for cookie in session_client.session.cookies:
-                if cookie.name == 'PHPSESSID':
-                    phpsessid = cookie.value
-                    break
-            
-            logger.info(f"PHPSESSID cookie: {phpsessid}")
+            disable_url = f"{session_client.panel_url}/api.php?action=user&sub=disable&user_id={user_id}"
             
             headers = {
                 'Referer': f'{session_client.panel_url}/users.php',
                 'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'sec-fetch-dest': 'empty',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'same-origin'
             }
             
-            # Explicitly add cookie header if we have it
-            if phpsessid:
-                headers['Cookie'] = f'PHPSESSID={phpsessid}'
-            
-            disable_response = session_client.session.post(
+            # Try GET first (most XtreamUI versions), then POST as fallback
+            disable_response = session_client.session.get(
                 disable_url,
                 auth=session_client.http_auth,
                 headers=headers,
                 timeout=30
             )
             
-            logger.info(f"Disable URL: {disable_url}")
-            logger.info(f"Disable response: {disable_response.status_code}")
-            logger.info(f"Disable response body: {disable_response.text}")
+            logger.info(f"Disable response (GET): {disable_response.status_code}, body: {disable_response.text[:200]}")
+            
+            # If GET doesn't work, try POST
+            if disable_response.status_code != 200 or ('"result":false' in disable_response.text.lower() and 'already' not in disable_response.text.lower()):
+                disable_response = session_client.session.post(
+                    disable_url,
+                    auth=session_client.http_auth,
+                    headers=headers,
+                    timeout=30
+                )
+                logger.info(f"Disable response (POST): {disable_response.status_code}, body: {disable_response.text[:200]}")
             
             if disable_response.status_code == 200:
                 try:
@@ -929,12 +924,13 @@ class XtreamUIService:
                     search_params[f'columns[{i}][search][value]'] = ''
                 
                 search_url = f"{session_client.panel_url}/table_search.php"
-                search_response = session_client.session.post(
-                    search_url,
-                    data=search_params,
-                    auth=session_client.http_auth,
-                    timeout=30
+                search_response = session_client.session.get(
+                    search_url, params=search_params, auth=session_client.http_auth, timeout=30
                 )
+                if search_response.status_code == 200 and len(search_response.text.strip()) == 0:
+                    search_response = session_client.session.post(
+                        search_url, data=search_params, auth=session_client.http_auth, timeout=30
+                    )
                 
                 if search_response.status_code == 200 and search_response.text:
                     try:
@@ -952,38 +948,25 @@ class XtreamUIService:
             
             # Enable using api.php?action=user&sub=enable&user_id=ID
             logger.info(f"Enabling user_id: {user_id}")
-            enable_url = f"{self.panel_url}/api.php?action=user&sub=enable&user_id={user_id}"
-            
-            # Extract PHPSESSID and set explicit cookie header
-            phpsessid = None
-            for cookie in session_client.session.cookies:
-                if cookie.name == 'PHPSESSID':
-                    phpsessid = cookie.value
-                    break
-            
-            logger.info(f"PHPSESSID: {phpsessid}")
+            enable_url = f"{session_client.panel_url}/api.php?action=user&sub=enable&user_id={user_id}"
             
             headers = {
                 'Referer': f'{session_client.panel_url}/users.php',
                 'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'sec-fetch-dest': 'empty',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'same-origin'
             }
             
-            if phpsessid:
-                headers['Cookie'] = f'PHPSESSID={phpsessid}'
-            
-            enable_response = session_client.session.post(
-                enable_url,
-                auth=session_client.http_auth,
-                headers=headers,
-                timeout=30
+            enable_response = session_client.session.get(
+                enable_url, auth=session_client.http_auth, headers=headers, timeout=30
             )
             
-            logger.info(f"Enable response: {enable_response.status_code}, body: {enable_response.text}")
+            logger.info(f"Enable response (GET): {enable_response.status_code}, body: {enable_response.text[:200]}")
+            
+            if enable_response.status_code != 200 or ('"result":false' in enable_response.text.lower() and 'already' not in enable_response.text.lower()):
+                enable_response = session_client.session.post(
+                    enable_url, auth=session_client.http_auth, headers=headers, timeout=30
+                )
+                logger.info(f"Enable response (POST): {enable_response.status_code}, body: {enable_response.text[:200]}")
             
             if enable_response.status_code == 200:
                 try:
