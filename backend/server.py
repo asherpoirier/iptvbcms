@@ -3890,11 +3890,25 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
         if item["account_type"] == "reseller":
             reseller_creds = order.get("reseller_credentials", {})
             if reseller_creds and reseller_creds.get("add_credits_to_existing"):
+                # Check services collection
                 existing_reseller = await services_collection.find_one({
                     "xtream_username": reseller_creds.get("username", ""),
                     "account_type": "reseller",
                     "status": "active"
                 })
+                # Also check imported users (panel-synced resellers)
+                if not existing_reseller:
+                    imported = await imported_users_collection.find_one({
+                        "username": reseller_creds.get("username", ""),
+                        "account_type": "reseller"
+                    })
+                    if imported:
+                        existing_reseller = {
+                            "xtream_username": imported["username"],
+                            "xtream_password": imported.get("password", ""),
+                            "panel_index": imported.get("panel_index", 0),
+                            "_from_imported": True
+                        }
                 if existing_reseller:
                     logger.info(f"Found existing reseller to add credits: {existing_reseller['xtream_username']}")
             
