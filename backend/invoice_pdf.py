@@ -59,12 +59,9 @@ def generate_invoice_pdf(invoice: dict, user: dict, items: list = None, settings
             tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
             tmp.write(img_data)
             tmp.close()
+            # Logo only, no company name text — logo replaces the name
             pdf.image(tmp.name, x=10, y=header_y, h=14)
             os.unlink(tmp.name)
-            pdf.set_xy(30, header_y)
-            pdf.set_font("Helvetica", "B", 18)
-            pdf.set_text_color(*primary_color)
-            pdf.cell(65, 14, company_name)
         except Exception as logo_err:
             import logging
             logging.getLogger(__name__).warning(f"Failed to add logo to invoice: {logo_err}")
