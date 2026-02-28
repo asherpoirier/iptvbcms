@@ -3596,7 +3596,7 @@ async def get_payment_config():
             "api_key": settings.get("ghostpay", {}).get("api_key", "")
         },
         "manual": {
-            "enabled": True
+            "enabled": settings.get("manual", {}).get("enabled", True)
         },
         "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay"]),
         "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
@@ -3828,6 +3828,36 @@ async def create_manual_invoice(data: dict, current_user: dict = Depends(get_cur
     del invoice_doc["_id"]
     
     logger.info(f"Manual invoice {invoice_number} created by admin {current_user['sub']} for user {user_id}: ${amount}")
+    
+    # Send invoice email if requested
+    if data.get("send_email"):
+        try:
+            email_service = await get_configured_email_service()
+            if email_service and email_service.enabled:
+                items_html = f'<p>Description: {description}</p><p>Amount: ${amount:.2f}</p>'
+                if status == "pending":
+                    items_html += f'<p>Due Date: {due_date.strftime("%B %d, %Y")}</p>'
+                    items_html += f'<p>Status: Pending payment</p>'
+                else:
+                    items_html += f'<p>Status: Paid</p>'
+                
+                content = f"""<p>Hi {user["name"]},</p>
+<p>Invoice <strong>{invoice_number}</strong> has been created for your account.</p>
+{items_html}
+<p>If you have any questions, please contact support.</p>"""
+                text = f"Hi {user['name']},\n\nInvoice {invoice_number} for ${amount:.2f}.\nDescription: {description}\nDue: {due_date.strftime('%Y-%m-%d')}\nStatus: {status}"
+                
+                await email_service.send_email(
+                    to_email=user["email"],
+                    subject=f"Invoice {invoice_number} - ${amount:.2f}",
+                    html_content=email_service._wrap_email(content, "", user["email"], "transactional"),
+                    text_content=text,
+                    email_type="transactional",
+                    customer_id=user_id
+                )
+                logger.info(f"Invoice email sent to {user['email']}")
+        except Exception as e:
+            logger.warning(f"Failed to send invoice email: {e}")
     
     return {"message": f"Invoice {invoice_number} created", "invoice": invoice_doc}
 

@@ -25,6 +25,7 @@ export default function PaymentGatewaySettings({ settings }) {
     square_application_id: settings?.square?.application_id || '',
     square_location_id: settings?.square?.location_id || '',
     square_environment: settings?.square?.environment || 'sandbox',
+    manual_enabled: settings?.manual?.enabled !== false,
     blockonomics_enabled: settings?.blockonomics?.enabled || false,
     blockonomics_api_key: settings?.blockonomics?.api_key || '',
     blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
@@ -65,7 +66,8 @@ export default function PaymentGatewaySettings({ settings }) {
         square_application_id: settings?.square?.application_id || '',
         square_location_id: settings?.square?.location_id || '',
         square_environment: settings?.square?.environment || 'sandbox',
-        blockonomics_enabled: settings?.blockonomics?.enabled || false,
+        manual_enabled: settings?.manual?.enabled !== false,
+    blockonomics_enabled: settings?.blockonomics?.enabled || false,
         blockonomics_api_key: settings?.blockonomics?.api_key || '',
         blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
         ghostpay_enabled: settings?.ghostpay?.enabled || false,
@@ -115,6 +117,9 @@ export default function PaymentGatewaySettings({ settings }) {
           application_id: data.square_application_id,
           location_id: data.square_location_id,
           environment: data.square_environment
+        },
+        manual: {
+          enabled: data.manual_enabled
         },
         blockonomics: {
           enabled: data.blockonomics_enabled,
@@ -256,8 +261,8 @@ export default function PaymentGatewaySettings({ settings }) {
       </div>
 
       {/* Manual Payment */}
-      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <div className="flex items-start justify-between mb-4">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <DollarSign className="w-6 h-6 text-green-600" />
             <div>
@@ -265,9 +270,12 @@ export default function PaymentGatewaySettings({ settings }) {
               <p className="text-sm text-gray-600 dark:text-gray-400">Admin confirms payments manually</p>
             </div>
           </div>
-          <span className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-semibold rounded-full">
-            Always Active
-          </span>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.manual_enabled}
+              onChange={(e) => setFormData({ ...formData, manual_enabled: e.target.checked })}
+              className="sr-only peer" data-testid="manual-enabled" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+          </label>
         </div>
       </div>
 

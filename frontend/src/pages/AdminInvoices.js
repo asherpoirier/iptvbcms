@@ -280,6 +280,7 @@ function CreateInvoiceModal({ onClose, onCreated }) {
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [status, setStatus] = useState('pending');
+  const [sendEmail, setSendEmail] = useState(true);
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -301,7 +302,7 @@ function CreateInvoiceModal({ onClose, onCreated }) {
     setCreating(true);
     try {
       await axios.post(`${API_URL}/api/admin/invoices`, {
-        user_id: userId, amount: parseFloat(amount), description, due_date: dueDate, status
+        user_id: userId, amount: parseFloat(amount), description, due_date: dueDate, status, send_email: sendEmail
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       toast.success('Invoice created');
       onCreated();
@@ -366,6 +367,11 @@ function CreateInvoiceModal({ onClose, onCreated }) {
               <option value="paid">Paid</option>
             </select>
           </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700 dark:text-gray-300">Send invoice email to customer</span>
+          </label>
           <button onClick={handleCreate} disabled={creating}
             className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50">
             {creating ? 'Creating...' : 'Create Invoice'}
