@@ -3799,8 +3799,17 @@ async def create_manual_invoice(data: dict, current_user: dict = Depends(get_cur
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    import random
-    invoice_number = f"INV-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000,9999)}"
+    # Use invoice settings for numbering
+    settings_doc = await get_settings()
+    inv_config = settings_doc.get("invoice", {})
+    prefix = inv_config.get("invoice_prefix", "INV")
+    next_num = inv_config.get("next_number", 1000)
+    padding = inv_config.get("number_padding", 4)
+    
+    invoice_number = f"{prefix}-{str(next_num).zfill(padding)}"
+    
+    # Increment next_number
+    await settings_collection.update_one({}, {"$set": {"invoice.next_number": next_num + 1}})
     
     due_date = datetime.utcnow() + timedelta(days=7)
     if due_date_str:
