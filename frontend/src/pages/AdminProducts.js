@@ -851,10 +851,12 @@ function ProductFormModal({ product, onClose, onSuccess }) {
   };
 
   const handleBouquetToggle = (bouquetId) => {
+    const id = parseInt(bouquetId);
     setFormData(prev => {
-      const newBouquets = prev.bouquets.includes(bouquetId)
-        ? prev.bouquets.filter(id => id !== bouquetId)
-        : [...prev.bouquets, bouquetId];
+      const current = prev.bouquets.map(b => parseInt(b));
+      const newBouquets = current.includes(id)
+        ? current.filter(b => b !== id)
+        : [...current, id];
       return { ...prev, bouquets: newBouquets };
     });
   };
@@ -1101,30 +1103,39 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Bouquets (Channel Packages) *
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800">
-                    {availableBouquets?.map((bouquet) => (
-                      <label
-                        key={bouquet.id}
-                        className="flex items-center gap-2 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-blue-400 cursor-pointer transition"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formData.bouquets.includes(parseInt(bouquet.id)) || formData.bouquets.includes(bouquet.id)}
-                          onChange={() => handleBouquetToggle(bouquet.id)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <div className="flex-1">
-                          <span className="font-medium text-gray-900 dark:text-white">{bouquet.name}</span>
-                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">ID: {bouquet.id}</span>
-                        </div>
-                      </label>
-                    ))}
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Bouquets (Channel Packages)
+                    </label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => {
+                        if (availableBouquets) {
+                          setFormData(prev => ({ ...prev, bouquets: availableBouquets.map(b => parseInt(b.id)).filter(id => !isNaN(id)) }));
+                        }
+                      }} className="text-xs text-blue-600 hover:underline">Select All</button>
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, bouquets: [] }))}
+                        className="text-xs text-red-600 hover:underline">Deselect All</button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    Selected: {formData.bouquets.join(', ') || 'None'}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Uncheck bouquets you don't want included when provisioning.
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 max-h-64 overflow-y-auto">
+                    {availableBouquets?.map((bouquet) => {
+                      const checked = formData.bouquets.map(b => parseInt(b)).includes(parseInt(bouquet.id));
+                      return (
+                        <label key={bouquet.id}
+                          className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-sm ${checked ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 opacity-60'}`}>
+                          <input type="checkbox" checked={checked}
+                            onChange={() => handleBouquetToggle(bouquet.id)}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                          <span className="font-medium text-gray-900 dark:text-white truncate">{bouquet.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {formData.bouquets.length} of {availableBouquets?.length || 0} bouquets selected
                   </p>
                 </div>
 
