@@ -105,8 +105,9 @@ class NxtDashService:
         return {"success": True, "lines": data if isinstance(data, list) else []}
 
     async def create_line(self, username: str, password: str, package_id: int,
-                          description: str = "", is_trial: bool = False) -> Dict[str, Any]:
-        """Create a new subscriber line."""
+                          description: str = "", is_trial: bool = False,
+                          bouquets: list = None) -> Dict[str, Any]:
+        """Create a new subscriber line with optional bouquet selection."""
         path = "/create-line/1" if is_trial else "/create-line"
         payload = {
             "line_type": "line",
@@ -115,19 +116,34 @@ class NxtDashService:
             "password": password,
             "description": description,
         }
+        if bouquets is not None:
+            payload["bouquet"] = bouquets
         data = await self._request("POST", path, json_data=payload)
         if data.get("result") in [1, True, "1"]:
+            line_id = data.get("id", "")
+            # If bouquets specified and line created, update bouquets explicitly
+            if bouquets is not None and line_id:
+                await self.update_line_bouquets(str(line_id), bouquets)
             return {
                 "success": True,
                 "username": data.get("username", username),
                 "password": data.get("password", password),
                 "expire_date": data.get("expire_date"),
-                "line_id": data.get("id", ""),
+                "line_id": line_id,
             }
         error = data.get("message", "Failed to create line")
         if isinstance(error, dict) and "username" in error:
             error = error["username"][0] if isinstance(error["username"], list) else str(error)
         return {"success": False, "error": str(error)}
+
+    async def update_line_bouquets(self, line_id: str, bouquets: list) -> Dict[str, Any]:
+        """Update a line's bouquets to only include the specified ones."""
+        data = await self._request("POST", f"/edit-line/{line_id}", json_data={"bouquet": bouquets})
+        if data.get("result") in [1, True, "1"]:
+            logger.info(f"NXT Dash bouquets updated for line {line_id}: {len(bouquets)} bouquets")
+            return {"success": True}
+        logger.warning(f"NXT Dash bouquet update failed for line {line_id}: {data}")
+        return {"success": False, "error": str(data.get("message", "Failed"))}
 
     async def extend_line(self, line_id: str, package_id: int) -> Dict[str, Any]:
         """Extend/renew a subscriber line."""

@@ -803,7 +803,7 @@ export default function CheckoutPage() {
                   {/* Render payment methods in order from settings */}
                   {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay']).map((method) => {
                     // Manual Payment
-                    if (method === 'manual') {
+                    if (method === 'manual' && settings?.manual?.enabled !== false) {
                       return (
                         <label key="manual" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-blue-500 transition bg-white dark:bg-gray-800">
                           <input

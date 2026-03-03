@@ -5422,12 +5422,20 @@ async def provision_nxtdash_service(order_id: str, order: dict, user: dict, item
 
         if account_type == "subscriber":
             description = f"Billing:{order_id[:8]}"
+            # Pass product bouquets — only selected bouquets will be provisioned
+            product_bouquets = product.get("bouquets", None)
+            if product_bouquets is not None and len(product_bouquets) > 0:
+                product_bouquets = [int(b) for b in product_bouquets]
+            else:
+                product_bouquets = None  # None = use package defaults
+            
             result = await nd_service.create_line(
                 username=username,
                 password=password,
                 package_id=int(package_id),
                 description=description,
                 is_trial=is_trial,
+                bouquets=product_bouquets,
             )
             if result.get("success"):
                 api_user = result.get("username", username)
