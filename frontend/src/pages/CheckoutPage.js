@@ -1362,7 +1362,7 @@ export default function CheckoutPage() {
                           const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
                           // Create order first
                           const orderRes = await axios.post(`${API_URL}/api/orders`, {
-                            items: items.map(i => ({ product_id: i.product_id, product_name: i.product_name, term_months: i.term_months, price: i.price, account_type: i.account_type })),
+                            items: items.map(i => ({ product_id: i.product_id, product_name: i.product_name, term_months: i.term_months, price: i.price, account_type: i.account_type, action_type: i.action_type, renewal_service_id: i.renewal_service_id })),
                             total: getTotal(), coupon_code: appliedCouponCode, use_credits: creditsUsed
                           }, { headers: { Authorization: `Bearer ${authToken}` }});
                           const orderId = orderRes.data.order_id || orderRes.data.id;

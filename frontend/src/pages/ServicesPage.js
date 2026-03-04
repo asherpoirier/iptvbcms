@@ -95,8 +95,8 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
 
   // Get compatible products for this service (same panel type, subscriber products, not bundles/trials)
   const compatibleProducts = (products || []).filter(p =>
-    p.panel_type === service.panel_type &&
-    (p.panel_index === undefined || p.panel_index === service.panel_index) &&
+    (!service.panel_type || p.panel_type === service.panel_type) &&
+    (service.panel_index === undefined || service.panel_index === null || p.panel_index === undefined || p.panel_index === service.panel_index) &&
     p.account_type === 'subscriber' &&
     !p.is_bundle &&
     !p.is_trial

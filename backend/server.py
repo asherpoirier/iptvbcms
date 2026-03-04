@@ -349,9 +349,26 @@ async def create_customer_for_imported_user(imported_user: dict) -> Optional[str
     service_exists = await services_collection.find_one({
         "user_id": user_id,
         "xtream_username": username,
-        "panel_type": panel_type,
     })
-    if not service_exists:
+    if service_exists:
+        # Update panel info if missing or changed
+        update_fields = {}
+        if not service_exists.get("panel_type"):
+            update_fields["panel_type"] = panel_type
+        if not service_exists.get("panel_name"):
+            update_fields["panel_name"] = panel_name
+        if service_exists.get("panel_index") is None:
+            update_fields["panel_index"] = panel_index
+        if streaming_url and not service_exists.get("streaming_url"):
+            update_fields["streaming_url"] = streaming_url
+        # Always update expiry and status from panel
+        if imported_user.get("expiry_date"):
+            update_fields["expiry_date"] = imported_user["expiry_date"]
+        if imported_user.get("status"):
+            update_fields["status"] = imported_user["status"]
+        if update_fields:
+            await services_collection.update_one({"_id": service_exists["_id"]}, {"$set": update_fields})
+    else:
         service_doc = {
             "user_id": user_id,
             "product_id": "",
@@ -4208,8 +4225,7 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                 # Customer explicitly chose to extend a specific service
                 existing_subscriber = await services_collection.find_one({
                     "_id": str_to_objectid(renewal_service_id),
-                    "user_id": order["user_id"],
-                    "status": "active"
+                    "user_id": order["user_id"]
                 })
                 if existing_subscriber:
                     logger.info(f"Customer chose to extend service: {existing_subscriber['xtream_username']}")
@@ -4235,6 +4251,7 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             "xtream_username": (existing_reseller or {}).get("xtream_username") or (existing_subscriber or {}).get("xtream_username") or username,
             "xtream_password": (existing_reseller or {}).get("xtream_password") or (existing_subscriber or {}).get("xtream_password") or password,
             "status": "pending",
+            "panel_type": product.get("panel_type", "xtream"),
             "panel_index": panel_index,
             "panel_name": panel_name,
             "created_at": datetime.utcnow()
