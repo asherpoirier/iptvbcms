@@ -780,8 +780,17 @@ class EmailService:
         subject = subject.replace("{{service_name}}", service_name)
         subject = subject.replace("{{customer_name}}", customer_name)
         content = template["html_content"]
+        content = content.replace("{{customer_name}}", customer_name)
+        content = content.replace("{{service_name}}", service_name)
         content = content.replace("{{username}}", username)
         content = content.replace("{{new_expiry_date}}", new_expiry_date)
+        
+        text_content = template.get("text_content", "")
+        if text_content:
+            text_content = text_content.replace("{{customer_name}}", customer_name)
+            text_content = text_content.replace("{{service_name}}", service_name)
+            text_content = text_content.replace("{{username}}", username)
+            text_content = text_content.replace("{{new_expiry_date}}", new_expiry_date)
         
         wrapped_content = self._wrap_email(content, template["name"], customer_email, "transactional")
         
@@ -789,6 +798,7 @@ class EmailService:
             to_email=customer_email,
             subject=subject,
             html_content=wrapped_content,
+            text_content=text_content,
             email_type="transactional",
             template_type="service_renewed",
             customer_id=customer_id,

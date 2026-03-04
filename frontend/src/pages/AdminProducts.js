@@ -828,6 +828,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         trial_duration: data.trial_duration || 0,
         trial_duration_unit: data.trial_duration_unit || 'days',
         setup_instructions: data.setup_instructions || '',
+        duration: selectedPackage?.duration || product?.duration || null,
+        duration_unit: selectedPackage?.duration_unit || product?.duration_unit || 'months',
       };
 
       if (isEditing) {

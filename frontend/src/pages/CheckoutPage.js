@@ -21,7 +21,7 @@ export default function CheckoutPage() {
   const { items, removeItem, clearCart, getTotal, updateItemAction } = useCartStore();
   const { symbol: currencySymbol, convertPrice, code: currencyCode } = useCurrencyStore();
   const [error, setError] = React.useState('');
-  const [paymentMethod, setPaymentMethod] = useState('manual');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [currentOrderId, setCurrentOrderId] = useState(null);
   const [pollingSessionId, setPollingSessionId] = useState(null);
   
@@ -84,6 +84,28 @@ export default function CheckoutPage() {
 
   console.log('Payment config:', settings);
 
+  // Auto-select first enabled payment method
+  React.useEffect(() => {
+    if (!settings || paymentMethod) return;
+    const order = settings.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay'];
+    const enabledCheck = {
+      manual: settings.manual?.enabled !== false,
+      stripe: settings.stripe?.enabled,
+      paypal: settings.paypal?.enabled,
+      square: settings.square?.enabled,
+      helcim: settings.helcim?.enabled,
+      blockonomics: settings.blockonomics?.enabled,
+      ghostpay: settings.ghostpay?.enabled,
+      emt: settings.emt?.enabled,
+      zelle: settings.zelle?.enabled,
+      cashapp: settings.cashapp?.enabled,
+      venmo: settings.venmo?.enabled,
+      wise: settings.wise?.enabled,
+    };
+    const first = order.find(m => enabledCheck[m]);
+    if (first) setPaymentMethod(first);
+  }, [settings, paymentMethod]);
+
   const createOrderMutation = useMutation({
     mutationFn: (data) => ordersAPI.create(data),
     onSuccess: (response) => {
@@ -115,6 +137,11 @@ export default function CheckoutPage() {
   const handleCheckout = () => {
     if (items.length === 0) {
       setError('Cart is empty');
+      return;
+    }
+
+    if (!paymentMethod) {
+      setError('Please select a payment method');
       return;
     }
 

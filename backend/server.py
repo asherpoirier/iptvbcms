@@ -4176,7 +4176,24 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                 expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
             logger.info(f"Trial product: duration={trial_duration} {trial_unit}, expiry={expiry_date}")
         else:
-            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+            # Use product's actual duration from panel package, fallback to term_months
+            pkg_duration = product.get("duration") or product.get("official_duration")
+            pkg_duration_unit = product.get("duration_unit") or product.get("official_duration_in") or "months"
+            
+            if pkg_duration:
+                pkg_duration = int(pkg_duration)
+                if pkg_duration_unit.lower() in ("months", "month"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+                elif pkg_duration_unit.lower() in ("years", "year"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 365)
+                elif pkg_duration_unit.lower() in ("days", "day"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration)
+                else:
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+                logger.info(f"Using product duration: {pkg_duration} {pkg_duration_unit}")
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+                logger.info(f"Using term_months fallback: {term_months} months")
         
         expiry_timestamp = int(expiry_date.timestamp())
         
@@ -4228,8 +4245,26 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
         if item["account_type"] == "subscriber":
                 # Check if this is a renewal (existing subscriber)
                 if existing_subscriber:
+                    # Use the SERVICE's panel_index, not the product's — the user lives on this panel
+                    actual_panel_index = existing_subscriber.get("panel_index", panel_index)
+                    if actual_panel_index != panel_index:
+                        logger.info(f"Service panel_index ({actual_panel_index}) differs from product panel_index ({panel_index}), using service's panel")
+                        panel_index = actual_panel_index
+                        if panel_index < len(panels):
+                            panel = panels[panel_index]
+                            panel_name = panel.get("name", f"Panel {panel_index + 1}")
+                            xtream_service = XtreamUIService(
+                                panel_url=panel["panel_url"],
+                                admin_username=panel["admin_username"],
+                                admin_password=panel["admin_password"],
+                                ssl_verify=panel.get("ssl_verify", False),
+                                http_basic_user=panel.get("http_basic_user", ""),
+                                http_basic_pass=panel.get("http_basic_pass", ""),
+                                proxy_url=panel.get("proxy_url", "")
+                            )
+                    
                     # Renewal - extend existing service in XtreamUI
-                    logger.info(f"Renewal: Extending XtreamUI line for {existing_subscriber['xtream_username']}")
+                    logger.info(f"Renewal: Extending XtreamUI line for {existing_subscriber['xtream_username']} on panel {panel_name} (index {panel_index})")
                     
                     # Get package ID from product
                     package_id = product.get("xtream_package_id", 52)
@@ -4297,7 +4332,21 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             else:
                                 extend_td = timedelta(days=trial_dur * 30)
                         else:
-                            extend_td = timedelta(days=term_months * 30)
+                            # Use product duration, not term_months
+                            pkg_dur = product.get("duration") or product.get("official_duration")
+                            pkg_dur_unit = (product.get("duration_unit") or product.get("official_duration_in") or "months").lower()
+                            if pkg_dur:
+                                pkg_dur = int(pkg_dur)
+                                if pkg_dur_unit in ("months", "month"):
+                                    extend_td = timedelta(days=pkg_dur * 30)
+                                elif pkg_dur_unit in ("years", "year"):
+                                    extend_td = timedelta(days=pkg_dur * 365)
+                                elif pkg_dur_unit in ("days", "day"):
+                                    extend_td = timedelta(days=pkg_dur)
+                                else:
+                                    extend_td = timedelta(days=pkg_dur * 30)
+                            else:
+                                extend_td = timedelta(days=term_months * 30)
                         current_expiry = existing_subscriber.get("expiry_date", datetime.utcnow())
                         if current_expiry < datetime.utcnow():
                             new_expiry = datetime.utcnow() + extend_td
