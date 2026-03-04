@@ -1891,11 +1891,23 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         
         settings = await get_settings()
         stripe_settings = settings.get("stripe", {})
+        webhook_secret = stripe_settings.get("webhook_secret", "")
         
-        # Parse the event data
+        # Verify webhook signature if secret is configured
         import json
-        event = json.loads(body)
-        event_type = event.get("type", "")
+        if webhook_secret and signature:
+            try:
+                import stripe
+                stripe.api_key = stripe_settings.get("live_secret_key") or stripe_settings.get("test_secret_key") or ""
+                event = stripe.Webhook.construct_event(body, signature, webhook_secret)
+                logger.info(f"Stripe webhook verified: {event['type']}")
+            except stripe.error.SignatureVerificationError:
+                logger.error("Stripe webhook signature verification failed")
+                raise HTTPException(status_code=400, detail="Invalid signature")
+        else:
+            event = json.loads(body)
+        
+        event_type = event.get("type", "") if isinstance(event, dict) else event["type"]
         logger.info(f"Stripe webhook received: {event_type}")
         
         if event_type in ["checkout.session.completed", "payment_intent.succeeded"]:
@@ -4370,16 +4382,24 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                         else:
                             new_expiry = current_expiry + extend_td
                     
-                    # Update existing service expiry in our database
+                    # Update existing service expiry, connections, and product info
+                    update_fields = {
+                        "expiry_date": new_expiry,
+                        "status": "active",
+                        "product_id": item["product_id"],
+                        "product_name": item["product_name"],
+                    }
+                    # Update max_connections from the new product
+                    new_max_conn = product.get("max_connections")
+                    if new_max_conn:
+                        update_fields["max_connections"] = int(new_max_conn)
+                    
                     await services_collection.update_one(
                         {"_id": existing_subscriber["_id"]},
-                        {"$set": {
-                            "expiry_date": new_expiry,
-                            "status": "active"
-                        }}
+                        {"$set": update_fields}
                     )
                     
-                    logger.info(f"Existing service updated with new expiry: {new_expiry}")
+                    logger.info(f"Existing service updated: expiry={new_expiry}, connections={new_max_conn}, product={item['product_name']}")
                     
                     # Send renewal email
                     if email_service:

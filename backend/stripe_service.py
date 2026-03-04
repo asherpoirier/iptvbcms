@@ -68,7 +68,7 @@ class StripeService:
                     "checkout_url": session.url
                 }
             else:
-                # Native Stripe SDK
+                # Native Stripe SDK — try with crypto first, fallback to card-only
                 payment_methods = ['card']
                 if crypto_enabled:
                     payment_methods.append('crypto')
@@ -82,7 +82,7 @@ class StripeService:
                                 'product_data': {
                                     'name': f'Order #{order_id[:8]}',
                                 },
-                                'unit_amount': int(float(amount) * 100),  # Stripe uses cents
+                                'unit_amount': int(float(amount) * 100),
                             },
                             'quantity': 1,
                         }],
@@ -110,6 +110,26 @@ class StripeService:
                         cancel_url=cancel_url,
                         metadata={'order_id': order_id},
                     )
+                except stripe.error.InvalidRequestError as crypto_err:
+                    if 'crypto' in str(crypto_err).lower() and crypto_enabled:
+                        logger.warning(f"Stripe crypto not available, falling back to card-only: {crypto_err}")
+                        session = stripe.checkout.Session.create(
+                            payment_method_types=['card'],
+                            line_items=[{
+                                'price_data': {
+                                    'currency': currency.lower(),
+                                    'product_data': {'name': f'Order #{order_id[:8]}'},
+                                    'unit_amount': int(float(amount) * 100),
+                                },
+                                'quantity': 1,
+                            }],
+                            mode='payment',
+                            success_url=success_url,
+                            cancel_url=cancel_url,
+                            metadata={'order_id': order_id},
+                        )
+                    else:
+                        raise
                 
                 logger.info(f"Stripe session created: {session.id}")
                 return {

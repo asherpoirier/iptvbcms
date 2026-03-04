@@ -19,6 +19,7 @@ export default function PaymentGatewaySettings({ settings }) {
     stripe_mode: settings?.stripe?.mode || 'test',
     stripe_publishable_key: (settings?.stripe?.mode === 'live' ? settings?.stripe?.live_publishable_key : settings?.stripe?.test_publishable_key) || '',
     stripe_secret_key: (settings?.stripe?.mode === 'live' ? settings?.stripe?.live_secret_key : settings?.stripe?.test_secret_key) || '',
+    stripe_webhook_secret: settings?.stripe?.webhook_secret || '',
     stripe_crypto_enabled: settings?.stripe?.crypto_enabled !== false,
     square_enabled: settings?.square?.enabled || false,
     square_access_token: settings?.square?.access_token || '',
@@ -60,6 +61,7 @@ export default function PaymentGatewaySettings({ settings }) {
         stripe_mode: settings?.stripe?.mode || 'test',
         stripe_publishable_key: (settings?.stripe?.mode === 'live' ? settings?.stripe?.live_publishable_key : settings?.stripe?.test_publishable_key) || '',
         stripe_secret_key: (settings?.stripe?.mode === 'live' ? settings?.stripe?.live_secret_key : settings?.stripe?.test_secret_key) || '',
+    stripe_webhook_secret: settings?.stripe?.webhook_secret || '',
         stripe_crypto_enabled: settings?.stripe?.crypto_enabled !== false,
         square_enabled: settings?.square?.enabled || false,
         square_access_token: settings?.square?.access_token || '',
@@ -109,7 +111,8 @@ export default function PaymentGatewaySettings({ settings }) {
           test_secret_key: data.stripe_mode === 'test' ? data.stripe_secret_key : (settings?.stripe?.test_secret_key || ''),
           live_publishable_key: data.stripe_mode === 'live' ? data.stripe_publishable_key : (settings?.stripe?.live_publishable_key || ''),
           live_secret_key: data.stripe_mode === 'live' ? data.stripe_secret_key : (settings?.stripe?.live_secret_key || ''),
-          crypto_enabled: data.stripe_crypto_enabled
+          crypto_enabled: data.stripe_crypto_enabled,
+          webhook_secret: data.stripe_webhook_secret,
         },
         square: {
           enabled: data.square_enabled,
@@ -339,6 +342,31 @@ export default function PaymentGatewaySettings({ settings }) {
                     placeholder="sk_live_..."
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook Signing Secret</label>
+                  <input
+                    type="password"
+                    value={formData.stripe_webhook_secret}
+                    onChange={(e) => setFormData({ ...formData, stripe_webhook_secret: e.target.value })}
+                    placeholder="whsec_..."
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    From Stripe Dashboard → Developers → Webhooks → your endpoint → Signing secret
+                  </p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook URL</label>
+                  <div className="flex items-center gap-2">
+                    <input type="text" readOnly
+                      value={`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/stripe`}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono" />
+                    <button type="button" onClick={() => {
+                      navigator.clipboard.writeText(`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/stripe`);
+                    }} className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 text-sm">Copy</button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Add this URL in Stripe Dashboard → Developers → Webhooks. Select event: <code>checkout.session.completed</code></p>
                 </div>
                 <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
                   <p className="text-sm text-yellow-800 dark:text-yellow-200">
