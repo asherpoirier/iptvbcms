@@ -175,26 +175,35 @@ export default function CheckoutPage() {
 
   const createPayPalOrder = async () => {
     try {
-      // Create order first if not exists
       if (!currentOrderId) {
-        const orderData = { items: items, total: getTotal() };
+        const orderData = {
+          items: items.map(i => ({
+            product_id: i.product_id, product_name: i.product_name,
+            term_months: i.term_months, price: i.price, account_type: i.account_type,
+            action_type: i.action_type, renewal_service_id: i.renewal_service_id
+          })),
+          total: getTotal(),
+          coupon_code: appliedCouponCode,
+          use_credits: creditsUsed,
+          reseller_credentials: hasNewResellerProduct ? {
+            username: resellerUsername, password: resellerPassword,
+            add_credits_to_existing: resellerAddCredits
+          } : null
+        };
         const orderResponse = await ordersAPI.create(orderData);
-        const orderId = orderResponse.data.order_id;
+        const orderId = orderResponse.data.order_id || orderResponse.data.id;
         setCurrentOrderId(orderId);
         
-        // Create PayPal payment
-        const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+        const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
         const paypalResponse = await axios.post(
           `${API_URL}/api/orders/${orderId}/pay/paypal`,
           { origin: window.location.origin },
-          { headers: { Authorization: `Bearer ${token}` }}
+          { headers: { Authorization: `Bearer ${authToken}` }}
         );
         
-        console.log('PayPal response:', paypalResponse.data);
-        return paypalResponse.data.order_id;  // Return EC-XXX token
+        return paypalResponse.data.order_id;
       }
     } catch (error) {
-      console.error('PayPal order creation error:', error);
       setError(`PayPal error: ${error.response?.data?.detail || error.message}`);
       throw error;
     }
@@ -236,14 +245,23 @@ export default function CheckoutPage() {
 
   const handleStripePay = async () => {
     try {
-      console.log('Starting Stripe payment...');
-      
-      // Create order first
-      const orderData = { items: items, total: getTotal() };
+      const orderData = {
+        items: items.map(i => ({
+          product_id: i.product_id, product_name: i.product_name,
+          term_months: i.term_months, price: i.price, account_type: i.account_type,
+          action_type: i.action_type, renewal_service_id: i.renewal_service_id
+        })),
+        total: getTotal(),
+        coupon_code: appliedCouponCode,
+        use_credits: creditsUsed,
+        reseller_credentials: hasNewResellerProduct ? {
+          username: resellerUsername, password: resellerPassword,
+          add_credits_to_existing: resellerAddCredits
+        } : null
+      };
       const orderResponse = await ordersAPI.create(orderData);
-      const orderId = orderResponse.data.order_id;
+      const orderId = orderResponse.data.order_id || orderResponse.data.id;
       setCurrentOrderId(orderId);
-      console.log('Order created:', orderId);
       
       // Create Stripe session
       const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
@@ -376,13 +394,23 @@ export default function CheckoutPage() {
       setError('');
       setHelcimLoading(true);
 
-      // Create order first
-      const orderData = { items, total: getTotal() };
-      if (appliedCouponCode) orderData.coupon_code = appliedCouponCode;
-      if (creditsUsed > 0) orderData.use_credits = creditsUsed;
+      const orderData = {
+        items: items.map(i => ({
+          product_id: i.product_id, product_name: i.product_name,
+          term_months: i.term_months, price: i.price, account_type: i.account_type,
+          action_type: i.action_type, renewal_service_id: i.renewal_service_id
+        })),
+        total: getTotal(),
+        coupon_code: appliedCouponCode,
+        use_credits: creditsUsed,
+        reseller_credentials: hasNewResellerProduct ? {
+          username: resellerUsername, password: resellerPassword,
+          add_credits_to_existing: resellerAddCredits
+        } : null
+      };
 
       const orderResponse = await ordersAPI.create(orderData);
-      const orderId = orderResponse.data.order_id;
+      const orderId = orderResponse.data.order_id || orderResponse.data.id;
       setCurrentOrderId(orderId);
 
       // Initialize Helcim checkout

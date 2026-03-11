@@ -651,6 +651,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     panel_type: product?.panel_type || 'xtream',
     is_trial: product?.is_trial || false,
     setup_instructions: product?.setup_instructions || '',
+    show_channels: product?.show_channels !== false,
   });
 
   // Fetch settings to get panels list
@@ -830,6 +831,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         setup_instructions: data.setup_instructions || '',
         duration: selectedPackage?.duration || product?.duration || null,
         duration_unit: selectedPackage?.duration_unit || product?.duration_unit || 'months',
+        show_channels: data.show_channels,
       };
 
       if (isEditing) {
@@ -1079,6 +1081,20 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Custom instructions shown to customers. Leave blank for default instructions.
               </p>
+            </div>
+
+            {/* View Channels Toggle */}
+            <div className="md:col-span-2 flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div>
+                <span className="text-sm font-medium text-gray-900 dark:text-white">Show "View Channels" on Storefront</span>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Allow customers to preview channel packages (bouquets) before purchase</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={formData.show_channels}
+                  onChange={(e) => setFormData({ ...formData, show_channels: e.target.checked })}
+                  className="sr-only peer" data-testid="show-channels-toggle" />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
             </div>
 
             {/* Account type fixed to subscriber for regular products */}

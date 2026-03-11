@@ -101,6 +101,7 @@ class ProductCreate(BaseModel):
     bundle_product_ids: Optional[List[str]] = []  # IDs of products included in bundle
     duration: Optional[int] = None  # Package duration (e.g., 1, 3, 6, 12)
     duration_unit: Optional[str] = 'months'  # Duration unit: months, days, years
+    show_channels: Optional[bool] = True  # Show "View Channels" button on storefront
 
 class Product(ProductCreate):
     id: Optional[str] = None

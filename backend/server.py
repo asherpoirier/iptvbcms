@@ -4433,34 +4433,48 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     )
                     
                     if result["success"]:
-                        # Extract user ID from result if available
                         xtream_user_id = result.get("user_id")
                         
-                        # Try to get actual expiry from panel instead of pre-calculated
+                        # Wait for panel to process, then fetch ACTUAL expiry from panel
+                        logger.info(f"Waiting for panel to process new user {username}...")
+                        await asyncio.sleep(3)
+                        
                         actual_expiry = expiry_date
                         try:
-                            from xtreamui_session_client import XtreamUISessionClient
-                            fetch_client = XtreamUISessionClient(
-                                panel_url=panel["panel_url"],
-                                username=panel["admin_username"],
-                                password=panel["admin_password"],
-                                http_basic_user=panel.get("http_basic_user", ""),
-                                http_basic_pass=panel.get("http_basic_pass", ""),
-                                proxy_url=panel.get("proxy_url", "")
-                            )
-                            user_info = fetch_client.get_user_info(username)
-                            if user_info and user_info.get("exp_date"):
-                                exp_str = user_info["exp_date"]
-                                if str(exp_str).isdigit():
-                                    actual_expiry = datetime.fromtimestamp(int(exp_str))
-                                else:
+                            # Search for the user to get real expiry
+                            import time, re as _re
+                            search_params = {
+                                'draw': '1', 'start': '0', 'length': '10',
+                                'search[value]': username, 'search[regex]': 'false',
+                                'id': 'users', '_': str(int(time.time() * 1000))
+                            }
+                            for i in range(12):
+                                search_params[f'columns[{i}][data]'] = str(i)
+                                search_params[f'columns[{i}][searchable]'] = 'true'
+                                search_params[f'columns[{i}][orderable]'] = 'true'
+                            search_params['order[0][column]'] = '0'
+                            search_params['order[0][dir]'] = 'desc'
+                            
+                            session_client = xtream_service._get_session_client()
+                            search_url = f"{session_client.panel_url}/table_search.php"
+                            resp = session_client.session.get(search_url, params=search_params, auth=session_client.http_auth, timeout=15)
+                            if resp.status_code == 200 and len(resp.text.strip()) == 0:
+                                resp = session_client.session.post(search_url, data=search_params, auth=session_client.http_auth, timeout=15)
+                            
+                            if resp.status_code == 200 and resp.text.strip():
+                                search_data = resp.json()
+                                users_data = search_data.get('data', [])
+                                if users_data:
+                                    # Expiry is typically column 7 (format: "2026-03-06<br>18:08:16")
+                                    exp_raw = str(users_data[0][7]) if len(users_data[0]) > 7 else ""
+                                    exp_clean = _re.sub(r'<[^>]+>', ' ', exp_raw).strip()
                                     for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
                                         try:
-                                            actual_expiry = datetime.strptime(str(exp_str).strip(), fmt)
+                                            actual_expiry = datetime.strptime(exp_clean.strip(), fmt)
+                                            logger.info(f"Actual panel expiry for {username}: {actual_expiry}")
                                             break
                                         except ValueError:
                                             continue
-                                logger.info(f"Actual panel expiry for {username}: {actual_expiry}")
                         except Exception as e:
                             logger.warning(f"Could not fetch actual expiry from panel: {e}")
                         
@@ -4547,11 +4561,11 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     )
                 logger.info(f"Credits added to existing reseller panel")
             else:
-                # Create new reseller panel
+                # Create new reseller panel (create with 0 credits, then add separately)
                 result = xtream_service.create_reseller(
                     username=username,
                     password=password,
-                    credits=product["reseller_credits"],
+                    credits=0,
                     email=user["email"],
                     member_group_id=2
                 )
@@ -4559,7 +4573,7 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     logger.info("Waiting 10 seconds for account creation...")
                     await asyncio.sleep(10)
                     if product["reseller_credits"] > 0:
-                        logger.info(f"Adding {product['reseller_credits']} credits to {username}")
+                        logger.info(f"Adding {product['reseller_credits']} credits to new reseller {username}")
                         credits_result = xtream_service.add_credits(username=username, email=user["email"], credits=product["reseller_credits"])
                         if credits_result.get("success"):
                             logger.info(f"Credits added successfully")
@@ -5957,6 +5971,17 @@ async def get_branding():
         "footer_text": "Premium IPTV Services"
     })
     return branding
+
+@app.get("/api/settings/branding")
+async def get_public_branding():
+    """Public endpoint - returns branding info for SEO and display"""
+    settings = await get_settings()
+    branding = settings.get("branding", {})
+    return {
+        "site_name": branding.get("site_name", ""),
+        "tagline": branding.get("tagline", ""),
+        "logo_url": branding.get("logo_url", ""),
+    }
 
 @app.get("/api/chatbot/config")
 async def get_chatbot_config():

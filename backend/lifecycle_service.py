@@ -79,11 +79,12 @@ class ServiceLifecycleManager:
         """Suspend all expired services"""
         now = datetime.utcnow()
         
-        # Find active services that have expired
+        # Find active services that have expired and belong to billing customers
         suspended_count = 0
         async for service in self.services.find({
             "status": "active",
-            "expiry_date": {"$lt": now}
+            "expiry_date": {"$lt": now},
+            "user_id": {"$exists": True, "$ne": "", "$ne": None}
         }):
             try:
                 # Get user info for notification
@@ -190,12 +191,16 @@ class ServiceLifecycleManager:
         end_of_target_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         
         warned_count = 0
+        
+        # Only warn for services that belong to billing system customers (have valid user_id)
+        # Skip services from panel syncs that aren't linked to billing customers
         async for service in self.services.find({
             "status": "active",
             "expiry_date": {
                 "$gte": start_of_target_day,
                 "$lte": end_of_target_day
-            }
+            },
+            "user_id": {"$exists": True, "$ne": "", "$ne": None}
         }):
             # Check if already warned for this period
             recent_warning = await self.lifecycle_logs.find_one({
@@ -223,8 +228,9 @@ class ServiceLifecycleManager:
                     customer_name = user.get("name", user.get("panel_username", "Customer"))
                     email = user.get("email", "")
                     customer_email = email if email and not email.endswith("@panel.local") else ""
-                elif service.get("xtream_username"):
-                    customer_name = service["xtream_username"]
+                else:
+                    # No billing customer found — skip (not our user)
+                    continue
 
                 expiry_str = service.get("expiry_date").strftime("%Y-%m-%d") if service.get("expiry_date") else "N/A"
                 service_name = service.get("product_name", "Unknown Service")

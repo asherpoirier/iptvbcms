@@ -531,10 +531,12 @@ function GroupedProductCard({ products, connections }) {
               );
             })}
           </div>
+          {product.show_channels !== false && (
           <button onClick={handleShowChannels}
             className="mt-3 w-full flex items-center justify-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-3 py-2 rounded-lg hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition text-sm font-medium">
             <Info className="w-4 h-4" /> View Channels
           </button>
+          )}
         </div>
       </div>
 
@@ -654,7 +656,7 @@ function GroupCard({ group, allProducts }) {
               );
             })}
             {/* View Channels */}
-            {firstProduct?.account_type === 'subscriber' && (
+            {firstProduct?.account_type === 'subscriber' && firstProduct?.show_channels !== false && (
               <button onClick={handleShowChannels}
                 className="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-xs text-gray-500 hover:text-blue-600 transition">
                 <Info className="w-3.5 h-3.5" /> View Channels
