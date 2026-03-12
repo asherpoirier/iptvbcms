@@ -94,13 +94,17 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
   const { addRenewalItem } = useCartStore();
 
   // Get compatible products for this service (same panel type, subscriber products, not bundles/trials)
-  const compatibleProducts = (products || []).filter(p =>
+  // Get compatible products — try exact panel_index match first, fallback to same panel_type
+  const exactMatch = (products || []).filter(p =>
     (!service.panel_type || p.panel_type === service.panel_type) &&
-    (service.panel_index === undefined || service.panel_index === null || p.panel_index === undefined || p.panel_index === service.panel_index) &&
-    p.account_type === 'subscriber' &&
-    !p.is_bundle &&
-    !p.is_trial
+    p.panel_index === service.panel_index &&
+    p.account_type === 'subscriber' && !p.is_bundle && !p.is_trial
   );
+  const typeMatch = (products || []).filter(p =>
+    (!service.panel_type || p.panel_type === service.panel_type) &&
+    p.account_type === 'subscriber' && !p.is_bundle && !p.is_trial
+  );
+  const compatibleProducts = exactMatch.length > 0 ? exactMatch : typeMatch;
   
   const handleRenew = () => {
     const product = products?.find(p => p.id === service.product_id);
