@@ -2680,6 +2680,21 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
     """Create new order with coupon and credit support"""
     user_id = current_user["sub"]
     
+    # Deduplication: prevent duplicate orders within 30 seconds for same user + items
+    item_ids = sorted([i.product_id for i in order_data.items])
+    recent_duplicate = await orders_collection.find_one({
+        "user_id": user_id,
+        "created_at": {"$gte": datetime.utcnow() - timedelta(seconds=30)},
+        "status": {"$in": ["pending", "paid"]},
+    })
+    if recent_duplicate:
+        recent_item_ids = sorted([i.get("product_id", "") for i in recent_duplicate.get("items", [])])
+        if recent_item_ids == item_ids:
+            # Return existing order instead of creating duplicate
+            existing_id = str(recent_duplicate["_id"])
+            logger.info(f"Duplicate order prevented for user {user_id}, returning existing order {existing_id}")
+            return {"order_id": existing_id, "id": existing_id, "message": "Order already exists", "total": recent_duplicate.get("total", 0)}
+    
     # Check trial eligibility - 1 trial per customer per panel
     for item in order_data.items:
         product = await products_collection.find_one({"_id": str_to_objectid(item.product_id)})
