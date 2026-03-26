@@ -2725,8 +2725,23 @@ async def create_order(order_data: OrderCreate, background_tasks: BackgroundTask
                     detail=f"You have already used a trial for this service. Only one trial per customer is allowed."
                 )
     
-    # Calculate pricing
-    subtotal = order_data.total
+    # Calculate pricing — validate item prices against actual product prices
+    actual_total = 0.0
+    for item in order_data.items:
+        product = await products_collection.find_one({"_id": str_to_objectid(item.product_id)})
+        if product:
+            product_prices = product.get("prices", {})
+            actual_price = 0
+            if product_prices:
+                # Get the first available price
+                first_price = list(product_prices.values())[0] if product_prices else 0
+                actual_price = float(first_price)
+            if item.price <= 0 and actual_price > 0:
+                item.price = actual_price
+                logger.warning(f"Order item {item.product_name} had price $0, corrected to ${actual_price}")
+            actual_total += item.price
+    
+    subtotal = actual_total if actual_total > 0 else order_data.total
     discount_amount = 0.0
     credits_used = 0.0
     
@@ -4326,7 +4341,12 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                     if extend_result.get("success"):
                         logger.info(f"✓ XtreamUI line extended")
                     else:
-                        logger.warning(f"XtreamUI extend failed: {extend_result.get('error')}")
+                        logger.error(f"XtreamUI extend FAILED for {existing_subscriber['xtream_username']}: {extend_result.get('error')}")
+                        # DO NOT update billing record or send email if panel extend failed
+                        service_dict["status"] = "failed"
+                        service_dict["error"] = f"Panel extend failed: {extend_result.get('error')}"
+                        await services_collection.insert_one(service_dict)
+                        return
                     
                     # Get actual expiry from the panel instead of calculating
                     new_expiry = None
@@ -10878,7 +10898,7 @@ async def get_my_referral_code(current_user: dict = Depends(get_current_user)):
     
     return {
         "referral_code": code,
-        "referral_link": f"{os.getenv('BACKEND_PUBLIC_URL', '')}/register?ref={code}",
+        "referral_link": f"{os.getenv('SITE_URL', os.getenv('BACKEND_PUBLIC_URL', ''))}/register?ref={code}",
         "total_referrals": len(referrals),
         "completed_referrals": completed,
         "total_earned": total_earned,

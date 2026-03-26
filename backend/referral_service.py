@@ -88,8 +88,10 @@ class ReferralService:
         # Get settings for reward amount
         settings = await self.get_referral_settings()
         
-        # Find referrer
-        referrer = await self.users.find_one({"referral_code": referral_code})
+        # Find referrer (case-insensitive)
+        referrer = await self.users.find_one({
+            "referral_code": {"$regex": f"^{referral_code}$", "$options": "i"}
+        })
         if not referrer:
             return None
         

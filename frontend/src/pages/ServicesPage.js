@@ -110,13 +110,25 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
     const product = products?.find(p => p.id === service.product_id);
     
     if (product) {
-      const term = service.term_months || 1;
-      const price = product.prices?.[term] || 0;
+      // Get the first available price (price keys may not match term_months)
+      const priceEntries = Object.entries(product.prices || {});
+      const termKey = priceEntries.length > 0 ? Number(priceEntries[0][0]) : 1;
+      const price = priceEntries.length > 0 ? priceEntries[0][1] : 0;
+      
+      if (price <= 0) {
+        // Price not found — show product picker instead
+        if (compatibleProducts.length > 0) {
+          setShowRenewPicker(true);
+        } else {
+          toast.error('No compatible products found. Please contact support.');
+        }
+        return;
+      }
       
       addRenewalItem({
         product_id: service.product_id,
         product_name: service.product_name,
-        term_months: term,
+        term_months: termKey,
         price: price,
         account_type: service.account_type
       }, service.id, 'extend');

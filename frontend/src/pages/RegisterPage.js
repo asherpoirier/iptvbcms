@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { authAPI } from '../api/api';
 import { useAuthStore } from '../store/store';
@@ -7,8 +7,10 @@ import { UserPlus, Server, AlertCircle } from 'lucide-react';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth } = useAuthStore();
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const referralCode = searchParams.get('ref') || '';
+  const [formData, setFormData] = useState({ name: '', email: '', password: '', referral_code: referralCode });
   const [error, setError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
@@ -130,6 +132,20 @@ export default function RegisterPage() {
                   placeholder="••••••••"
                 />
                 <p className="text-sm text-gray-500 mt-1">Minimum 6 characters</p>
+              </div>
+
+              {/* Referral Code */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Referral Code (optional)
+                </label>
+                <input
+                  type="text"
+                  value={formData.referral_code}
+                  onChange={(e) => setFormData({ ...formData, referral_code: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter referral code"
+                />
               </div>
 
               <button
