@@ -344,6 +344,124 @@ class BackgroundJobScheduler:
             if total_synced > 0 or total_updated > 0:
                 logger.info(f"Auto-sync: {total_synced} new, {total_updated} updated across all panels")
             
+            # Sync XuiOne panels
+            xuione_panels = settings.get("xuione", {}).get("panels", [])
+            for i, panel in enumerate(xuione_panels):
+                if not panel.get("active", True):
+                    continue
+                try:
+                    from xuione_service import get_xuione_service
+                    xui_svc = get_xuione_service(panel)
+                    if not xui_svc:
+                        continue
+                    panel_name = panel.get("name", f"XuiOne {i+1}")
+                    result = xui_svc.get_users()
+                    if result.get("success"):
+                        for user_data in result.get("users", []):
+                            uname = user_data.get("username", "")
+                            if not uname:
+                                continue
+                            exp = None
+                            exp_str = user_data.get("expiry", "")
+                            if exp_str and exp_str not in ["Unlimited", "NEVER", ""]:
+                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                    try:
+                                        exp = datetime.strptime(str(exp_str).strip(), fmt)
+                                        break
+                                    except:
+                                        continue
+                            doc = {"username": uname, "password": user_data.get("password", ""), "panel_type": "xuione", "panel_index": i,
+                                   "panel_name": panel_name, "account_type": "subscriber", "max_connections": user_data.get("max_connections", 1),
+                                   "expiry_date": exp, "status": user_data.get("status", "active"), "last_synced": datetime.utcnow()}
+                            r = await imported_users_collection.update_one({"username": uname, "panel_name": panel_name}, {"$set": doc}, upsert=True)
+                            if r.upserted_id: total_synced += 1
+                            elif r.modified_count: total_updated += 1
+                except Exception as e:
+                    logger.warning(f"Auto-sync failed for xuione panel {panel.get('name', i)}: {e}")
+            
+            # Sync 1-Stream panels
+            onestream_panels = settings.get("onestream", {}).get("panels", [])
+            for i, panel in enumerate(onestream_panels):
+                if not panel.get("active", True):
+                    continue
+                try:
+                    from onestream_service import get_onestream_service
+                    os_svc = get_onestream_service(panel)
+                    if not os_svc:
+                        continue
+                    panel_name = panel.get("name", f"1-Stream {i+1}")
+                    reseller_username = panel.get("admin_username", "").strip()
+                    result = os_svc.get_lines()
+                    if result.get("success"):
+                        for user_data in result.get("users", []):
+                            uname = user_data.get("username", "")
+                            if not uname:
+                                continue
+                            # Filter: only direct users
+                            line_owner = user_data.get("owner", "").strip()
+                            if reseller_username and line_owner and line_owner != reseller_username:
+                                continue
+                            exp = None
+                            exp_str = user_data.get("expiry", "")
+                            if exp_str and exp_str not in ["Unlimited", "NEVER", ""]:
+                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                    try:
+                                        exp = datetime.strptime(str(exp_str).strip(), fmt)
+                                        break
+                                    except:
+                                        continue
+                            doc = {"username": uname, "password": user_data.get("password", ""), "panel_type": "onestream", "panel_index": i,
+                                   "panel_name": panel_name, "account_type": "subscriber", "max_connections": user_data.get("max_connections", 1),
+                                   "expiry_date": exp, "status": user_data.get("status", "active"), "last_synced": datetime.utcnow()}
+                            r = await imported_users_collection.update_one({"username": uname, "panel_name": panel_name}, {"$set": doc}, upsert=True)
+                            if r.upserted_id: total_synced += 1
+                            elif r.modified_count: total_updated += 1
+                except Exception as e:
+                    logger.warning(f"Auto-sync failed for onestream panel {panel.get('name', i)}: {e}")
+            
+            # Sync NXT Dash panels
+            nxtdash_panels = settings.get("nxtdash", {}).get("panels", [])
+            for i, panel in enumerate(nxtdash_panels):
+                if not panel.get("active", True):
+                    continue
+                try:
+                    from nxtdash_service import get_nxtdash_service
+                    nd_svc = get_nxtdash_service(panel)
+                    if not nd_svc:
+                        continue
+                    panel_name = panel.get("name", f"NXT Dash {i+1}")
+                    page = 1
+                    while True:
+                        result = await nd_svc.get_lines(page=page)
+                        if not result.get("success"):
+                            break
+                        lines = result.get("lines", [])
+                        if not lines:
+                            break
+                        for line in lines:
+                            uname = line.get("username", "")
+                            if not uname:
+                                continue
+                            exp = None
+                            exp_ts = line.get("expire_date")
+                            if exp_ts and str(exp_ts).isdigit() and int(exp_ts) > 0:
+                                from datetime import timezone
+                                exp = datetime.fromtimestamp(int(exp_ts), tz=timezone.utc).replace(tzinfo=None)
+                            doc = {"username": uname, "password": line.get("password", ""), "panel_type": "nxtdash", "panel_index": i,
+                                   "panel_name": panel_name, "account_type": "subscriber", "max_connections": line.get("max_connections", 1),
+                                   "expiry_date": exp, "status": "active" if line.get("enabled") else "suspended", "last_synced": datetime.utcnow()}
+                            r = await imported_users_collection.update_one({"username": uname, "panel_name": panel_name}, {"$set": doc}, upsert=True)
+                            if r.upserted_id: total_synced += 1
+                            elif r.modified_count: total_updated += 1
+                        if page >= result.get("last_page", 1):
+                            break
+                        page += 1
+                except Exception as e:
+                    logger.warning(f"Auto-sync failed for nxtdash panel {panel.get('name', i)}: {e}")
+            
+            if total_synced > 0 or total_updated > 0:
+                logger.info(f"Auto-sync complete: {total_synced} new, {total_updated} updated total")
+            
             # Create accounts for any unlinked users
             await self._create_accounts_for_unlinked()
             
