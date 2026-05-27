@@ -6092,6 +6092,7 @@ async def get_public_branding():
         "site_name": branding.get("site_name", ""),
         "tagline": branding.get("tagline", ""),
         "logo_url": branding.get("logo_url", ""),
+        "timezone": settings.get("timezone", "UTC"),
     }
 
 @app.get("/api/chatbot/config")

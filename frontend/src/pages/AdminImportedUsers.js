@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Users, Filter, Ban, CheckCircle, Server, UserCog, CreditCard, Search, ChevronLeft, ChevronRight, Trash2, Plus, X, RefreshCw, Clock, Download, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useTimezone, formatDateTime } from '../utils/timezone';
 import { toast } from 'sonner';
 
 export default function AdminImportedUsers() {
   const queryClient = useQueryClient();
+  const timezone = useTimezone();
   const [selectedPanel, setSelectedPanel] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -565,7 +567,7 @@ export default function AdminImportedUsers() {
                   const d = u.last_synced ? new Date(u.last_synced) : null;
                   return d && (!max || d > max) ? d : max;
                 }, null);
-                return latest ? latest.toLocaleString() : 'Never';
+                return latest ? formatDateTime(latest, timezone) : 'Never';
               })()}
               <span className="text-xs text-gray-400 ml-2">(auto-syncs every hour)</span>
             </p>
@@ -1853,3 +1855,4 @@ function AddCreditsModal({ user, onClose, onSuccess }) {
     </div>
   );
 }
+

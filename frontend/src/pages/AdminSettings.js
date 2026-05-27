@@ -13,6 +13,7 @@ import LicenseSettings from '../components/LicenseSettings';
 import AdminPasswordChange from '../components/AdminPasswordChange';
 import TwoFactorSetup from '../components/TwoFactorSetup';
 import ChatbotSettings from '../components/ChatbotSettings';
+import TimezoneSettings from '../components/TimezoneSettings';
 import RefundSettings from '../components/RefundSettings';
 import UpdateManager from '../components/UpdateManager';
 import BackupManager from '../components/BackupManager';
@@ -185,6 +186,14 @@ export default function AdminSettings() {
                 Currency
               </button>
               <button
+                onClick={() => setActiveTab('timezone')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'timezone' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Timezone
+              </button>
+              <button
                 onClick={() => setActiveTab('license')}
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
                   activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -323,6 +332,10 @@ export default function AdminSettings() {
             {/* SEO Tab */}
             {activeTab === 'seo' && (
               <SEOSettings settings={settings} />
+            )}
+
+            {activeTab === 'timezone' && (
+              <TimezoneSettings settings={settings} />
             )}
 
             {activeTab === 'chatbot' && (
