@@ -1,3 +1,4 @@
+import { useTimezone, formatDate } from "../utils/timezone";
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -304,7 +305,7 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                 <div>
                   <label className="block text-sm font-medium text-gray-600 dark:text-gray-400">Expiry Date</label>
                   <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {service.expiry_date ? new Date(service.expiry_date).toLocaleDateString() : 'Lifetime'}
+                    {service.expiry_date ? formatDate(service.expiry_date) : 'Lifetime'}
                   </p>
                 </div>
               </div>

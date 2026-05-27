@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import { ArrowLeft, Users, Filter, Ban, CheckCircle, Server, UserCog, CreditCard, Search, ChevronLeft, ChevronRight, Trash2, Plus, X, RefreshCw, Clock, Download, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import { useTimezone, formatDateTime } from '../utils/timezone';
+import { useTimezone, formatDateTime, formatDate } from '../utils/timezone';
 import { toast } from 'sonner';
 
 export default function AdminImportedUsers() {
@@ -683,7 +683,7 @@ export default function AdminImportedUsers() {
                           {user.panel_name}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                          {user.expiry_date ? new Date(user.expiry_date).toLocaleDateString() : 'Unlimited'}
+                          {user.expiry_date ? formatDate(user.expiry_date, timezone) : 'Unlimited'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
                           {user.max_connections || 1}
@@ -764,7 +764,7 @@ export default function AdminImportedUsers() {
                     <div className="mt-2 ml-7 grid grid-cols-2 gap-1 text-xs text-gray-500 dark:text-gray-400">
                       <span>Panel: {user.panel_name}</span>
                       <span>Conn: {user.max_connections || 1}</span>
-                      <span>Expiry: {user.expiry_date ? new Date(user.expiry_date).toLocaleDateString() : 'Unlimited'}</span>
+                      <span>Expiry: {user.expiry_date ? formatDate(user.expiry_date, timezone) : 'Unlimited'}</span>
                     </div>
                     <div className="mt-3 ml-7 flex items-center gap-3">
                       <button onClick={() => { setSelectedUserForExtend(user); setShowExtendModal(true); }}
@@ -1241,7 +1241,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Expiry Date</p>
                   <p className="font-semibold text-gray-900 dark:text-white">
-                    {new Date(createdUser.expiry_date).toLocaleDateString()}
+                    {formatDate(createdUser.expiry_date, timezone)}
                   </p>
                 </div>
               )}
@@ -1580,13 +1580,13 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Previous Expiry</p>
                 <p className="font-semibold text-gray-900 dark:text-white">
-                  {result.previous_expiry ? new Date(result.previous_expiry).toLocaleDateString() : 'N/A'}
+                  {result.previous_expiry ? formatDate(result.previous_expiry, timezone) : 'N/A'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">New Expiry</p>
                 <p className="font-semibold text-green-600 dark:text-green-400">
-                  {new Date(result.new_expiry).toLocaleDateString()}
+                  {formatDate(result.new_expiry, timezone)}
                 </p>
               </div>
               <div>
@@ -1632,7 +1632,7 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
               <div className="col-span-2">
                 <span className="text-gray-500 dark:text-gray-400">Current Expiry:</span>
                 <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                  {user.expiry_date ? new Date(user.expiry_date).toLocaleDateString() : 'N/A'}
+                  {user.expiry_date ? formatDate(user.expiry_date, timezone) : 'N/A'}
                 </span>
               </div>
             </div>

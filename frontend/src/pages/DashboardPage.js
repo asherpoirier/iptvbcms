@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/timezone";
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -300,7 +301,7 @@ function ServiceCard({ service, navigate, expired }) {
         {/* Info Row */}
         <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-800">
           <span>{service.max_connections || '?'} connection{(service.max_connections || 0) !== 1 ? 's' : ''}</span>
-          <span>{expiryDate ? expiryDate.toLocaleDateString() : 'No expiry'}</span>
+          <span>{expiryDate ? formatDate(expiryDate) : 'No expiry'}</span>
         </div>
 
         {/* Countdown Bar */}

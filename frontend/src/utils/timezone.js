@@ -3,18 +3,20 @@ import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
-// Global timezone cache
-let cachedTimezone = 'UTC';
+// Global timezone cache — persisted in localStorage
+let cachedTimezone = localStorage.getItem('panel_timezone') || 'UTC';
 
 export function useTimezone() {
   const { data } = useQuery({
     queryKey: ['panel-timezone'],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/api/settings/branding`);
-      cachedTimezone = res.data.timezone || 'UTC';
-      return cachedTimezone;
+      const tz = res.data.timezone || 'UTC';
+      cachedTimezone = tz;
+      localStorage.setItem('panel_timezone', tz);
+      return tz;
     },
-    staleTime: 600000, // 10 min cache
+    staleTime: 600000,
   });
   return data || cachedTimezone;
 }

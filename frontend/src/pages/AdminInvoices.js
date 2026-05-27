@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/timezone";
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
@@ -170,8 +171,8 @@ export default function AdminInvoices() {
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${statusColors[inv.status] || 'bg-gray-100 text-gray-800'}`}>{inv.status}</span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '-'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '-'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{inv.created_at ? formatDate(inv.created_at) : '-'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{inv.due_date ? formatDate(inv.due_date) : '-'}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center gap-2 justify-end">
                             <button onClick={() => handleViewPdf(inv.id)} className="text-gray-500 hover:text-blue-600" title="View PDF"><Eye className="w-4 h-4" /></button>

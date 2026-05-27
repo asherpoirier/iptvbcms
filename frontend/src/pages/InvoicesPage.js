@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/timezone";
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -79,8 +80,8 @@ export default function InvoicesPage() {
                   {invoices?.map((invoice) => (
                     <tr key={invoice.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                       <td className="px-4 py-3 text-sm font-mono text-gray-900 dark:text-white">{invoice.invoice_number}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(invoice.created_at).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(invoice.due_date).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{formatDate(invoice.created_at)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{formatDate(invoice.due_date)}</td>
                       <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">${invoice.total.toFixed(2)}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(invoice.status)}`}>{invoice.status}</span>
@@ -105,8 +106,8 @@ export default function InvoicesPage() {
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(invoice.status)}`}>{invoice.status}</span>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                    <span>{new Date(invoice.created_at).toLocaleDateString()}</span>
-                    <span>Due: {new Date(invoice.due_date).toLocaleDateString()}</span>
+                    <span>{formatDate(invoice.created_at)}</span>
+                    <span>Due: {formatDate(invoice.due_date)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-base font-bold text-gray-900 dark:text-white">${invoice.total.toFixed(2)}</span>

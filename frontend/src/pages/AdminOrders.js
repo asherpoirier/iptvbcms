@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/timezone";
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -425,7 +426,7 @@ export default function AdminOrders() {
                           </span>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                          {new Date(order.created_at).toLocaleDateString()}
+                          {formatDate(order.created_at)}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           {order.status === 'pending' ? (

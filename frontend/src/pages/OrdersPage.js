@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/timezone";
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -84,7 +85,7 @@ export default function OrdersPage() {
                   {orders?.map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                       <td className="px-4 py-3 text-sm font-mono text-gray-900 dark:text-white">#{order.id.substring(0, 8)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(order.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{formatDate(order.created_at)}</td>
                       <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                         {order.items.map((item, idx) => <div key={idx}>{item.product_name}</div>)}
                       </td>
@@ -108,7 +109,7 @@ export default function OrdersPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="text-sm font-mono font-semibold text-gray-900 dark:text-white">#{order.id.substring(0, 8)}</span>
-                      <span className="text-xs text-gray-500 ml-2">{new Date(order.created_at).toLocaleDateString()}</span>
+                      <span className="text-xs text-gray-500 ml-2">{formatDate(order.created_at)}</span>
                     </div>
                     <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                       order.status === 'paid' ? 'bg-green-100 text-green-800' :
