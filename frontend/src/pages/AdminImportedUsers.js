@@ -558,6 +558,18 @@ export default function AdminImportedUsers() {
             <p className="text-sm text-red-600">Expired</p>
             <p className="text-2xl font-bold text-red-600">{users?.filter(u => u.status === 'expired').length || 0}</p>
           </div>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 md:col-span-5">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Last Synced: {(() => {
+                const latest = users?.reduce((max, u) => {
+                  const d = u.last_synced ? new Date(u.last_synced) : null;
+                  return d && (!max || d > max) ? d : max;
+                }, null);
+                return latest ? latest.toLocaleString() : 'Never';
+              })()}
+              <span className="text-xs text-gray-400 ml-2">(auto-syncs every hour)</span>
+            </p>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1841,4 +1853,3 @@ function AddCreditsModal({ user, onClose, onSuccess }) {
     </div>
   );
 }
-
