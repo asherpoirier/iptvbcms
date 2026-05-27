@@ -2918,6 +2918,21 @@ async def get_services(current_user: dict = Depends(get_current_user)):
         service["id"] = str(service["_id"])
         del service["_id"]
         
+        # Sync expiry from imported_users (panel-synced data is the source of truth)
+        if service.get("xtream_username") and service.get("status") in ("active", "expired", "suspended"):
+            imported = await imported_users_collection.find_one({"username": service["xtream_username"]})
+            if imported and imported.get("expiry_date"):
+                panel_expiry = imported["expiry_date"]
+                service_expiry = service.get("expiry_date")
+                # Update if panel expiry differs from service expiry
+                if panel_expiry and (not service_expiry or abs((panel_expiry - service_expiry).total_seconds()) > 3600):
+                    service["expiry_date"] = panel_expiry
+                    # Also update the stored record
+                    await services_collection.update_one(
+                        {"_id": str_to_objectid(service["id"])},
+                        {"$set": {"expiry_date": panel_expiry}}
+                    )
+        
         # Get product details to include setup instructions
         if service.get("product_id"):
             product = await products_collection.find_one({"_id": str_to_objectid(service["product_id"])})
@@ -4358,31 +4373,39 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
                             except (ValueError, TypeError):
                                 continue
                     
-                    # Fallback: try to fetch expiry from panel
+                    # Fallback: fetch expiry from panel via table_search
                     if not new_expiry:
                         try:
-                            from xtreamui_session_client import XtreamUISessionClient
-                            fetch_client = XtreamUISessionClient(
-                                panel_url=panel["panel_url"],
-                                username=panel["admin_username"],
-                                password=panel["admin_password"],
-                                http_basic_user=panel.get("http_basic_user", ""),
-                                http_basic_pass=panel.get("http_basic_pass", ""),
-                                proxy_url=panel.get("proxy_url", "")
-                            )
-                            user_info = fetch_client.get_user_info(existing_subscriber["xtream_username"])
-                            if user_info and user_info.get("exp_date"):
-                                exp_str = user_info["exp_date"]
-                                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
-                                    try:
-                                        new_expiry = datetime.strptime(str(exp_str).strip(), fmt)
-                                        break
-                                    except ValueError:
-                                        continue
-                                if not new_expiry and str(exp_str).isdigit():
-                                    new_expiry = datetime.fromtimestamp(int(exp_str))
+                            import time, re as _re
+                            session_client = xtream_service._get_session_client()
+                            search_params = {
+                                'draw': '1', 'start': '0', 'length': '10',
+                                'search[value]': existing_subscriber["xtream_username"],
+                                'search[regex]': 'false', 'id': 'users',
+                                '_': str(int(time.time() * 1000))
+                            }
+                            for i in range(12):
+                                search_params[f'columns[{i}][data]'] = str(i)
+                                search_params[f'columns[{i}][searchable]'] = 'true'
+                                search_params[f'columns[{i}][orderable]'] = 'true'
+                            search_url = f"{session_client.panel_url}/table_search.php"
+                            resp = session_client.session.get(search_url, params=search_params, auth=session_client.http_auth, timeout=15)
+                            if resp.status_code == 200 and len(resp.text.strip()) == 0:
+                                resp = session_client.session.post(search_url, data=search_params, auth=session_client.http_auth, timeout=15)
+                            if resp.status_code == 200 and resp.text.strip():
+                                search_data = resp.json()
+                                users_data = search_data.get('data', [])
+                                if users_data and len(users_data[0]) > 7:
+                                    exp_raw = _re.sub(r'<[^>]+>', ' ', str(users_data[0][7])).strip()
+                                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
+                                        try:
+                                            new_expiry = datetime.strptime(exp_raw.strip(), fmt)
+                                            logger.info(f"Fetched actual panel expiry via search: {new_expiry}")
+                                            break
+                                        except ValueError:
+                                            continue
                         except Exception as e:
-                            logger.warning(f"Could not fetch panel expiry: {e}")
+                            logger.warning(f"Could not fetch panel expiry via search: {e}")
                     
                     # Final fallback: calculate
                     if not new_expiry:
@@ -4663,8 +4686,22 @@ async def extend_xuione_line(xuione_service, existing_service: dict, item: dict,
             logger.error(f"No line ID found for service {existing_service.get('_id')}")
             return
         
-        # Calculate new expiry date (extend from current expiry if not expired, otherwise from now)
-        extend_days = item["term_months"] * 30
+        # Calculate extend days from product duration, fallback to term_months
+        pkg_duration = product.get("duration") or product.get("official_duration")
+        pkg_dur_unit = (product.get("duration_unit") or product.get("official_duration_in") or "months").lower()
+        if pkg_duration:
+            pkg_duration = int(pkg_duration)
+            if pkg_dur_unit in ("months", "month"):
+                extend_days = pkg_duration * 30
+            elif pkg_dur_unit in ("years", "year"):
+                extend_days = pkg_duration * 365
+            elif pkg_dur_unit in ("days", "day"):
+                extend_days = pkg_duration
+            else:
+                extend_days = pkg_duration * 30
+        else:
+            extend_days = item["term_months"] * 30
+        
         current_expiry = existing_service.get("expiry_date", datetime.utcnow())
         
         if current_expiry < datetime.utcnow():
@@ -4834,7 +4871,21 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
                 expiry_date = datetime.utcnow() + timedelta(days=trial_duration)
             logger.info(f"Trial product (XuiOne): duration={trial_duration} {trial_unit}, expiry={expiry_date}")
         else:
-            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+            # Use product duration from package, fallback to term_months
+            pkg_duration = product.get("duration") or product.get("official_duration")
+            pkg_dur_unit = (product.get("duration_unit") or product.get("official_duration_in") or "months").lower()
+            if pkg_duration:
+                pkg_duration = int(pkg_duration)
+                if pkg_dur_unit in ("months", "month"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+                elif pkg_dur_unit in ("years", "year"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 365)
+                elif pkg_dur_unit in ("days", "day"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration)
+                else:
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
         
         expiry_date_str = expiry_date.strftime("%Y-%m-%d")
         
@@ -4849,6 +4900,7 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
             "xtream_username": username,  # Keep field name for compatibility
             "xtream_password": password,
             "status": "pending",
+            "panel_type": "xuione",
             "panel_index": panel_index,
             "panel_type": "xuione",
             "panel_name": panel_name,
@@ -5236,7 +5288,20 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
             else:
                 expiry_date = datetime.utcnow() + timedelta(days=trial_duration * 30)
         else:
-            expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+            pkg_duration = product.get("duration") or product.get("official_duration")
+            pkg_dur_unit = (product.get("duration_unit") or product.get("official_duration_in") or "months").lower()
+            if pkg_duration:
+                pkg_duration = int(pkg_duration)
+                if pkg_dur_unit in ("months", "month"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+                elif pkg_dur_unit in ("years", "year"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 365)
+                elif pkg_dur_unit in ("days", "day"):
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration)
+                else:
+                    expiry_date = datetime.utcnow() + timedelta(days=pkg_duration * 30)
+            else:
+                expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
         
         package_id = product.get("xtream_package_id")
         
@@ -5286,6 +5351,17 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
                                 if current_exp < datetime.utcnow():
                                     current_exp = datetime.utcnow()
                                 new_expiry = current_exp + timedelta(days=term_months * 30)
+                                # Use product duration if available
+                                pkg_dur = product.get("duration") or product.get("official_duration")
+                                pkg_dur_unit = (product.get("duration_unit") or "months").lower()
+                                if pkg_dur:
+                                    pkg_dur = int(pkg_dur)
+                                    if pkg_dur_unit in ("months", "month"):
+                                        new_expiry = current_exp + timedelta(days=pkg_dur * 30)
+                                    elif pkg_dur_unit in ("years", "year"):
+                                        new_expiry = current_exp + timedelta(days=pkg_dur * 365)
+                                    elif pkg_dur_unit in ("days", "day"):
+                                        new_expiry = current_exp + timedelta(days=pkg_dur)
                         
                         await services_collection.update_one(
                             {"_id": existing_subscriber["_id"]},

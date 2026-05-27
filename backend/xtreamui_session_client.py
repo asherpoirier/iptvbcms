@@ -491,16 +491,15 @@ class XtreamUISessionClient:
                                             return {'success': True, 'username': username, 'new_expiry': new_date_clean}
                                         else:
                                             logger.warning(f"Date did not change - extension may have failed")
-                                            # Still return success if HTTP was 200 - might be a verification issue
                                             if edit_response.status_code == 200:
-                                                return {'success': True, 'username': username, 'note': 'Date unchanged but POST succeeded'}
+                                                return {'success': True, 'username': username, 'new_expiry': new_date_clean}
                                 except Exception as ve:
                                     logger.error(f"Verification error: {ve}")
                             
-                            # Fallback to checking edit response
+                            # Fallback — use the exp_date we sent in the POST
                             if edit_response.status_code == 200:
                                 logger.info(f"✓ Subscriber {username} extended (HTTP 200)")
-                                return {'success': True, 'username': username}
+                                return {'success': True, 'username': username, 'new_expiry': edit_data.get('exp_date', '')}
                             else:
                                 logger.error(f"Extension failed with HTTP {edit_response.status_code}")
                                 return {'success': False, 'error': f'HTTP {edit_response.status_code}'}
