@@ -117,11 +117,15 @@ function LicenseCheck({ children }) {
   return children;
 }
 
+function TimezoneLoader() {
+  useTimezone();
+  return null;
+}
+
 function App() {
   const { fetchBranding } = useBrandingStore();
   const { fetchCurrency } = useCurrencyStore();
   const { token, logout } = useAuthStore();
-  useTimezone(); // Load timezone into localStorage on app startup
   const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
   const [isReady, setIsReady] = useState(false);
 
@@ -416,6 +420,7 @@ function App() {
       </Router>
       <SEOHead />
       <ChatbotWidget />
+      <TimezoneLoader />
       <Toaster position="top-center" richColors closeButton duration={4000} />
       </LicenseCheck>
       </GoogleReCaptchaProvider>
