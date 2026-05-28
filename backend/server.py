@@ -234,6 +234,18 @@ def safe_int(value, default=1):
     return default
 
 
+async def safe_upsert_imported_user(query: dict, doc: dict):
+    """Upsert an imported user, handling duplicate key errors gracefully"""
+    try:
+        result = await imported_users_collection.update_one(query, {"$set": doc}, upsert=True)
+        return result
+    except Exception as e:
+        if "E11000" in str(e) or "duplicate key" in str(e).lower():
+            result = await imported_users_collection.update_one(query, {"$set": doc})
+            return result
+        raise
+
+
 async def get_verification_base_url():
     """Get the base URL for verification links - uses VERIFICATION_URL env var, then BACKEND_PUBLIC_URL"""
     url = os.getenv('VERIFICATION_URL', '') or os.getenv('BACKEND_PUBLIC_URL', '') or os.getenv('PUBLIC_URL', 'http://localhost:8001')
@@ -6832,10 +6844,9 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 "last_synced": datetime.utcnow()
             }
             
-            result_up = await imported_users_collection.update_one(
+            result_up = await safe_upsert_imported_user(
                 {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                upsert=True
+                {**user_doc, "created_at": user_doc.get("created_at", datetime.utcnow())}
             )
             if result_up.upserted_id:
                 synced_count += 1
@@ -6884,10 +6895,9 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
                 "last_synced": datetime.utcnow()
             }
             
-            result_up = await imported_users_collection.update_one(
+            result_up = await safe_upsert_imported_user(
                 {"username": username, "panel_name": panel_name, "account_type": "reseller"},
-                {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                upsert=True
+                reseller_doc,
             )
             if result_up.upserted_id:
                 reseller_synced += 1
@@ -7072,11 +7082,10 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 updated_count += 1
             else:
                 try:
-                    await imported_users_collection.update_one(
+                    await safe_upsert_imported_user(
                         {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
+                        user_doc,
+                            )
                     synced_count += 1
                 except Exception:
                     await imported_users_collection.update_one(
@@ -7112,11 +7121,10 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
                 updated_count += 1
             else:
                 try:
-                    await imported_users_collection.update_one(
+                    await safe_upsert_imported_user(
                         {"username": username, "panel_name": panel_name, "account_type": "reseller"},
-                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
+                        reseller_doc,
+                            )
                     synced_count += 1
                 except Exception:
                     await imported_users_collection.update_one(
@@ -7311,11 +7319,10 @@ async def sync_nxtdash_users(panel_index: int = 0, current_user: dict = Depends(
             }
 
             try:
-                result_db = await imported_users_collection.update_one(
+                result_db = await safe_upsert_imported_user(
                     {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                    {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                    upsert=True,
-                )
+                    user_doc,
+                    )
                 if result_db.upserted_id:
                     synced_count += 1
                 else:
@@ -8623,11 +8630,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         filter_query,
-                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
+                        user_doc,
+                            )
                     if result.upserted_id:
                         synced_count += 1
                     elif result.modified_count:
@@ -8663,13 +8669,12 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         {"username": reseller_doc.get("username", ""), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "subscriber")},
 
-                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        reseller_doc,
 
-                        upsert=True
-
+        
                     )
 
                     if result.upserted_id:
@@ -8754,11 +8759,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         {"username": username, "panel_type": user_doc.get("panel_type", "xtream"), "panel_index": user_doc.get("panel_index", 0), "account_type": user_doc.get("account_type", "subscriber")},
-                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
+                        user_doc,
+                            )
                     if result.upserted_id:
                         synced_count += 1
                     elif result.modified_count:
@@ -8794,13 +8798,12 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow()
                     }
                     
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         {"username": reseller_doc.get("username", ""), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "subscriber")},
 
-                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                        reseller_doc,
 
-                        upsert=True
-
+        
                     )
 
                     if result.upserted_id:
@@ -8896,11 +8899,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         updated_count += 1
                     else:
                         try:
-                            result = await imported_users_collection.update_one(
+                            result = await safe_upsert_imported_user(
                                 {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                                upsert=True
-                            )
+                                user_doc,
+                                            )
                             if result.upserted_id:
                                 synced_count += 1
                             else:
@@ -8937,11 +8939,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "account_type": "reseller",
                         "last_synced": datetime.utcnow()
                     }
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         {"username": reseller_doc.get("username", username), "panel_type": reseller_doc.get("panel_type", "xtream"), "panel_index": reseller_doc.get("panel_index", 0), "account_type": reseller_doc.get("account_type", "reseller")},
-                        {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True
-                    )
+                        reseller_doc,
+                            )
                     if result.upserted_id:
                         synced_count += 1
                     elif result.modified_count:
@@ -9011,11 +9012,10 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                         "last_synced": datetime.utcnow(),
                     }
 
-                    result = await imported_users_collection.update_one(
+                    result = await safe_upsert_imported_user(
                         {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                        {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                        upsert=True,
-                    )
+                        user_doc,
+                            )
                     if result.upserted_id:
                         synced_count += 1
                     elif result.modified_count:
@@ -9172,10 +9172,9 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 "last_synced": datetime.utcnow()
             }
             
-            result_up = await imported_users_collection.update_one(
+            result_up = await safe_upsert_imported_user(
                 {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
-                {"$set": user_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                upsert=True
+                user_doc,
             )
             if result_up.upserted_id:
                 synced_count += 1
@@ -9229,10 +9228,9 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
                 "last_synced": datetime.utcnow()
             }
             
-            result_up = await imported_users_collection.update_one(
+            result_up = await safe_upsert_imported_user(
                 {"username": username, "panel_name": panel_name, "account_type": "reseller"},
-                {"$set": reseller_doc, "$setOnInsert": {"created_at": datetime.utcnow()}},
-                upsert=True
+                reseller_doc,
             )
             if result_up.upserted_id:
                 reseller_synced += 1
