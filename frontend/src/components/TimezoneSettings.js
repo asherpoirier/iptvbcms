@@ -55,8 +55,10 @@ export default function TimezoneSettings({ settings }) {
   const saveMutation = useMutation({
     mutationFn: () => adminAPI.updateSettings({ ...settings, timezone }),
     onSuccess: () => {
+      localStorage.setItem('panel_timezone', timezone);
       queryClient.invalidateQueries(['admin-settings']);
-      toast.success('Timezone saved');
+      queryClient.invalidateQueries(['panel-timezone']);
+      toast.success('Timezone saved — all dates will update on next page load');
     },
     onError: (err) => toast.error(err.response?.data?.detail || 'Failed to save'),
   });

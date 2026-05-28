@@ -40,6 +40,7 @@ import AdminKnowledgeBase from './pages/AdminKnowledgeBase';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import SEOHead from './components/SEOHead';
 import ChatbotWidget from './components/ChatbotWidget';
+import { useTimezone } from './utils/timezone';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
 import AdminImportedUsers from './pages/AdminImportedUsers';
 import TicketsPage from './pages/TicketsPage';
@@ -120,6 +121,7 @@ function App() {
   const { fetchBranding } = useBrandingStore();
   const { fetchCurrency } = useCurrencyStore();
   const { token, logout } = useAuthStore();
+  useTimezone(); // Load timezone into localStorage on app startup
   const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
   const [isReady, setIsReady] = useState(false);
 
