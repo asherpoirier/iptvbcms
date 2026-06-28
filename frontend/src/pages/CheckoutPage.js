@@ -1449,7 +1449,14 @@ export default function CheckoutPage() {
                         try {
                           setError('');
                           setGhostpayLoading(true);
-                          const { TagadaCore } = await import('@tagadapay/core-js');
+                          const { TagadaCore } = await new Promise((resolve, reject) => {
+                            if (window.TagadaCore) { resolve({ TagadaCore: window.TagadaCore }); return; }
+                            const script = document.createElement('script');
+                            script.src = 'https://cdn.jsdelivr.net/npm/@tagadapay/core-js@latest/dist/index.umd.js';
+                            script.onload = () => resolve({ TagadaCore: window.TagadaCore });
+                            script.onerror = () => reject(new Error('Failed to load TagadaPay SDK'));
+                            document.head.appendChild(script);
+                          });
                           const tagadaCore = new TagadaCore({ environment: 'production' });
                           
                           const cardNumber = document.getElementById('tagada-card').value.replace(/\s/g, '');
