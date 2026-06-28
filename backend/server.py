@@ -2158,13 +2158,17 @@ async def create_tagadapay_payment(order_id: str, request: Request, background_t
         raise HTTPException(status_code=400, detail="TagadaPay not configured")
     
     tagada_token = body.get("tagadaToken")
+    card_number = body.get("cardNumber")
+    expiry_date = body.get("expiryDate")
+    cvc = body.get("cvc")
+    cardholder_name = body.get("cardholderName", "")
     sca_required = body.get("scaRequired", False)
     customer_email = body.get("email", "")
     first_name = body.get("firstName", "")
     last_name = body.get("lastName", "")
     
-    if not tagada_token:
-        raise HTTPException(status_code=400, detail="tagadaToken is required")
+    if not tagada_token and not card_number:
+        raise HTTPException(status_code=400, detail="Card details or tagadaToken required")
     
     user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
     if user:
@@ -2173,13 +2177,51 @@ async def create_tagadapay_payment(order_id: str, request: Request, background_t
         first_name = first_name or name_parts[0]
         last_name = last_name or (name_parts[1] if len(name_parts) > 1 else "")
     
-    # 1. Create payment instrument from token
-    instrument_result = await tagada.create_payment_instrument(tagada_token, customer_email, first_name, last_name)
-    if not instrument_result["success"]:
-        raise HTTPException(status_code=400, detail=f"Card tokenization failed: {instrument_result['error']}")
-    
-    pi_id = instrument_result["payment_instrument_id"]
-    customer_id = instrument_result["customer_id"]
+    # If raw card data sent, tokenize server-side first
+    if card_number and not tagada_token:
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                token_resp = await client.post(
+                    f"https://api.tagadapay.io/api/public/v1/payment-instruments/create-from-card",
+                    headers={"Authorization": f"Bearer {tagada.api_key}", "Content-Type": "application/json"},
+                    json={
+                        "storeId": tagada.store_id,
+                        "card": {
+                            "number": card_number,
+                            "expiryDate": expiry_date,
+                            "cvc": cvc,
+                            "cardholderName": cardholder_name
+                        },
+                        "customerData": {
+                            "email": customer_email,
+                            "firstName": first_name or "Customer",
+                            "lastName": last_name or ""
+                        }
+                    },
+                    timeout=15.0
+                )
+                if token_resp.status_code in (200, 201):
+                    token_data = token_resp.json()
+                    pi_id = token_data.get("paymentInstrument", {}).get("id")
+                    customer_id = token_data.get("customer", {}).get("id")
+                    if not pi_id:
+                        raise HTTPException(status_code=400, detail="Failed to create payment instrument")
+                else:
+                    error_msg = token_resp.json().get("error", {}).get("message", f"Card error ({token_resp.status_code})")
+                    raise HTTPException(status_code=400, detail=error_msg)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"TagadaPay card tokenization error: {e}")
+            raise HTTPException(status_code=400, detail=f"Card processing error: {str(e)}")
+    else:
+        # Token-based flow
+        instrument_result = await tagada.create_payment_instrument(tagada_token, customer_email, first_name, last_name)
+        if not instrument_result["success"]:
+            raise HTTPException(status_code=400, detail=f"Card tokenization failed: {instrument_result['error']}")
+        pi_id = instrument_result["payment_instrument_id"]
+        customer_id = instrument_result["customer_id"]
     
     # 2. Optional 3DS
     threeds_id = None
