@@ -2158,10 +2158,10 @@ async def create_tagadapay_payment(order_id: str, request: Request, background_t
         raise HTTPException(status_code=400, detail="TagadaPay not configured")
     
     tagada_token = body.get("tagadaToken")
-    card_number = body.get("cardNumber")
-    expiry_date = body.get("expiryDate")
+    card_number = body.get("card_number") or body.get("cardNumber")
+    expiry_date = body.get("expiry") or body.get("expiryDate")
     cvc = body.get("cvc")
-    cardholder_name = body.get("cardholderName", "")
+    cardholder_name = body.get("cardholder_name") or body.get("cardholderName", "")
     sca_required = body.get("scaRequired", False)
     customer_email = body.get("email", "")
     first_name = body.get("firstName", "")
@@ -2177,53 +2177,81 @@ async def create_tagadapay_payment(order_id: str, request: Request, background_t
         first_name = first_name or name_parts[0]
         last_name = last_name or (name_parts[1] if len(name_parts) > 1 else "")
     
-    # If raw card data sent, tokenize server-side first
+    # If raw card data sent, tokenize server-side via BasisTheory then create tagadaToken
     if card_number and not tagada_token:
-        import httpx
+        import httpx, base64, json as json_mod
+        BT_API_KEY = "key_prod_us_pub_PNMB2AiaECJ463K6QAPNU6"
         try:
+            # Parse expiry MM/YY
+            exp_parts = expiry_date.split("/")
+            exp_month = int(exp_parts[0])
+            exp_year = int(exp_parts[1]) + 2000
+            
             async with httpx.AsyncClient() as client:
-                token_resp = await client.post(
-                    f"https://api.tagadapay.io/api/public/v1/payment-instruments/create-from-card",
-                    headers={"Authorization": f"Bearer {tagada.api_key}", "Content-Type": "application/json"},
+                # Step 1: Tokenize card via BasisTheory REST API
+                bt_resp = await client.post(
+                    "https://api.basistheory.com/tokens",
+                    headers={"BT-API-KEY": BT_API_KEY, "Content-Type": "application/json"},
                     json={
-                        "storeId": tagada.store_id,
-                        "card": {
-                            "number": card_number,
-                            "expiryDate": expiry_date,
-                            "cvc": cvc,
-                            "cardholderName": cardholder_name
+                        "type": "card",
+                        "data": {
+                            "number": card_number.replace(" ", ""),
+                            "expiration_month": exp_month,
+                            "expiration_year": exp_year,
+                            "cvc": cvc
                         },
-                        "customerData": {
-                            "email": customer_email,
-                            "firstName": first_name or "Customer",
-                            "lastName": last_name or ""
-                        }
+                        **({"metadata": {"cardholderName": cardholder_name}} if cardholder_name else {})
                     },
                     timeout=15.0
                 )
-                if token_resp.status_code in (200, 201):
-                    token_data = token_resp.json()
-                    pi_id = token_data.get("paymentInstrument", {}).get("id")
-                    customer_id = token_data.get("customer", {}).get("id")
-                    if not pi_id:
-                        raise HTTPException(status_code=400, detail="Failed to create payment instrument")
-                else:
-                    error_msg = token_resp.json().get("error", {}).get("message", f"Card error ({token_resp.status_code})")
-                    raise HTTPException(status_code=400, detail=error_msg)
+                if bt_resp.status_code not in (200, 201):
+                    error_detail = bt_resp.text
+                    logger.error(f"BasisTheory tokenization failed: {bt_resp.status_code} {error_detail}")
+                    raise HTTPException(status_code=400, detail=f"Card tokenization failed: {error_detail}")
+                
+                bt_data = bt_resp.json()
+                bt_token_id = bt_data.get("id")
+                logger.info(f"BasisTheory token created: {bt_token_id}")
+                
+                # Step 2: Build tagadaToken (base64-encoded JSON matching @tagadapay/core-js format)
+                tagada_token_obj = {
+                    "type": "card",
+                    "token": bt_token_id,
+                    "provider": "basistheory",
+                    "nonSensitiveMetadata": {
+                        "cardType": "card",
+                        "expiryMonth": exp_month,
+                        "expiryYear": exp_year,
+                        "createdAt": datetime.utcnow().isoformat() + "Z"
+                    }
+                }
+                # Add card details if available
+                card_data = bt_data.get("data", {})
+                if card_data.get("number"):
+                    tagada_token_obj["nonSensitiveMetadata"]["last4"] = str(card_data["number"])[-4:]
+                enrichments = bt_data.get("enrichments", {})
+                bin_details = enrichments.get("bin_details", {})
+                if bin_details.get("card_brand"):
+                    tagada_token_obj["nonSensitiveMetadata"]["brand"] = bin_details["card_brand"].lower()
+                if bt_data.get("fingerprint"):
+                    tagada_token_obj["nonSensitiveMetadata"]["fingerprint"] = bt_data["fingerprint"]
+                
+                tagada_token = base64.b64encode(json_mod.dumps(tagada_token_obj).encode()).decode()
+                logger.info(f"TagadaToken created from BasisTheory token {bt_token_id}")
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"TagadaPay card tokenization error: {e}")
+            logger.error(f"Server-side card tokenization error: {e}")
             raise HTTPException(status_code=400, detail=f"Card processing error: {str(e)}")
-    else:
-        # Token-based flow
-        instrument_result = await tagada.create_payment_instrument(tagada_token, customer_email, first_name, last_name)
-        if not instrument_result["success"]:
-            raise HTTPException(status_code=400, detail=f"Card tokenization failed: {instrument_result['error']}")
-        pi_id = instrument_result["payment_instrument_id"]
-        customer_id = instrument_result["customer_id"]
     
-    # 2. Optional 3DS
+    # Exchange tagadaToken for a payment instrument
+    instrument_result = await tagada.create_payment_instrument(tagada_token, customer_email, first_name, last_name)
+    if not instrument_result["success"]:
+        raise HTTPException(status_code=400, detail=f"Payment instrument creation failed: {instrument_result['error']}")
+    pi_id = instrument_result["payment_instrument_id"]
+    customer_id = instrument_result["customer_id"]
+    
+    # Optional 3DS
     threeds_id = None
     if sca_required:
         threeds_result = await tagada.create_3ds_session(pi_id)
