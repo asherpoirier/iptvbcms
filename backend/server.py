@@ -2137,6 +2137,150 @@ async def create_square_payment(order_id: str, data: dict, background_tasks: Bac
     raise HTTPException(status_code=500, detail=result.get("error", "Payment failed"))
 
 
+# ===== TAGADAPAY ROUTES =====
+
+@app.post("/api/orders/{order_id}/pay/tagadapay")
+async def create_tagadapay_payment(order_id: str, request: Request, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """Process a TagadaPay card payment"""
+    user_id = current_user["sub"]
+    body = await request.json()
+    
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id), "user_id": user_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Order already paid")
+    
+    settings = await get_settings()
+    from tagadapay_service import get_tagadapay_service
+    tagada = get_tagadapay_service(settings)
+    if not tagada:
+        raise HTTPException(status_code=400, detail="TagadaPay not configured")
+    
+    tagada_token = body.get("tagadaToken")
+    sca_required = body.get("scaRequired", False)
+    customer_email = body.get("email", "")
+    first_name = body.get("firstName", "")
+    last_name = body.get("lastName", "")
+    
+    if not tagada_token:
+        raise HTTPException(status_code=400, detail="tagadaToken is required")
+    
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    if user:
+        customer_email = customer_email or user.get("email", "")
+        name_parts = user.get("name", "").split(" ", 1)
+        first_name = first_name or name_parts[0]
+        last_name = last_name or (name_parts[1] if len(name_parts) > 1 else "")
+    
+    # 1. Create payment instrument from token
+    instrument_result = await tagada.create_payment_instrument(tagada_token, customer_email, first_name, last_name)
+    if not instrument_result["success"]:
+        raise HTTPException(status_code=400, detail=f"Card tokenization failed: {instrument_result['error']}")
+    
+    pi_id = instrument_result["payment_instrument_id"]
+    customer_id = instrument_result["customer_id"]
+    
+    # 2. Optional 3DS
+    threeds_id = None
+    if sca_required:
+        threeds_result = await tagada.create_3ds_session(pi_id)
+        if threeds_result["success"]:
+            threeds_id = threeds_result["threeds_session_id"]
+    
+    # 3. Process payment
+    currency = settings.get("currency", "USD")
+    if isinstance(currency, dict):
+        currency = currency.get("code", "USD")
+    
+    site_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", ""))
+    return_url = f"{site_url}/orders?payment=success&order_id={order_id}"
+    
+    amount_cents = int(float(order["total"]) * 100)
+    
+    payment_result = await tagada.process_payment(
+        payment_instrument_id=pi_id,
+        customer_id=customer_id,
+        amount=amount_cents,
+        currency=currency,
+        threeds_session_id=threeds_id,
+        return_url=return_url,
+        metadata={"order_id": order_id}
+    )
+    
+    # Save transaction
+    await db.payment_transactions.insert_one({
+        "order_id": order_id,
+        "user_id": user_id,
+        "gateway": "tagadapay",
+        "payment_id": payment_result.get("payment_id"),
+        "payment_status": payment_result.get("status", "unknown"),
+        "amount": order["total"],
+        "created_at": datetime.utcnow()
+    })
+    
+    if payment_result.get("requires_redirect"):
+        return {
+            "success": True,
+            "requires_redirect": True,
+            "redirect_url": payment_result["redirect_url"],
+            "payment_id": payment_result.get("payment_id")
+        }
+    
+    if payment_result["success"]:
+        # Mark order as paid and provision
+        await orders_collection.update_one(
+            {"_id": str_to_objectid(order_id)},
+            {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "tagadapay", "payment_id": payment_result.get("payment_id")}}
+        )
+        await invoices_collection.update_one(
+            {"order_id": order_id},
+            {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+        )
+        await db.payment_transactions.update_one(
+            {"order_id": order_id, "gateway": "tagadapay"},
+            {"$set": {"payment_status": "paid"}}
+        )
+        user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+        if user:
+            background_tasks.add_task(provision_order_services, order_id, order, user)
+        
+        return {"success": True, "status": "paid", "payment_id": payment_result.get("payment_id")}
+    
+    raise HTTPException(status_code=400, detail=payment_result.get("error", "Payment failed"))
+
+@app.post("/api/webhooks/tagadapay")
+async def tagadapay_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Handle TagadaPay webhooks"""
+    try:
+        body = await request.json()
+        event_type = body.get("type", "")
+        logger.info(f"TagadaPay webhook: {event_type}")
+        
+        if event_type in ("payment.succeeded", "payment.captured"):
+            payment_data = body.get("data", {}).get("object", {})
+            payment_id = payment_data.get("id", "")
+            metadata = payment_data.get("metadata", {})
+            order_id = metadata.get("order_id", "")
+            
+            if order_id:
+                order = await orders_collection.find_one({"_id": str_to_objectid(order_id)})
+                if order and order["status"] != "paid":
+                    await orders_collection.update_one(
+                        {"_id": str_to_objectid(order_id)},
+                        {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "tagadapay", "payment_id": payment_id}}
+                    )
+                    await invoices_collection.update_one({"order_id": order_id}, {"$set": {"status": "paid", "paid_date": datetime.utcnow()}})
+                    await db.payment_transactions.update_one({"order_id": order_id, "gateway": "tagadapay"}, {"$set": {"payment_status": "paid"}})
+                    user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                    if user:
+                        background_tasks.add_task(provision_order_services, order_id, order, user)
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"TagadaPay webhook error: {e}")
+        return {"status": "error"}
+
 # ===== GHOSTPAY (CRYPTO) ROUTES =====
 
 @app.get("/api/ghostpay/cryptos")
@@ -3681,10 +3825,14 @@ async def get_payment_config():
             "enabled": settings.get("ghostpay", {}).get("enabled", False),
             "api_key": settings.get("ghostpay", {}).get("api_key", "")
         },
+        "tagadapay": {
+            "enabled": settings.get("tagadapay", {}).get("enabled", False),
+            "store_id": settings.get("tagadapay", {}).get("store_id", "")
+        },
         "manual": {
             "enabled": settings.get("manual", {}).get("enabled", True)
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay"]),
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay", "tagadapay"]),
         "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
     }
 

@@ -856,7 +856,7 @@ export default function CheckoutPage() {
                 
                 <div className="space-y-3 mb-6">
                   {/* Render payment methods in order from settings */}
-                  {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay']).map((method) => {
+                  {(settings?.payment_method_order || ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay', 'tagadapay']).map((method) => {
                     // Manual Payment
                     if (method === 'manual' && settings?.manual?.enabled !== false) {
                       return (
@@ -1070,6 +1070,22 @@ export default function CheckoutPage() {
                     }
 
                     // Helcim
+                    if (method === 'tagadapay' && settings?.tagadapay?.enabled) {
+                      return (
+                        <label key="tagadapay" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-teal-500 transition bg-white dark:bg-gray-800" data-testid="payment-tagadapay">
+                          <input type="radio" name="payment" value="tagadapay" checked={paymentMethod === 'tagadapay'}
+                            onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-teal-500" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <CreditCard className="w-5 h-5 text-teal-500" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">TagadaPay</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Cards, SEPA, iDEAL, Bancontact and more</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
+
                     if (method === 'helcim' && settings?.helcim?.enabled) {
                       return (
                         <label key="helcim" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-teal-500 transition bg-white dark:bg-gray-800" data-testid="helcim-payment-option">
@@ -1417,11 +1433,72 @@ export default function CheckoutPage() {
                     </button>
                     <p className="text-xs text-center text-gray-500 dark:text-gray-400">You will be redirected to GhostPay to select your cryptocurrency and complete payment</p>
                   </div>
+                ) : paymentMethod === 'tagadapay' && settings?.tagadapay?.enabled ? (
+                  <div className="space-y-3">
+                    <div className="space-y-3">
+                      <input type="text" placeholder="Card Number" id="tagada-card" className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="text" placeholder="MM/YY" id="tagada-expiry" className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                        <input type="text" placeholder="CVC" id="tagada-cvc" className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                      </div>
+                      <input type="text" placeholder="Cardholder Name" id="tagada-name" className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          setError('');
+                          setGhostpayLoading(true);
+                          const { TagadaCore } = await import('@tagadapay/core-js');
+                          const tagadaCore = new TagadaCore({ environment: 'production' });
+                          
+                          const cardNumber = document.getElementById('tagada-card').value.replace(/\s/g, '');
+                          const expiry = document.getElementById('tagada-expiry').value;
+                          const cvc = document.getElementById('tagada-cvc').value;
+                          const name = document.getElementById('tagada-name').value;
+                          
+                          if (!cardNumber || !expiry || !cvc) { setError('Please fill in all card fields'); setGhostpayLoading(false); return; }
+                          
+                          const { tagadaToken, rawToken } = await tagadaCore.tokenizeCard({
+                            cardNumber, expiryDate: expiry, cvc, cardholderName: name
+                          });
+                          const scaRequired = rawToken?.metadata?.auth?.scaRequired === true;
+                          
+                          const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+                          const orderRes = await axios.post(`${API_URL}/api/orders`, {
+                            items: items.map(i => ({ product_id: i.product_id, product_name: i.product_name, term_months: i.term_months, price: i.price, account_type: i.account_type, action_type: i.action_type, renewal_service_id: i.renewal_service_id })),
+                            total: getTotal(), coupon_code: appliedCouponCode, use_credits: creditsUsed,
+                            reseller_credentials: hasNewResellerProduct ? { username: resellerUsername, password: resellerPassword, add_credits_to_existing: resellerAddCredits } : null
+                          }, { headers: { Authorization: `Bearer ${authToken}` }});
+                          const orderId = orderRes.data.order_id || orderRes.data.id;
+                          
+                          const payRes = await axios.post(`${API_URL}/api/orders/${orderId}/pay/tagadapay`, {
+                            tagadaToken, scaRequired
+                          }, { headers: { Authorization: `Bearer ${authToken}` }});
+                          
+                          if (payRes.data.requires_redirect) {
+                            window.location.href = payRes.data.redirect_url;
+                          } else if (payRes.data.success) {
+                            clearCart();
+                            toast.success('Payment successful!');
+                            navigate('/orders');
+                          }
+                        } catch (err) {
+                          setError(err.response?.data?.detail || err.message || 'Payment failed');
+                        } finally {
+                          setGhostpayLoading(false);
+                        }
+                      }}
+                      disabled={ghostpayLoading}
+                      className="w-full bg-teal-600 text-white py-3 rounded-lg font-bold hover:bg-teal-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                      data-testid="tagadapay-pay-btn"
+                    >
+                      <CreditCard className="w-5 h-5" />
+                      {ghostpayLoading ? 'Processing...' : `Pay $${getTotal().toFixed(2)}`}
+                    </button>
+                  </div>
                 ) : (
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-600 rounded-lg p-4">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      Selected payment method is not configured. Please use manual payment.
-                    </p>
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">Selected payment method is not configured.</p>
                   </div>
                 )}
               </div>

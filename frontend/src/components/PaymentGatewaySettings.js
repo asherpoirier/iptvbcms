@@ -8,7 +8,7 @@ export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
   
   // Default payment method order
-  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay'];
+  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay', 'tagadapay'];
   
   const [formData, setFormData] = useState({
     paypal_enabled: settings?.paypal?.enabled || false,
@@ -32,6 +32,9 @@ export default function PaymentGatewaySettings({ settings }) {
     blockonomics_confirmations: settings?.blockonomics?.confirmations_required || 1,
     ghostpay_enabled: settings?.ghostpay?.enabled || false,
     ghostpay_api_key: settings?.ghostpay?.api_key || '',
+    tagadapay_enabled: settings?.tagadapay?.enabled || false,
+    tagadapay_api_key: settings?.tagadapay?.api_key || '',
+    tagadapay_store_id: settings?.tagadapay?.store_id || '',
     emt_enabled: settings?.emt?.enabled || false,
     emt_instructions: settings?.emt?.instructions || '',
     zelle_enabled: settings?.zelle?.enabled || false,
@@ -133,6 +136,11 @@ export default function PaymentGatewaySettings({ settings }) {
           enabled: data.ghostpay_enabled,
           api_key: data.ghostpay_api_key
         },
+        tagadapay: {
+          enabled: data.tagadapay_enabled,
+          api_key: data.tagadapay_api_key,
+          store_id: data.tagadapay_store_id
+        },
         emt: {
           enabled: data.emt_enabled,
           instructions: data.emt_instructions
@@ -201,6 +209,7 @@ export default function PaymentGatewaySettings({ settings }) {
     helcim: { name: 'Helcim', icon: CreditCard, color: 'text-teal-600' },
     blockonomics: { name: 'Bitcoin (Blockonomics)', icon: Bitcoin, color: 'text-orange-500' },
     ghostpay: { name: 'Crypto (GhostPay)', icon: Bitcoin, color: 'text-purple-500' },
+    tagadapay: { name: 'TagadaPay', icon: CreditCard, color: 'text-teal-500' },
   };
 
   return (
@@ -630,6 +639,56 @@ export default function PaymentGatewaySettings({ settings }) {
                 }} className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 text-sm">Copy</button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Add this URL as the callback URL in your GhostPay dashboard</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* TagadaPay */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <CreditCard className="w-6 h-6 text-teal-500" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">TagadaPay</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Cards, SEPA, iDEAL, Bancontact, Klarna and more</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.tagadapay_enabled}
+              onChange={(e) => setFormData({ ...formData, tagadapay_enabled: e.target.checked })}
+              className="sr-only peer" data-testid="tagadapay-enabled" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+          </label>
+        </div>
+        {formData.tagadapay_enabled && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Processing API Key</label>
+              <input type="password" value={formData.tagadapay_api_key}
+                onChange={(e) => setFormData({ ...formData, tagadapay_api_key: e.target.value })}
+                placeholder="tp_sk_..."
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                data-testid="tagadapay-api-key" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">TPA-restricted processing key from your TagadaPay dashboard</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Store ID</label>
+              <input type="text" value={formData.tagadapay_store_id}
+                onChange={(e) => setFormData({ ...formData, tagadapay_store_id: e.target.value })}
+                placeholder="store_..."
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                data-testid="tagadapay-store-id" />
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook URL</label>
+              <div className="flex items-center gap-2">
+                <input type="text" readOnly
+                  value={`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/tagadapay`}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono" />
+                <button type="button" onClick={() => navigator.clipboard.writeText(`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/tagadapay`)}
+                  className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 text-sm">Copy</button>
+              </div>
             </div>
           </div>
         )}
