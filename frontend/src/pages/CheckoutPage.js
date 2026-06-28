@@ -96,6 +96,7 @@ export default function CheckoutPage() {
       helcim: settings.helcim?.enabled,
       blockonomics: settings.blockonomics?.enabled,
       ghostpay: settings.ghostpay?.enabled,
+      tagadapay: settings.tagadapay?.enabled,
       emt: settings.emt?.enabled,
       zelle: settings.zelle?.enabled,
       cashapp: settings.cashapp?.enabled,

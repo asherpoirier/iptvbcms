@@ -50,7 +50,7 @@ export default function PaymentGatewaySettings({ settings }) {
     helcim_enabled: settings?.helcim?.enabled || false,
     helcim_api_token: settings?.helcim?.api_token || '',
     helcim_terminal_id: settings?.helcim?.terminal_id || '',
-    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
   });
 
   React.useEffect(() => {
@@ -92,7 +92,7 @@ export default function PaymentGatewaySettings({ settings }) {
         helcim_enabled: settings?.helcim?.enabled || false,
         helcim_api_token: settings?.helcim?.api_token || '',
         helcim_terminal_id: settings?.helcim?.terminal_id || '',
-        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
       });
     }
   }, [settings]);
