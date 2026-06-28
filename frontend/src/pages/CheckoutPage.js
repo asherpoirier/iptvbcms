@@ -1458,8 +1458,10 @@ export default function CheckoutPage() {
                           if (!cardNumber || !expiry || !cvc) { setError('Please fill in all card fields'); setGhostpayLoading(false); return; }
                           
                           // Tokenize card using TagadaPay core-js SDK
-                          const { tagada } = await import('@tagadapay/core-js');
-                          const tokenResult = await tagada.payment.tokenizeCard({
+                          const { Tokenizer } = await import('@tagadapay/core-js');
+                          const tokenizer = new Tokenizer({ environment: 'production' });
+                          await tokenizer.initialize();
+                          const tokenResult = await tokenizer.tokenizeCard({
                             cardNumber, expiryDate: expiry, cvc, cardholderName: cardName
                           });
                           const tagadaToken = tokenResult.tagadaToken;
