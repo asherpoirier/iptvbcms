@@ -1453,9 +1453,27 @@ export default function CheckoutPage() {
                           const cardNumber = document.getElementById('tagada-card').value.replace(/\s/g, '');
                           const expiry = document.getElementById('tagada-expiry').value;
                           const cvc = document.getElementById('tagada-cvc').value;
-                          const name = document.getElementById('tagada-name').value;
+                          const cardName = document.getElementById('tagada-name').value;
                           
                           if (!cardNumber || !expiry || !cvc) { setError('Please fill in all card fields'); setGhostpayLoading(false); return; }
+                          
+                          // Load TagadaCore via ESM dynamic import from CDN
+                          let TagadaCore;
+                          try {
+                            const mod = await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/@tagadapay/core-js@latest/+esm');
+                            TagadaCore = mod.TagadaCore || mod.default?.TagadaCore || mod.default;
+                          } catch(loadErr) {
+                            console.error('TagadaCore load error:', loadErr);
+                            setError('Failed to load payment SDK. Please try again.');
+                            setGhostpayLoading(false);
+                            return;
+                          }
+                          
+                          const tagadaCore = new TagadaCore({ environment: 'production' });
+                          const { tagadaToken, rawToken } = await tagadaCore.tokenizeCard({
+                            cardNumber, expiryDate: expiry, cvc, cardholderName: cardName
+                          });
+                          const scaRequired = rawToken?.metadata?.auth?.scaRequired === true;
                           
                           const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
                           const orderRes = await axios.post(`${API_URL}/api/orders`, {
@@ -1466,7 +1484,7 @@ export default function CheckoutPage() {
                           const orderId = orderRes.data.order_id || orderRes.data.id;
                           
                           const payRes = await axios.post(`${API_URL}/api/orders/${orderId}/pay/tagadapay`, {
-                            cardNumber, expiryDate: expiry, cvc, cardholderName: name
+                            tagadaToken, scaRequired
                           }, { headers: { Authorization: `Bearer ${authToken}` }});
                           
                           if (payRes.data.requires_redirect) {
