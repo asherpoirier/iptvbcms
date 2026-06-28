@@ -1457,23 +1457,13 @@ export default function CheckoutPage() {
                           
                           if (!cardNumber || !expiry || !cvc) { setError('Please fill in all card fields'); setGhostpayLoading(false); return; }
                           
-                          // Load TagadaCore via ESM dynamic import from CDN
-                          let TagadaCore;
-                          try {
-                            const mod = await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/@tagadapay/core-js@latest/+esm');
-                            TagadaCore = mod.TagadaCore || mod.default?.TagadaCore || mod.default;
-                          } catch(loadErr) {
-                            console.error('TagadaCore load error:', loadErr);
-                            setError('Failed to load payment SDK. Please try again.');
-                            setGhostpayLoading(false);
-                            return;
-                          }
-                          
-                          const tagadaCore = new TagadaCore({ environment: 'production' });
-                          const { tagadaToken, rawToken } = await tagadaCore.tokenizeCard({
+                          // Tokenize card using TagadaPay core-js SDK
+                          const { tagada } = await import('@tagadapay/core-js');
+                          const tokenResult = await tagada.payment.tokenizeCard({
                             cardNumber, expiryDate: expiry, cvc, cardholderName: cardName
                           });
-                          const scaRequired = rawToken?.metadata?.auth?.scaRequired === true;
+                          const tagadaToken = tokenResult.tagadaToken;
+                          const scaRequired = tokenResult.rawToken?.metadata?.auth?.scaRequired === true;
                           
                           const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
                           const orderRes = await axios.post(`${API_URL}/api/orders`, {
