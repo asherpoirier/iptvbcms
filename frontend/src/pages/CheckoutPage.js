@@ -1457,16 +1457,7 @@ export default function CheckoutPage() {
                           
                           if (!cardNumber || !expiry || !cvc) { setError('Please fill in all card fields'); setGhostpayLoading(false); return; }
                           
-                          // Tokenize card using TagadaPay core-js SDK
-                          const { Tokenizer } = await import('@tagadapay/core-js');
-                          const tokenizer = new Tokenizer({ environment: 'production' });
-                          await tokenizer.initialize();
-                          const tokenResult = await tokenizer.tokenizeCard({
-                            cardNumber, expiryDate: expiry, cvc, cardholderName: cardName
-                          });
-                          const tagadaToken = tokenResult.tagadaToken;
-                          const scaRequired = tokenResult.rawToken?.metadata?.auth?.scaRequired === true;
-                          
+                          // Send card data to backend for server-side tokenization & payment
                           const authToken = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
                           const orderRes = await axios.post(`${API_URL}/api/orders`, {
                             items: items.map(i => ({ product_id: i.product_id, product_name: i.product_name, term_months: i.term_months, price: i.price, account_type: i.account_type, action_type: i.action_type, renewal_service_id: i.renewal_service_id })),
@@ -1476,7 +1467,7 @@ export default function CheckoutPage() {
                           const orderId = orderRes.data.order_id || orderRes.data.id;
                           
                           const payRes = await axios.post(`${API_URL}/api/orders/${orderId}/pay/tagadapay`, {
-                            tagadaToken, scaRequired
+                            card_number: cardNumber, expiry, cvc, cardholder_name: cardName
                           }, { headers: { Authorization: `Bearer ${authToken}` }});
                           
                           if (payRes.data.requires_redirect) {
