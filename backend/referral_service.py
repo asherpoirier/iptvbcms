@@ -1,9 +1,19 @@
 from datetime import datetime, timedelta
+from bson import ObjectId
 import random
 import string
 import logging
 
 logger = logging.getLogger(__name__)
+
+def _to_oid(val):
+    """Safely convert a string to ObjectId for MongoDB _id lookups"""
+    if isinstance(val, ObjectId):
+        return val
+    try:
+        return ObjectId(val)
+    except Exception:
+        return val
 
 class ReferralService:
     """Manage referral program"""
@@ -44,16 +54,7 @@ class ReferralService:
     
     async def create_referral_code_for_user(self, user_id: str) -> str:
         """Create and assign referral code to user"""
-        from bson import ObjectId
-        
-        # Convert string ID to ObjectId if needed
-        try:
-            if isinstance(user_id, str) and len(user_id) == 24:
-                user_oid = ObjectId(user_id)
-            else:
-                user_oid = user_id
-        except:
-            user_oid = user_id
+        user_oid = _to_oid(user_id)
         
         user = await self.users.find_one({"_id": user_oid})
         if not user:
@@ -121,9 +122,10 @@ class ReferralService:
     
     async def complete_referral(self, referred_user_id: str, order_id: str):
         """Mark referral as completed when referred user makes first purchase"""
-        # Find user
-        user = await self.users.find_one({"_id": referred_user_id})
+        # Find user with proper ObjectId conversion
+        user = await self.users.find_one({"_id": _to_oid(referred_user_id)})
         if not user or not user.get("referred_by"):
+            logger.warning(f"complete_referral: user {referred_user_id} not found or no referred_by")
             return
         
         # Find referral record
@@ -133,6 +135,7 @@ class ReferralService:
         })
         
         if not referral:
+            logger.warning(f"complete_referral: no pending referral found for {user['email']}")
             return
         
         # Update referral status
@@ -146,27 +149,34 @@ class ReferralService:
             }}
         )
         
+        logger.info(f"Referral {referral['_id']} completed for user {referred_user_id}")
+        
         # Award credits to referrer
         if not referral.get("rewarded"):
             await self.award_referral_credits(str(referral["_id"]))
     
     async def award_referral_credits(self, referral_id: str):
         """Award credits to referrer"""
-        referral = await self.referrals.find_one({"_id": referral_id})
+        referral = await self.referrals.find_one({"_id": _to_oid(referral_id)})
         if not referral or referral.get("rewarded"):
+            logger.warning(f"award_referral_credits: referral {referral_id} not found or already rewarded")
             return
         
         referrer_id = referral["referrer_id"]
         reward_amount = referral.get("reward_amount", 10.0)
         
-        # Get current balance
-        user = await self.users.find_one({"_id": referrer_id})
+        # Get current balance — referrer_id is stored as string, convert to ObjectId for _id lookup
+        user = await self.users.find_one({"_id": _to_oid(referrer_id)})
+        if not user:
+            logger.error(f"award_referral_credits: referrer user {referrer_id} not found")
+            return
+        
         current_balance = user.get("credit_balance", 0.0)
         new_balance = current_balance + reward_amount
         
         # Update user balance
         await self.users.update_one(
-            {"_id": referrer_id},
+            {"_id": _to_oid(referrer_id)},
             {"$set": {"credit_balance": new_balance}}
         )
         
@@ -213,8 +223,8 @@ class ReferralService:
         
         leaderboard = []
         async for entry in self.referrals.aggregate(pipeline):
-            # Get user details
-            user = await self.users.find_one({"_id": entry["_id"]})
+            # referrer_id is stored as string in referral records, convert for user lookup
+            user = await self.users.find_one({"_id": _to_oid(entry["_id"])})
             if user:
                 leaderboard.append({
                     "user_id": str(user["_id"]),
