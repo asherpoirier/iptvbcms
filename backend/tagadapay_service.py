@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.tagadapay.io"
+BASE_URL = "https://app.tagadapay.com"
 
 
 class TagadaPayService:
@@ -93,6 +93,7 @@ class TagadaPayService:
                 "currency": currency.upper(),
                 "paymentMethod": "card",
                 "mode": "purchase",
+                "initiatedBy": "customer",
             }
             if threeds_session_id:
                 payload["threedsSessionId"] = threeds_session_id
