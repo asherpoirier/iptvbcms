@@ -3932,18 +3932,6 @@ async def mark_order_paid(order_id: str, background_tasks: BackgroundTasks,
     # Get user
     user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
     
-    # Check if this is a referral completion (first purchase from referred user)
-    if user.get("referred_by"):
-        # Check if this is their first paid order
-        first_order = await orders_collection.count_documents({
-            "user_id": order["user_id"],
-            "status": "paid"
-        })
-        
-        if first_order == 1:  # This is their first paid order
-            await referral_service.complete_referral(order["user_id"], order_id)
-            logger.info(f"Referral completed for user {order['user_id']}")
-    
     # Send payment received email
     email_service = await get_configured_email_service()
     if email_service and email_service.enabled:
@@ -4287,6 +4275,19 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
         logger.info(f"Provisioning order {order_id} — lock acquired")
         
         settings = await get_settings()
+        
+        # === Referral completion check (covers ALL payment paths) ===
+        if user.get("referred_by") and referral_service:
+            try:
+                first_order_count = await orders_collection.count_documents({
+                    "user_id": order["user_id"],
+                    "status": "paid"
+                })
+                if first_order_count <= 1:
+                    await referral_service.complete_referral(order["user_id"], order_id)
+                    logger.info(f"Referral completed for user {order['user_id']}")
+            except Exception as e:
+                logger.error(f"Referral completion error for order {order_id}: {e}")
         
         # Get configured email service with all required params
         email_service = await get_configured_email_service()
