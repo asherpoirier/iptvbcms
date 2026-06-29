@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Save, DollarSign, Gift } from 'lucide-react';
+import api from '../api/api';
+import { Save, DollarSign, Gift, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function CreditReferralSettings({ settings }) {
@@ -59,6 +60,20 @@ export default function CreditReferralSettings({ settings }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-settings']);
       toast.success('Settings saved successfully!');
+    },
+  });
+
+  const fixStuckMutation = useMutation({
+    mutationFn: () => api.post('/api/admin/referral/fix-stuck'),
+    onSuccess: (response) => {
+      const data = response.data;
+      toast.success(`Fixed ${data.fixed} stuck referrals, skipped ${data.skipped}`);
+      if (data.errors?.length > 0) {
+        toast.error(`${data.errors.length} errors occurred`);
+      }
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.detail || 'Failed to fix referrals');
     },
   });
 
@@ -217,6 +232,28 @@ export default function CreditReferralSettings({ settings }) {
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Fix Stuck Referrals */}
+      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900 dark:text-white">Fix Stuck Referrals</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Find pending referrals where the referred user already made a purchase and award missing credits
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fixStuckMutation.mutate()}
+            disabled={fixStuckMutation.isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
+            data-testid="fix-stuck-referrals-btn"
+          >
+            <RefreshCw className={`w-4 h-4 ${fixStuckMutation.isLoading ? 'animate-spin' : ''}`} />
+            {fixStuckMutation.isLoading ? 'Fixing...' : 'Fix Stuck Referrals'}
+          </button>
         </div>
       </div>
 

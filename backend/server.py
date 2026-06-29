@@ -11217,6 +11217,49 @@ async def manually_award_referral(referral_id: str, current_user: dict = Depends
     await referral_service.award_referral_credits(referral_id)
     return {"message": "Referral credits awarded"}
 
+@app.post("/api/admin/referral/fix-stuck")
+async def fix_stuck_referrals(current_user: dict = Depends(get_current_admin_user)):
+    """Find pending referrals where the referred user already made a purchase, complete them and award credits"""
+    fixed = 0
+    skipped = 0
+    errors = []
+    
+    async for ref in referrals_collection.find({"status": "pending"}):
+        try:
+            user = await users_collection.find_one({"email": ref["referred_email"]})
+            if not user:
+                skipped += 1
+                continue
+            
+            paid = await orders_collection.count_documents({"user_id": str(user["_id"]), "status": "paid"})
+            if paid == 0:
+                skipped += 1
+                continue
+            
+            # Mark as completed
+            await referrals_collection.update_one({"_id": ref["_id"]}, {"$set": {
+                "status": "completed",
+                "referred_id": str(user["_id"]),
+                "completed_at": datetime.utcnow()
+            }})
+            
+            # Award credits if not already rewarded
+            if not ref.get("rewarded"):
+                await referral_service.award_referral_credits(str(ref["_id"]))
+                fixed += 1
+            else:
+                fixed += 1
+        except Exception as e:
+            errors.append(f"{ref.get('referred_email')}: {str(e)}")
+    
+    return {
+        "fixed": fixed,
+        "skipped": skipped,
+        "errors": errors,
+        "message": f"Fixed {fixed} stuck referrals, skipped {skipped}"
+    }
+
+
 # ===== COUPON SYSTEM ENDPOINTS =====
 
 class CouponCreate(BaseModel):
