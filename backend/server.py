@@ -4320,6 +4320,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                         await provision_onestream_service(order_id, order, user, bp_item, bp, settings, email_service)
                     elif bp_panel_type == "nxtdash":
                         await provision_nxtdash_service(order_id, order, user, bp_item, bp, settings, email_service)
+                    elif bp_panel_type == "ghostsurf":
+                        await provision_ghostsurf_service(order_id, order, user, bp_item, bp, settings, email_service)
                     else:
                         await provision_xtream_service(order_id, order, user, bp_item, bp, settings, email_service)
                 continue
@@ -4370,6 +4372,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                 await provision_onestream_service(order_id, order, user, item, product, settings, email_service)
             elif panel_type == "nxtdash":
                 await provision_nxtdash_service(order_id, order, user, item, product, settings, email_service)
+            elif panel_type == "ghostsurf":
+                await provision_ghostsurf_service(order_id, order, user, item, product, settings, email_service)
             else:
                 await provision_xtream_service(order_id, order, user, item, product, settings, email_service)
                 
@@ -6239,6 +6243,302 @@ async def reorder_product(product_id: str, direction: str = Query(...), current_
     await products_collection.update_one({"_id": swp["_id"]}, {"$set": {"display_order": cur_order}})
     
     return {"message": "Product reordered successfully"}
+
+
+
+# ===== GHOSTSURF VPN ROUTES =====
+
+@app.post("/api/admin/ghostsurf/test")
+async def test_ghostsurf_connection(current_user: dict = Depends(get_current_admin_user)):
+    """Test GhostSurf VPN API connection"""
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    gs = get_ghostsurf_service(settings, 0)
+    if not gs:
+        raise HTTPException(status_code=400, detail="GhostSurf panel not configured")
+    result = await gs.test_connection()
+    if result["success"]:
+        balance = result["balance"]
+        # Convert cents to dollars if balance is in cents
+        credit_cents = balance.get("credit_cents", 0) if isinstance(balance, dict) else 0
+        currency = balance.get("currency", "USD") if isinstance(balance, dict) else "USD"
+        balance_dollars = credit_cents / 100
+        return {"message": f"Connected! Balance: ${balance_dollars:.2f} {currency}, Plans: {result['plans_count']}"}
+    raise HTTPException(status_code=400, detail=result["error"])
+
+@app.get("/api/admin/ghostsurf/plans/{panel_index}")
+async def get_ghostsurf_plans(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Get available GhostSurf VPN plans"""
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    gs = get_ghostsurf_service(settings, panel_index)
+    if not gs:
+        raise HTTPException(status_code=400, detail="GhostSurf panel not configured")
+    try:
+        plans = await gs.get_plans()
+        # Normalize plans to match the package format expected by the product form
+        packages = []
+        for plan in plans:
+            plan_id = plan.get("id") or plan.get("slug", "")
+            name = plan.get("name", "Unknown Plan")
+            months = plan.get("months", 1)
+            wholesale_cents = plan.get("wholesale_cents", 0)
+            retail_cents = plan.get("retail_cents", 0)
+            packages.append({
+                "id": plan_id,
+                "name": f"{name} ({months} mo) - Wholesale: ${wholesale_cents/100:.2f}, Retail: ${retail_cents/100:.2f}",
+                "duration": months,
+                "duration_unit": "months",
+                "credits": wholesale_cents / 100,
+                "max_connections": plan.get("max_devices", 5),
+                "is_trial": False,
+                "bouquets": [],
+                "plan_id": str(plan_id),
+            })
+        return {"packages": packages, "raw_plans": plans}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/admin/ghostsurf/balance/{panel_index}")
+async def get_ghostsurf_balance(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Get GhostSurf reseller balance"""
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    gs = get_ghostsurf_service(settings, panel_index)
+    if not gs:
+        raise HTTPException(status_code=400, detail="GhostSurf panel not configured")
+    try:
+        return await gs.get_balance()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/admin/ghostsurf/accounts/{panel_index}")
+async def list_ghostsurf_accounts(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """List GhostSurf VPN accounts"""
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    gs = get_ghostsurf_service(settings, panel_index)
+    if not gs:
+        raise HTTPException(status_code=400, detail="GhostSurf panel not configured")
+    try:
+        return await gs.list_accounts()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/services/{service_id}/ghostsurf-credentials")
+async def get_ghostsurf_service_credentials(service_id: str, current_user: dict = Depends(get_current_user)):
+    """Get VPN credentials for a GhostSurf service"""
+    user_id = current_user["sub"]
+    service = await services_collection.find_one({"_id": str_to_objectid(service_id)})
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    if service.get("user_id") != user_id and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if service.get("panel_type") != "ghostsurf":
+        raise HTTPException(status_code=400, detail="Not a GhostSurf service")
+    
+    gs_account_id = service.get("ghostsurf_account_id")
+    if not gs_account_id:
+        return {"username": service.get("vpn_username", ""), "password": service.get("vpn_password", "")}
+    
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    panel_index = service.get("panel_index", 0)
+    gs = get_ghostsurf_service(settings, panel_index)
+    if not gs:
+        return {"username": service.get("vpn_username", ""), "password": service.get("vpn_password", "")}
+    
+    try:
+        creds = await gs.get_credentials(gs_account_id)
+        return creds
+    except Exception:
+        return {"username": service.get("vpn_username", ""), "password": service.get("vpn_password", "")}
+
+
+@app.post("/api/admin/ghostsurf/sync-users/{panel_index}")
+async def sync_ghostsurf_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Sync VPN accounts from GhostSurf into imported users"""
+    settings = await get_settings()
+    from ghostsurf_service import get_ghostsurf_service
+    gs = get_ghostsurf_service(settings, panel_index)
+    if not gs:
+        raise HTTPException(status_code=400, detail="GhostSurf panel not configured")
+    
+    gs_panels = settings.get("ghostsurf", {}).get("panels", [])
+    panel_name = gs_panels[panel_index].get("name", f"GhostSurf VPN {panel_index + 1}") if panel_index < len(gs_panels) else "GhostSurf"
+    
+    try:
+        accounts = await gs.list_accounts()
+        if not isinstance(accounts, list):
+            accounts = accounts.get("accounts", accounts.get("data", []))
+        
+        synced = 0
+        updated = 0
+        for acct in accounts:
+            acct_id = str(acct.get("id") or acct.get("account_id", ""))
+            username = acct.get("username", "")
+            if not acct_id:
+                continue
+            
+            expiry_date = None
+            expiry_str = acct.get("expires_at") or acct.get("expiry") or acct.get("expiry_date", "")
+            if expiry_str:
+                for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                    try:
+                        expiry_date = datetime.strptime(str(expiry_str).split(".")[0].replace("Z",""), fmt)
+                        break
+                    except ValueError:
+                        continue
+            
+            status = acct.get("status", "active")
+            if expiry_date and expiry_date < datetime.utcnow():
+                status = "expired"
+            
+            plan_name_val = acct.get("plan", {}).get("name", "") if isinstance(acct.get("plan"), dict) else acct.get("plan_name", acct.get("plan", ""))
+            
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "ghostsurf",
+                "panel_name": panel_name,
+                "username": username or acct_id,
+                "password": acct.get("password", ""),
+                "expiry_date": expiry_date,
+                "status": status,
+                "max_connections": acct.get("max_devices", 5),
+                "account_type": "subscriber",
+                "ghostsurf_account_id": acct_id,
+                "ghostsurf_plan_id": acct.get("plan_id") or (acct.get("plan", {}).get("id") if isinstance(acct.get("plan"), dict) else ""),
+                "plan_name": plan_name_val,
+                "last_synced": datetime.utcnow()
+            }
+            
+            result = await safe_upsert_imported_user(
+                {"panel_type": "ghostsurf", "panel_index": panel_index, "ghostsurf_account_id": acct_id},
+                user_doc,
+            )
+            if result.upserted_id:
+                synced += 1
+            elif result.modified_count:
+                updated += 1
+        
+        return {"success": True, "synced": synced, "updated": updated, "total_accounts": len(accounts), "message": f"Synced {synced} new, updated {updated} from {panel_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+
+async def provision_ghostsurf_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
+    """Provision GhostSurf VPN service"""
+    try:
+        gs_panels = settings.get("ghostsurf", {}).get("panels", [])
+        panel_index = product.get("panel_index", 0)
+        
+        if not gs_panels or panel_index >= len(gs_panels):
+            logger.error("GhostSurf panel not configured")
+            return
+        
+        panel = gs_panels[panel_index]
+        panel_name = panel.get("name", f"GhostSurf VPN Panel {panel_index + 1}")
+        
+        from ghostsurf_service import get_ghostsurf_service
+        gs = get_ghostsurf_service(settings, panel_index)
+        if not gs:
+            logger.error("GhostSurf service not available")
+            return
+        
+        # Get plan_id from product
+        plan_id = product.get("ghostsurf_plan_id") or product.get("xtream_package_id")
+        if not plan_id:
+            logger.error(f"No GhostSurf plan_id found on product {product.get('name')}")
+            return
+        
+        plan_id = str(plan_id)
+        
+        # Check for renewal (extending existing service)
+        action_type = item.get("action_type", "new")
+        renewal_service_id = item.get("renewal_service_id")
+        
+        if action_type == "renew" and renewal_service_id:
+            existing_service = await services_collection.find_one({"_id": str_to_objectid(renewal_service_id)})
+            if existing_service and existing_service.get("ghostsurf_account_id"):
+                gs_account_id = existing_service["ghostsurf_account_id"]
+                logger.info(f"Renewing GhostSurf account {gs_account_id}")
+                try:
+                    renew_result = await gs.renew_account(gs_account_id)
+                    logger.info(f"GhostSurf renewal result: {renew_result}")
+                    
+                    # Update service expiry
+                    term_months = item.get("term_months", 1)
+                    current_expiry = existing_service.get("expiry_date", datetime.utcnow())
+                    if isinstance(current_expiry, str):
+                        current_expiry = datetime.fromisoformat(current_expiry.replace("Z", "+00:00"))
+                    new_expiry = current_expiry + timedelta(days=term_months * 30)
+                    
+                    await services_collection.update_one(
+                        {"_id": str_to_objectid(renewal_service_id)},
+                        {"$set": {"expiry_date": new_expiry, "status": "active"}}
+                    )
+                    logger.info(f"GhostSurf service renewed until {new_expiry}")
+                    return
+                except Exception as e:
+                    logger.error(f"GhostSurf renewal failed: {e}, creating new account instead")
+        
+        # Create new VPN account
+        logger.info(f"Creating GhostSurf account with plan {plan_id}")
+        result = await gs.create_account(plan_id)
+        logger.info(f"GhostSurf create result: {result}")
+        
+        # Extract account details
+        account_id = str(result.get("id") or result.get("account_id") or result.get("account", {}).get("id", ""))
+        username = result.get("username") or result.get("account", {}).get("username", "")
+        password = result.get("password") or result.get("account", {}).get("password", "")
+        
+        term_months = item.get("term_months", 1)
+        expiry_date = datetime.utcnow() + timedelta(days=term_months * 30)
+        
+        # Save service
+        service_dict = {
+            "user_id": order["user_id"],
+            "order_id": order_id,
+            "product_id": item["product_id"],
+            "product_name": item["product_name"],
+            "panel_type": "ghostsurf",
+            "panel_index": panel_index,
+            "panel_name": panel_name,
+            "account_type": "vpn",
+            "ghostsurf_account_id": account_id,
+            "ghostsurf_plan_id": plan_id,
+            "vpn_username": username,
+            "vpn_password": password,
+            "status": "active",
+            "start_date": datetime.utcnow(),
+            "expiry_date": expiry_date,
+            "term_months": term_months,
+            "created_at": datetime.utcnow()
+        }
+        await services_collection.insert_one(service_dict)
+        logger.info(f"GhostSurf VPN service created: account={account_id}, user={username}")
+        
+        # Send VPN activation email with download links
+        if email_service:
+            try:
+                await email_service.send_vpn_activated(
+                    customer_email=user["email"],
+                    customer_name=user["name"],
+                    service_name=item["product_name"],
+                    vpn_username=username,
+                    vpn_password=password,
+                    expiry_date=expiry_date.strftime("%Y-%m-%d"),
+                    max_devices=product.get("max_connections", 5),
+                    customer_id=order["user_id"]
+                )
+            except Exception as e:
+                logger.error(f"Failed to send GhostSurf activation email: {e}")
+    
+    except Exception as e:
+        logger.error(f"GhostSurf provisioning error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 # ===== PRODUCT GROUPS =====
@@ -9252,16 +9552,97 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             logger.error(f"Error syncing from {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
     
+    # Sync GhostSurf VPN panels
+    ghostsurf_panels = settings.get("ghostsurf", {}).get("panels", [])
+    for panel_index, panel in enumerate(ghostsurf_panels):
+        panel_name = panel.get("name", f"GhostSurf VPN {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from GhostSurf panel: {panel_name}")
+            from ghostsurf_service import get_ghostsurf_service
+            gs = get_ghostsurf_service(settings, panel_index)
+            if not gs:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+            
+            synced_count = 0
+            updated_count = 0
+            
+            accounts = await gs.list_accounts()
+            if not isinstance(accounts, list):
+                accounts = accounts.get("accounts", accounts.get("data", []))
+            
+            for acct in accounts:
+                acct_id = str(acct.get("id") or acct.get("account_id", ""))
+                username = acct.get("username", "")
+                if not acct_id:
+                    continue
+                
+                # Parse expiry
+                expiry_date = None
+                expiry_str = acct.get("expires_at") or acct.get("expiry") or acct.get("expiry_date", "")
+                if expiry_str:
+                    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                        try:
+                            expiry_date = datetime.strptime(str(expiry_str).split(".")[0].replace("Z",""), fmt)
+                            break
+                        except ValueError:
+                            continue
+                
+                status = acct.get("status", "active")
+                if expiry_date and expiry_date < datetime.utcnow():
+                    status = "expired"
+                
+                plan_name = acct.get("plan", {}).get("name", "") if isinstance(acct.get("plan"), dict) else acct.get("plan_name", acct.get("plan", ""))
+                
+                user_doc = {
+                    "panel_index": panel_index,
+                    "panel_type": "ghostsurf",
+                    "panel_name": panel_name,
+                    "username": username or acct_id,
+                    "password": acct.get("password", ""),
+                    "expiry_date": expiry_date,
+                    "status": status,
+                    "max_connections": acct.get("max_devices", 5),
+                    "account_type": "subscriber",
+                    "ghostsurf_account_id": acct_id,
+                    "ghostsurf_plan_id": acct.get("plan_id") or (acct.get("plan", {}).get("id") if isinstance(acct.get("plan"), dict) else ""),
+                    "plan_name": plan_name,
+                    "last_synced": datetime.utcnow()
+                }
+                
+                result = await safe_upsert_imported_user(
+                    {"panel_type": "ghostsurf", "panel_index": panel_index, "ghostsurf_account_id": acct_id},
+                    user_doc,
+                )
+                if result.upserted_id:
+                    synced_count += 1
+                elif result.modified_count:
+                    updated_count += 1
+            
+            results["panels_synced"].append({
+                "name": panel_name,
+                "type": "ghostsurf",
+                "synced": synced_count,
+                "updated": updated_count
+            })
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+            
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
+    
     # Check for orphaned users from removed panels (don't auto-delete — let admin decide)
     active_xtream_panel_names = [p.get("name") for p in xtream_panels]
     active_xuione_panel_names = [p.get("name") for p in xuione_panels]
     active_onestream_panel_names = [p.get("name") for p in onestream_panels]
     active_nxtdash_panel_names = [p.get("name") for p in nxtdash_panels]
-    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names
+    active_ghostsurf_panel_names = [p.get("name") for p in ghostsurf_panels]
+    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names + active_ghostsurf_panel_names
 
     orphaned_count = 0
     orphaned_panels = []
-    for ptype, active_names in [("xtream", active_xtream_panel_names), ("xuione", active_xuione_panel_names), ("onestream", active_onestream_panel_names), ("nxtdash", active_nxtdash_panel_names)]:
+    for ptype, active_names in [("xtream", active_xtream_panel_names), ("xuione", active_xuione_panel_names), ("onestream", active_onestream_panel_names), ("nxtdash", active_nxtdash_panel_names), ("ghostsurf", active_ghostsurf_panel_names)]:
         count = await imported_users_collection.count_documents({
             "panel_type": ptype,
             "panel_name": {"$nin": active_names}

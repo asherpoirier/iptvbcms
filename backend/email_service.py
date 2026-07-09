@@ -523,6 +523,70 @@ class EmailService:
             recipient_name=customer_name
         )
     
+
+    async def send_vpn_activated(
+        self,
+        customer_email: str,
+        customer_name: str,
+        service_name: str,
+        vpn_username: str,
+        vpn_password: str,
+        expiry_date: str,
+        max_devices: int = 5,
+        customer_id: str = None
+    ):
+        """Send VPN service activated email with credentials and download links"""
+        subject = f"Your VPN Service is Active — {service_name}"
+        
+        content = f"""
+<p style="font-size:15px;color:#374151;line-height:1.6;">Hi {customer_name},</p>
+<p style="font-size:15px;color:#374151;line-height:1.6;">Your VPN service <strong>{service_name}</strong> is now active! Here are your credentials and setup instructions.</p>
+
+<div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:20px;margin:20px 0;">
+<h3 style="margin:0 0 12px 0;color:#0d9488;font-size:16px;">Your VPN Credentials</h3>
+<table style="width:100%;border-collapse:collapse;">
+<tr><td style="padding:6px 0;color:#6b7280;font-size:14px;width:120px;">Username:</td><td style="padding:6px 0;font-weight:bold;color:#111827;font-size:14px;font-family:monospace;">{vpn_username}</td></tr>
+<tr><td style="padding:6px 0;color:#6b7280;font-size:14px;">Password:</td><td style="padding:6px 0;font-weight:bold;color:#111827;font-size:14px;font-family:monospace;">{vpn_password}</td></tr>
+<tr><td style="padding:6px 0;color:#6b7280;font-size:14px;">Max Devices:</td><td style="padding:6px 0;font-weight:bold;color:#111827;font-size:14px;">{max_devices}</td></tr>
+<tr><td style="padding:6px 0;color:#6b7280;font-size:14px;">Expires:</td><td style="padding:6px 0;font-weight:bold;color:#111827;font-size:14px;">{expiry_date}</td></tr>
+</table>
+</div>
+
+<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin:20px 0;">
+<h3 style="margin:0 0 12px 0;color:#2563eb;font-size:16px;">Download VPN Client</h3>
+<table style="width:100%;border-collapse:collapse;">
+<tr><td style="padding:8px 0;font-size:14px;"><strong>Windows:</strong></td><td style="padding:8px 0;"><a href="https://vpnclient.app/current/vpnclient/vpnclient.exe" style="color:#2563eb;text-decoration:none;">Download .exe</a></td></tr>
+<tr><td style="padding:8px 0;font-size:14px;"><strong>Mac:</strong></td><td style="padding:8px 0;"><a href="https://vpnclient.app/current/vpnclient/vpnclient.dmg" style="color:#2563eb;text-decoration:none;">Download .dmg</a></td></tr>
+<tr><td style="padding:8px 0;font-size:14px;"><strong>Ubuntu:</strong></td><td style="padding:8px 0;"><a href="https://vpnclient.app/current/vpnclient/vpnclient.run" style="color:#2563eb;text-decoration:none;">Download .run</a></td></tr>
+<tr><td style="padding:8px 0;font-size:14px;"><strong>iOS:</strong></td><td style="padding:8px 0;"><a href="https://apps.apple.com/app/id1506797696" style="color:#2563eb;text-decoration:none;">App Store</a></td></tr>
+<tr><td style="padding:8px 0;font-size:14px;"><strong>Android:</strong></td><td style="padding:8px 0;"><a href="https://play.google.com/store/apps/details?id=com.vpn.client" style="color:#2563eb;text-decoration:none;">Google Play</a> &nbsp;|&nbsp; <a href="https://vpnclient.app/apk/VPNClient.apk" style="color:#2563eb;text-decoration:none;">Direct APK</a></td></tr>
+</table>
+</div>
+
+<div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:16px;margin:20px 0;">
+<h3 style="margin:0 0 8px 0;color:#92400e;font-size:14px;">Quick Setup</h3>
+<ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
+<li>Download and install the VPN client for your device</li>
+<li>Open the app and enter your username and password above</li>
+<li>Select a server and connect — you're protected!</li>
+</ol>
+</div>
+
+<p style="font-size:14px;color:#6b7280;line-height:1.6;">If you have any questions, please contact our support team.</p>
+"""
+        
+        wrapped = self._wrap_email(content, f"VPN Service Active — {service_name}", customer_email, "transactional")
+        
+        return await self.send_email(
+            to_email=customer_email,
+            subject=subject,
+            html_content=wrapped,
+            email_type="transactional",
+            template_type="vpn_activated",
+            customer_id=customer_id,
+            recipient_name=customer_name
+        )
+
     async def send_payment_received(
         self,
         user_email: str,

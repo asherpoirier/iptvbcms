@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
 
@@ -86,9 +86,9 @@ class ProductCreate(BaseModel):
     trial_days: int = 0
     prices: dict  # {1: 15.00, 3: 40.00, 6: 75.00, 12: 140.00}
     active: bool = True
-    xtream_package_id: Optional[int] = None  # XtreamUI package ID for provisioning
+    xtream_package_id: Optional[Any] = None  # XtreamUI package ID for provisioning
     panel_index: Optional[int] = 0  # Which panel this product uses
-    panel_type: Optional[str] = 'xtream'  # Panel type: 'xtream' or 'xuione'
+    panel_type: Optional[str] = 'xtream'  # Panel type: 'xtream', 'xuione', 'ghostsurf', etc.
     is_trial: Optional[bool] = False  # Whether this is a trial package
     display_order: Optional[int] = 0  # Order for display (lower = appears first)
     group_id: Optional[str] = ""  # Product group ID
@@ -102,10 +102,11 @@ class ProductCreate(BaseModel):
     duration: Optional[int] = None  # Package duration (e.g., 1, 3, 6, 12)
     duration_unit: Optional[str] = 'months'  # Duration unit: months, days, years
     show_channels: Optional[bool] = True  # Show "View Channels" button on storefront
+    ghostsurf_plan_id: Optional[str] = None  # GhostSurf VPN plan ID
 
 class Product(ProductCreate):
     id: Optional[str] = None
-    xtream_package_id: Optional[int] = None
+    xtream_package_id: Optional[Any] = None
     panel_index: Optional[int] = 0
     is_trial: Optional[bool] = False
     display_order: Optional[int] = 0
