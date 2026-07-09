@@ -21,6 +21,7 @@ import RecaptchaSettings from '../components/RecaptchaSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import OneStreamPanelManagement from '../components/OneStreamPanelManagement';
 import NxtDashPanelManagement from '../components/NxtDashPanelManagement';
+import GhostSurfPanelManagement from '../components/GhostSurfPanelManagement';
 import InvoiceSettings from '../components/InvoiceSettings';
 import SEOSettings from '../components/SEOSettings';
 import { toast } from 'sonner';
@@ -95,6 +96,17 @@ export default function AdminSettings() {
                 NXT Dash Panels
                 <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                   activeTab === 'nxtdash' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                }`}>New</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('ghostsurf')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                  activeTab === 'ghostsurf' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                GhostSurf VPN
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  activeTab === 'ghostsurf' ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
                 }`}>New</span>
               </button>
               <button
@@ -257,6 +269,11 @@ export default function AdminSettings() {
             {/* NXT Dash Panels Tab */}
             {activeTab === 'nxtdash' && (
               <NxtDashPanelManagement settings={settings} />
+            )}
+
+            {/* GhostSurf VPN Tab */}
+            {activeTab === 'ghostsurf' && (
+              <GhostSurfPanelManagement settings={settings} />
             )}
 
             {/* Branding Tab */}

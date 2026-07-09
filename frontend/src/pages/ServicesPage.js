@@ -241,10 +241,10 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                 <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Username</label>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded text-sm font-mono">
-                    {service.xtream_username || 'N/A'}
+                    {service.vpn_username || service.xtream_username || 'N/A'}
                   </code>
                   <button
-                    onClick={() => copyToClipboard(service.xtream_username, 'username')}
+                    onClick={() => copyToClipboard(service.vpn_username || service.xtream_username, 'username')}
                     className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600"
                   >
                     {copied === 'username' ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5" />}
@@ -256,7 +256,7 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                 <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Password</label>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded text-sm font-mono">
-                    {showPassword ? service.xtream_password : '••••••••'}
+                    {showPassword ? (service.vpn_password || service.xtream_password) : '••••••••'}
                   </code>
                   <button
                     onClick={() => setShowPassword(!showPassword)}
@@ -265,7 +265,7 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                   <button
-                    onClick={() => copyToClipboard(service.xtream_password, 'password')}
+                    onClick={() => copyToClipboard(service.vpn_password || service.xtream_password, 'password')}
                     className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600"
                   >
                     {copied === 'password' ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5" />}
@@ -273,8 +273,8 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                 </div>
               </div>
 
-              {/* Streaming Server URL */}
-              {service.streaming_url && (
+              {/* Streaming Server URL (IPTV only) */}
+              {service.streaming_url && service.panel_type !== 'ghostsurf' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Server URL</label>
                   <div className="flex items-center gap-2">
@@ -287,6 +287,28 @@ function ServiceCard({ service, navigate, products, refundsEnabled }) {
                     >
                       {copied === 'serverurl' ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5" />}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* VPN Download Links */}
+              {service.panel_type === 'ghostsurf' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Download VPN Client</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'Windows', href: 'https://vpnclient.app/current/vpnclient/vpnclient.exe' },
+                      { label: 'Mac', href: 'https://vpnclient.app/current/vpnclient/vpnclient.dmg' },
+                      { label: 'Linux', href: 'https://vpnclient.app/current/vpnclient/vpnclient.run' },
+                      { label: 'iOS', href: 'https://apps.apple.com/app/id1506797696' },
+                      { label: 'Google Play', href: 'https://play.google.com/store/apps/details?id=com.vpn.client' },
+                      { label: 'Android APK', href: 'https://vpnclient.app/apk/VPNClient.apk' },
+                    ].map(l => (
+                      <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                        className="px-3 py-2 text-sm font-medium bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded-lg hover:bg-teal-100 dark:hover:bg-teal-900/50 border border-teal-200 dark:border-teal-800 transition">
+                        {l.label}
+                      </a>
+                    ))}
                   </div>
                 </div>
               )}

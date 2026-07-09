@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
+import api from '../api/api';
 import { ArrowLeft, Plus, Edit, Trash2, X, Save, Package, ChevronUp, ChevronDown, Tv, Users, LinkIcon, Check } from 'lucide-react';
 import { getPanelGradient, getPanelColor } from '../utils/panelColors';
 import { toast } from 'sonner';
@@ -41,13 +42,15 @@ export default function AdminProducts() {
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
   const nxtdashPanels = settings?.nxtdash?.panels || [];
+  const ghostsurfPanels = settings?.ghostsurf?.panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index })),
     ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index })),
     ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index })),
-    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index }))
+    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index })),
+    ...ghostsurfPanels.map((panel, index) => ({ ...panel, type: 'ghostsurf', originalIndex: index }))
   ];
   
   // For components that need just XtreamUI panels (like ResellerPackageModal)
@@ -64,6 +67,9 @@ export default function AdminProducts() {
     }
     if (panelType === 'nxtdash') {
       return nxtdashPanels[panelIndex]?.name || `NXT Dash Panel ${panelIndex}`;
+    }
+    if (panelType === 'ghostsurf') {
+      return ghostsurfPanels[panelIndex]?.name || `GhostSurf VPN ${panelIndex}`;
     }
     return xtreamPanels[panelIndex]?.name || `Panel ${panelIndex}`;
   };
@@ -404,7 +410,7 @@ export default function AdminProducts() {
                     <option value="all">All Panels</option>
                     {allPanels.map((panel, idx) => (
                       <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
-                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : panel.type === 'onestream' ? '1-Stream' : panel.type === 'nxtdash' ? 'NXT Dash' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
+                        {panel.name || `${panel.type === 'xuione' ? 'XuiOne' : panel.type === 'onestream' ? '1-Stream' : panel.type === 'nxtdash' ? 'NXT Dash' : panel.type === 'ghostsurf' ? 'GhostSurf VPN' : 'XtreamUI'} Panel ${panel.originalIndex + 1}`}
                       </option>
                     ))}
                   </select>
@@ -667,13 +673,15 @@ function ProductFormModal({ product, onClose, onSuccess }) {
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
   const nxtdashPanels = settings?.nxtdash?.panels || [];
+  const ghostsurfPanels = settings?.ghostsurf?.panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
     ...xtreamPanels.map((panel, index) => ({ ...panel, type: 'xtream', originalIndex: index, label: `${panel.name} (XtreamUI)` })),
     ...xuionePanels.map((panel, index) => ({ ...panel, type: 'xuione', originalIndex: index, label: `${panel.name} (XuiOne)` })),
     ...onestreamPanels.map((panel, index) => ({ ...panel, type: 'onestream', originalIndex: index, label: `${panel.name} (1-Stream)` })),
-    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index, label: `${panel.name} (NXT Dash)` }))
+    ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index, label: `${panel.name} (NXT Dash)` })),
+    ...ghostsurfPanels.map((panel, index) => ({ ...panel, type: 'ghostsurf', originalIndex: index, label: `${panel.name || 'GhostSurf VPN'} (GhostSurf)` }))
   ];
   
   const panels = allPanels;
@@ -714,6 +722,9 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       } else if (selectedPanelInfo.type === 'nxtdash') {
         const response = await adminAPI.getNxtDashPackages(selectedPanelInfo.index);
         return response.data.packages || [];
+      } else if (selectedPanelInfo.type === 'ghostsurf') {
+        const response = await api.get(`/api/admin/ghostsurf/plans/${selectedPanelInfo.index}`);
+        return response.data.packages || [];
       } else {
         const response = await adminAPI.syncPackagesFromPanel(selectedPanelInfo.index);
         return response.data.packages || [];
@@ -735,6 +746,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       } else if (selectedPanelInfo.type === 'nxtdash') {
         const response = await adminAPI.getNxtDashPackages(selectedPanelInfo.index);
         return response.data.trial_packages || [];
+      } else if (selectedPanelInfo.type === 'ghostsurf') {
+        return []; // GhostSurf doesn't have trial packages
       } else {
         const response = await adminAPI.syncTrialPackagesFromPanel(selectedPanelInfo.index);
         return response.data.packages || [];
@@ -749,7 +762,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   // Handle package selection
   const handlePackageSelect = (packageId) => {
-    const pkg = currentPackages?.find(p => p.id === parseInt(packageId));
+    const pkg = currentPackages?.find(p => String(p.id) === String(packageId) || p.id === parseInt(packageId));
     
     if (pkg) {
       setSelectedPackage(pkg);
@@ -823,6 +836,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         prices: prices,
         active: data.active,
         xtream_package_id: selectedPackage ? selectedPackage.id : (product?.xtream_package_id || null),
+        ghostsurf_plan_id: (selectedPanelInfo.type === 'ghostsurf' && selectedPackage) ? (selectedPackage.plan_id || selectedPackage.id) : (product?.ghostsurf_plan_id || null),
         panel_index: isEditing ? (product?.panel_index ?? selectedPanelInfo.index) : selectedPanelInfo.index,
         panel_type: isEditing ? (product?.panel_type ?? selectedPanelInfo.type) : selectedPanelInfo.type,
         is_trial: data.is_trial || false,
@@ -1083,7 +1097,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               </p>
             </div>
 
-            {/* View Channels Toggle */}
+            {/* View Channels Toggle - hide for VPN panels */}
+            {selectedPanelInfo.type !== 'ghostsurf' && (
             <div className="md:col-span-2 flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
               <div>
                 <span className="text-sm font-medium text-gray-900 dark:text-white">Show "View Channels" on Storefront</span>
@@ -1096,6 +1111,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
               </label>
             </div>
+            )}
 
             {/* Account type fixed to subscriber for regular products */}
             <input type="hidden" name="account_type" value="subscriber" />
@@ -1114,12 +1130,15 @@ function ProductFormModal({ product, onClose, onSuccess }) {
               </select>
             </div>
 
-            {/* Subscriber Settings (always shown for regular products) */}
+            {/* Subscriber Settings - hide bouquets for VPN panels */}
             <>
               <div className="md:col-span-2">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 mt-4">Subscriber Settings</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 mt-4">
+                    {selectedPanelInfo.type === 'ghostsurf' ? 'VPN Settings' : 'Subscriber Settings'}
+                  </h3>
                 </div>
 
+                {selectedPanelInfo.type !== 'ghostsurf' && (
                 <div className="md:col-span-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -1156,10 +1175,11 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     {formData.bouquets.length} of {availableBouquets?.length || 0} bouquets selected
                   </p>
                 </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Max Connections
+                    {selectedPanelInfo.type === 'ghostsurf' ? 'Max Devices' : 'Max Connections'}
                   </label>
                   <input
                     type="number"

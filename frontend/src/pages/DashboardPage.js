@@ -238,17 +238,18 @@ function ServiceCard({ service, navigate, expired }) {
   const countdownColor = isExpired ? 'text-red-600 bg-red-50 dark:bg-red-900/20' : isExpiringSoon ? 'text-amber-600 bg-amber-50 dark:bg-amber-900/20' : 'text-green-600 bg-green-50 dark:bg-green-900/20';
 
   const streamUrl = service.streaming_url;
-  const user = service.xtream_username;
-  const pass = service.xtream_password;
+  const isVPN = service.panel_type === 'ghostsurf';
+  const user = isVPN ? service.vpn_username : service.xtream_username;
+  const pass = isVPN ? service.vpn_password : service.xtream_password;
 
   return (
     <div className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border overflow-hidden ${expired ? 'opacity-70 border-gray-200 dark:border-gray-700' : 'border-gray-200 dark:border-gray-700'}`}>
       {/* Header */}
-      <div className={`px-5 py-3 flex items-center justify-between ${expired ? 'bg-gray-100 dark:bg-gray-800' : 'bg-gradient-to-r from-blue-600 to-blue-700'}`}>
+      <div className={`px-5 py-3 flex items-center justify-between ${expired ? 'bg-gray-100 dark:bg-gray-800' : isVPN ? 'bg-gradient-to-r from-teal-600 to-cyan-700' : 'bg-gradient-to-r from-blue-600 to-blue-700'}`}>
         <div>
           <h3 className={`font-bold ${expired ? 'text-gray-700 dark:text-gray-300' : 'text-white'}`}>{service.product_name}</h3>
-          <p className={`text-xs ${expired ? 'text-gray-500' : 'text-blue-100'}`}>
-            {service.account_type === 'reseller' ? 'Reseller' : 'Subscriber'} — {service.panel_name || 'Panel'}
+          <p className={`text-xs ${expired ? 'text-gray-500' : isVPN ? 'text-teal-100' : 'text-blue-100'}`}>
+            {isVPN ? 'VPN Service' : service.account_type === 'reseller' ? 'Reseller' : 'Subscriber'} — {service.panel_name || 'Panel'}
           </p>
         </div>
         <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${countdownColor}`}>
@@ -285,8 +286,8 @@ function ServiceCard({ service, navigate, expired }) {
           </div>
         )}
 
-        {/* Server URL */}
-        {streamUrl && (
+        {/* Server URL (IPTV) */}
+        {streamUrl && !isVPN && (
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Server</p>
             <div className="flex items-center gap-1">
@@ -298,9 +299,30 @@ function ServiceCard({ service, navigate, expired }) {
           </div>
         )}
 
+        {/* VPN Download Links */}
+        {isVPN && (
+          <div className="pt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Download VPN Client</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: 'Windows', href: 'https://vpnclient.app/current/vpnclient/vpnclient.exe' },
+                { label: 'Mac', href: 'https://vpnclient.app/current/vpnclient/vpnclient.dmg' },
+                { label: 'Linux', href: 'https://vpnclient.app/current/vpnclient/vpnclient.run' },
+                { label: 'iOS', href: 'https://apps.apple.com/app/id1506797696' },
+                { label: 'Android', href: 'https://play.google.com/store/apps/details?id=com.vpn.client' },
+              ].map(l => (
+                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                  className="px-2.5 py-1 text-xs font-medium bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded-md hover:bg-teal-100 dark:hover:bg-teal-900/50 transition">
+                  {l.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Info Row */}
         <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-800">
-          <span>{service.max_connections || '?'} connection{(service.max_connections || 0) !== 1 ? 's' : ''}</span>
+          <span>{service.max_connections || '?'} {isVPN ? 'device' : 'connection'}{(service.max_connections || 0) !== 1 ? 's' : ''}</span>
           <span>{expiryDate ? formatDate(expiryDate) : 'No expiry'}</span>
         </div>
 

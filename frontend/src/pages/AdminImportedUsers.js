@@ -53,6 +53,7 @@ export default function AdminImportedUsers() {
   const xuionePanels = settings?.xuione?.panels || [];
   const onestreamPanels = settings?.onestream?.panels || [];
   const nxtdashPanels = settings?.nxtdash?.panels || [];
+  const ghostsurfPanels = settings?.ghostsurf?.panels || [];
   
   // Combine all panel types for filter dropdown
   const allPanels = [
@@ -83,6 +84,13 @@ export default function AdminImportedUsers() {
       index: index,
       value: `nxtdash-${index}`,
       label: `${panel.name} (NXT Dash)`
+    })),
+    ...ghostsurfPanels.map((panel, index) => ({ 
+      ...panel, 
+      type: 'ghostsurf', 
+      index: index,
+      value: `ghostsurf-${index}`,
+      label: `${panel.name || 'GhostSurf VPN'} (GhostSurf)`
     }))
   ];
   
@@ -344,7 +352,7 @@ export default function AdminImportedUsers() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Imported Users</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">
-              Users and resellers synced from XtreamUI, XuiOne, 1-Stream, and NXT Dash panels
+              Users and resellers synced from XtreamUI, XuiOne, 1-Stream, NXT Dash, and GhostSurf panels
             </p>
           </div>
           <div className="flex items-center gap-3">
