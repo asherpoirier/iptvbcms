@@ -9515,10 +9515,77 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         try:
             logger.info(f"Syncing users from XtreamUI panel: {panel_name}")
             
-            # Skip API-key panels - no list-all-lines endpoint
+            # API-key panels: try list actions
             if panel.get("api_key"):
-                logger.info(f"Skipping {panel_name}: API-key panel (no user list endpoint)")
-                results["panels_synced"].append({"name": panel_name, "type": "xtream", "synced": 0, "updated": 0, "skipped": "api-key panel"})
+                logger.info(f"Syncing {panel_name} via API-key (trying list actions)")
+                api_synced = 0
+                api_updated = 0
+                api_lines = []
+                
+                for action in ("get_lines", "list_lines", "get_users", "list_users", "get_all_lines"):
+                    try:
+                        data = await _xtream_api_call(panel, action)
+                        raw = []
+                        if isinstance(data, list):
+                            raw = data
+                        elif isinstance(data, dict):
+                            nested = data.get("data", data)
+                            if isinstance(nested, list):
+                                raw = nested
+                            elif isinstance(nested, dict):
+                                for k in ("lines", "users", "data", "result"):
+                                    if k in nested and isinstance(nested[k], list):
+                                        raw = nested[k]
+                                        break
+                        if raw:
+                            api_lines = raw
+                            logger.info(f"API '{action}' returned {len(api_lines)} lines for {panel_name}")
+                            break
+                    except Exception:
+                        continue
+                
+                for line in api_lines:
+                    uname = line.get("username", "")
+                    if not uname:
+                        continue
+                    exp_date = None
+                    exp_val = line.get("exp_date") or line.get("expiry") or line.get("expires_at", "")
+                    if exp_val:
+                        if isinstance(exp_val, (int, float)) and exp_val > 0:
+                            exp_date = datetime.utcfromtimestamp(exp_val)
+                        elif isinstance(exp_val, str):
+                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+                                try:
+                                    exp_date = datetime.strptime(exp_val.split(".")[0].replace("Z",""), fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                    
+                    st = "active"
+                    if line.get("status") == "disabled" or line.get("is_suspended"):
+                        st = "suspended"
+                    elif exp_date and exp_date < datetime.utcnow():
+                        st = "expired"
+                    
+                    doc = {
+                        "panel_index": panel_index, "panel_type": "xtream", "panel_name": panel_name,
+                        "xtream_user_id": line.get("id") or line.get("user_id", 0),
+                        "username": uname, "password": line.get("password", ""),
+                        "expiry_date": exp_date, "status": st,
+                        "max_connections": safe_int(line.get("max_connections", 1)),
+                        "account_type": "subscriber", "last_synced": datetime.utcnow()
+                    }
+                    r = await safe_upsert_imported_user(
+                        {"username": uname, "panel_type": "xtream", "panel_index": panel_index, "account_type": "subscriber"}, doc
+                    )
+                    if r.upserted_id:
+                        api_synced += 1
+                    elif r.modified_count:
+                        api_updated += 1
+                
+                results["panels_synced"].append({"name": panel_name, "type": "xtream", "synced": api_synced, "updated": api_updated})
+                results["total_synced"] += api_synced
+                results["total_updated"] += api_updated
                 continue
             
             xtream_service = get_xtream_service(panel)
@@ -10152,12 +10219,97 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
     panel = panels[panel_index]
     panel_name = panel.get("name", f"Panel {panel_index + 1}")
     
-    # API-key panels: this API doesn't have a list-all-lines endpoint
-    # User sync requires session scraping which doesn't work with API-only panels
+    # API-key panels: try multiple list actions to find users
     if panel.get("api_key"):
+        lines = []
+        found_action = None
+        
+        # Try common list actions (different XtreamUI forks use different names)
+        for action in ("get_lines", "list_lines", "get_users", "list_users", "get_all_lines", "get_reseller_lines"):
+            try:
+                data = await _xtream_api_call(panel, action)
+                # Extract lines from response
+                raw = []
+                if isinstance(data, list):
+                    raw = data
+                elif isinstance(data, dict):
+                    nested = data.get("data", data)
+                    if isinstance(nested, list):
+                        raw = nested
+                    elif isinstance(nested, dict):
+                        for k in ("lines", "users", "data", "result"):
+                            if k in nested and isinstance(nested[k], list):
+                                raw = nested[k]
+                                break
+                if raw:
+                    lines = raw
+                    found_action = action
+                    logger.info(f"API user sync: '{action}' returned {len(lines)} lines")
+                    break
+            except Exception:
+                continue
+        
+        if not lines:
+            return {
+                "message": f"User sync not available for {panel_name}. The reseller API does not expose a user listing endpoint. Users provisioned through this billing system are tracked automatically.",
+                "synced": 0, "updated": 0, "removed": 0, "total": 0,
+                "panel_name": panel_name
+            }
+        
+        synced_count = 0
+        updated_count = 0
+        
+        for line in lines:
+            username = line.get("username", "")
+            if not username:
+                continue
+            
+            # Parse expiry
+            expiry_date = None
+            exp_val = line.get("exp_date") or line.get("expiry") or line.get("expires_at", "")
+            if exp_val:
+                if isinstance(exp_val, (int, float)) and exp_val > 0:
+                    expiry_date = datetime.utcfromtimestamp(exp_val)
+                elif isinstance(exp_val, str):
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+                        try:
+                            expiry_date = datetime.strptime(exp_val.split(".")[0].replace("Z",""), fmt)
+                            break
+                        except ValueError:
+                            continue
+            
+            status = "active"
+            if line.get("status") == "disabled" or line.get("is_suspended"):
+                status = "suspended"
+            elif expiry_date and expiry_date < datetime.utcnow():
+                status = "expired"
+            
+            user_doc = {
+                "panel_index": panel_index,
+                "panel_type": "xtream",
+                "panel_name": panel_name,
+                "xtream_user_id": line.get("id") or line.get("user_id") or line.get("line_id", 0),
+                "username": username,
+                "password": line.get("password", ""),
+                "expiry_date": expiry_date,
+                "status": status,
+                "max_connections": safe_int(line.get("max_connections", 1)),
+                "account_type": "subscriber",
+                "last_synced": datetime.utcnow()
+            }
+            
+            result = await safe_upsert_imported_user(
+                {"username": username, "panel_type": "xtream", "panel_index": panel_index, "account_type": "subscriber"},
+                user_doc,
+            )
+            if result.upserted_id:
+                synced_count += 1
+            elif result.modified_count:
+                updated_count += 1
+        
         return {
-            "message": f"User sync is not available for API-key panels ({panel_name}). This panel uses the JSON reseller API which does not support listing all users. Users are automatically tracked when provisioned through this billing system.",
-            "synced": 0, "updated": 0, "removed": 0, "total": 0,
+            "message": f"Synced {synced_count} new, updated {updated_count} from {panel_name} (via {found_action})",
+            "synced": synced_count, "updated": updated_count, "removed": 0, "total": len(lines),
             "panel_name": panel_name
         }
     
