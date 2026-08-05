@@ -12,7 +12,7 @@ class XtreamUIService:
     """XtreamUI R22F API Service - Python version of WHMCS module"""
     
     def __init__(self, panel_url: str, admin_username: str, admin_password: str, ssl_verify: bool = False,
-                 http_basic_user: str = None, http_basic_pass: str = None, proxy_url: str = None):
+                 http_basic_user: str = None, http_basic_pass: str = None, proxy_url: str = None, api_key: str = None):
         self.panel_url = panel_url.rstrip('/')
         self.admin_username = admin_username
         self.admin_password = admin_password
@@ -20,6 +20,7 @@ class XtreamUIService:
         self.http_basic_user = http_basic_user
         self.http_basic_pass = http_basic_pass
         self.proxy_url = proxy_url
+        self.api_key = api_key or None
         self.session = requests.Session()
         # Use separate basic auth if provided, otherwise panel creds
         if http_basic_user and http_basic_pass:
@@ -34,6 +35,10 @@ class XtreamUIService:
     def _make_request(self, endpoint: str, method: str = 'GET', data: Optional[Dict] = None) -> Dict[str, Any]:
         """Make API request to XtreamUI panel"""
         url = f"{self.panel_url}{endpoint}"
+        
+        # Inject api_key into POST data if configured
+        if self.api_key and method == 'POST' and data is not None:
+            data['api_key'] = self.api_key
         
         try:
             logger.info(f"XtreamUI API: {method} {endpoint}")
@@ -1072,5 +1077,6 @@ def get_xtream_service(settings: Optional[Dict] = None) -> Optional[XtreamUIServ
         ssl_verify=settings.get('ssl_verify', False),
         http_basic_user=settings.get('http_basic_user', ''),
         http_basic_pass=settings.get('http_basic_pass', ''),
-        proxy_url=settings.get('proxy_url', '')
+        proxy_url=settings.get('proxy_url', ''),
+        api_key=settings.get('api_key', '')
     )

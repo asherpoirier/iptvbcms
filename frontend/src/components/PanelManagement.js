@@ -388,6 +388,23 @@ function PanelFormModal({ panel, onClose, onSave }) {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Reseller API Key <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              type="password"
+              value={formData.api_key || ''}
+              onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              placeholder="Leave blank if panel doesn't require API key"
+              data-testid="panel-api-key"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Some XtreamUI panels require a reseller API key for all requests. Leave blank for standard username/password auth.
+            </p>
+          </div>
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"

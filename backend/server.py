@@ -4419,7 +4419,8 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             ssl_verify=panel.get("ssl_verify", False),
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         # Generate or use custom credentials
@@ -6380,6 +6381,15 @@ async def sync_ghostsurf_users(panel_index: int = 0, current_user: dict = Depend
             if not acct_id:
                 continue
             
+            # Fetch password via credentials endpoint
+            password = acct.get("password", "")
+            if not password:
+                try:
+                    creds = await gs.get_credentials(acct_id)
+                    password = creds.get("password", "")
+                except Exception:
+                    pass
+            
             expiry_date = None
             expiry_str = acct.get("expires_at") or acct.get("expiry") or acct.get("expiry_date", "")
             if expiry_str:
@@ -6401,7 +6411,7 @@ async def sync_ghostsurf_users(panel_index: int = 0, current_user: dict = Depend
                 "panel_type": "ghostsurf",
                 "panel_name": panel_name,
                 "username": username or acct_id,
-                "password": acct.get("password", ""),
+                "password": password,
                 "expiry_date": expiry_date,
                 "status": status,
                 "max_connections": acct.get("max_devices", 5),
@@ -6421,7 +6431,24 @@ async def sync_ghostsurf_users(panel_index: int = 0, current_user: dict = Depend
             elif result.modified_count:
                 updated += 1
         
-        return {"success": True, "synced": synced, "updated": updated, "total_accounts": len(accounts), "message": f"Synced {synced} new, updated {updated} from {panel_name}"}
+        # Remove imported users that no longer exist on GhostSurf
+        synced_ids = [str(a.get("id") or a.get("account_id", "")) for a in accounts if a.get("id") or a.get("account_id")]
+        if synced_ids:
+            removed = await imported_users_collection.delete_many({
+                "panel_type": "ghostsurf",
+                "panel_index": panel_index,
+                "ghostsurf_account_id": {"$nin": synced_ids}
+            })
+            removed_count = removed.deleted_count
+        else:
+            # If API returned 0 accounts, remove all for this panel
+            removed = await imported_users_collection.delete_many({
+                "panel_type": "ghostsurf",
+                "panel_index": panel_index
+            })
+            removed_count = removed.deleted_count
+        
+        return {"success": True, "synced": synced, "updated": updated, "removed": removed_count, "total_accounts": len(accounts), "message": f"Synced {synced} new, updated {updated}, removed {removed_count} from {panel_name}"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -8685,7 +8712,8 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         bouquets = client.fetch_bouquets_from_packages()
@@ -8735,7 +8763,8 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         # Fetch BOTH regular and trial packages
@@ -8795,7 +8824,8 @@ async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dic
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         trial_packages = client.fetch_trial_packages()
@@ -9577,6 +9607,15 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                 if not acct_id:
                     continue
                 
+                # Fetch password via credentials endpoint
+                password = acct.get("password", "")
+                if not password:
+                    try:
+                        creds = await gs.get_credentials(acct_id)
+                        password = creds.get("password", "")
+                    except Exception:
+                        pass
+                
                 # Parse expiry
                 expiry_date = None
                 expiry_str = acct.get("expires_at") or acct.get("expiry") or acct.get("expiry_date", "")
@@ -9599,7 +9638,7 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     "panel_type": "ghostsurf",
                     "panel_name": panel_name,
                     "username": username or acct_id,
-                    "password": acct.get("password", ""),
+                    "password": password,
                     "expiry_date": expiry_date,
                     "status": status,
                     "max_connections": acct.get("max_devices", 5),
@@ -9618,6 +9657,18 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                     synced_count += 1
                 elif result.modified_count:
                     updated_count += 1
+            
+            # Remove GhostSurf users that no longer exist on the panel
+            synced_acct_ids = [str(a.get("id") or a.get("account_id", "")) for a in accounts if a.get("id") or a.get("account_id")]
+            if synced_acct_ids:
+                removed = await imported_users_collection.delete_many({
+                    "panel_type": "ghostsurf",
+                    "panel_index": panel_index,
+                    "ghostsurf_account_id": {"$nin": synced_acct_ids}
+                })
+                if removed.deleted_count:
+                    results["total_removed"] = results.get("total_removed", 0) + removed.deleted_count
+                    logger.info(f"Removed {removed.deleted_count} deleted GhostSurf accounts from {panel_name}")
             
             results["panels_synced"].append({
                 "name": panel_name,
@@ -9945,7 +9996,8 @@ async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_c
             admin_password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         # Use stored user_id if available
@@ -10068,7 +10120,8 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
             admin_password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         # Use stored user_id if available
@@ -10194,7 +10247,8 @@ async def add_credits_to_imported_user(user_id: str, data: AddCreditsRequest, cu
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         result = client.add_credits(username=username, email="", credits=credits)
         if result.get("success"):
@@ -10984,7 +11038,8 @@ async def create_imported_user(data: CreateImportedUserRequest, current_user: di
             ssl_verify=panel.get("ssl_verify", False),
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
+            proxy_url=panel.get("proxy_url", ""),
+            api_key=panel.get("api_key", "")
         )
         
         if data.account_type == "subscriber":
