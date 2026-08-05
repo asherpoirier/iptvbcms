@@ -8930,48 +8930,55 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
     try:
         # API-key panels: use JSON POST API
         if panel.get("api_key"):
-            # First get packages, then get bouquets for each
             pkgs_data = await _xtream_api_call(panel, "get_packages")
-            # Extract packages list from response
+            # Extract packages - handle nested {"status":"success","data":{"packages":[...]}}
             packages = []
             if isinstance(pkgs_data, list):
                 packages = pkgs_data
             elif isinstance(pkgs_data, dict):
-                for key in ("packages", "data", "result"):
-                    if key in pkgs_data and isinstance(pkgs_data[key], list):
-                        packages = pkgs_data[key]
-                        break
-                if not packages and not pkgs_data.get("status"):
-                    for k, v in pkgs_data.items():
-                        if isinstance(v, dict) and (v.get("name") or v.get("id")):
-                            v["id"] = v.get("id", k)
-                            packages.append(v)
+                nested = pkgs_data.get("data", pkgs_data)
+                if isinstance(nested, dict):
+                    for key in ("packages", "result", "items"):
+                        if key in nested and isinstance(nested[key], list):
+                            packages = nested[key]
+                            break
+                if not packages:
+                    for key in ("packages", "data", "result"):
+                        if key in pkgs_data and isinstance(pkgs_data[key], list):
+                            packages = pkgs_data[key]
+                            break
             
             all_bouquets = {}
+            # Extract bouquet_ids directly from packages (most reliable)
+            for pkg in packages:
+                bouquet_ids = pkg.get("bouquet_ids") or pkg.get("bouquets") or []
+                for bid in bouquet_ids:
+                    if isinstance(bid, int):
+                        all_bouquets[bid] = {"id": bid, "name": f"Bouquet {bid}"}
+                    elif isinstance(bid, dict):
+                        bq_id = bid.get("id") or bid.get("bouquet_id")
+                        if bq_id:
+                            all_bouquets[int(bq_id)] = {"id": int(bq_id), "name": bid.get("name", f"Bouquet {bq_id}")}
+            
+            # Try get_bouquets API for richer names
             for pkg in packages:
                 pkg_id = pkg.get("id") or pkg.get("package_id")
                 if not pkg_id:
                     continue
                 try:
                     bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
-                    bq_list = []
-                    if isinstance(bq_data, list):
-                        bq_list = bq_data
-                    elif isinstance(bq_data, dict):
-                        for bk in ("bouquets", "data", "result"):
-                            if bk in bq_data and isinstance(bq_data[bk], list):
-                                bq_list = bq_data[bk]
-                                break
+                    bq_nested = bq_data.get("data", bq_data) if isinstance(bq_data, dict) else bq_data
+                    bq_list = bq_nested if isinstance(bq_nested, list) else (bq_nested.get("bouquets", bq_nested.get("data", [])) if isinstance(bq_nested, dict) else [])
                     for bq in bq_list:
                         if isinstance(bq, dict):
                             bq_id = bq.get("id") or bq.get("bouquet_id")
-                            bq_name = bq.get("name") or bq.get("bouquet_name") or f"Bouquet {bq_id}"
-                            if bq_id:
+                            bq_name = bq.get("name") or bq.get("bouquet_name", "")
+                            if bq_id and bq_name:
                                 all_bouquets[int(bq_id)] = {"id": int(bq_id), "name": bq_name}
-                except Exception as e:
-                    logger.warning(f"Failed to fetch bouquets for package {pkg_id}: {e}")
+                except Exception:
+                    pass
             
-            bouquets = list(all_bouquets.values())
+            bouquets = sorted(all_bouquets.values(), key=lambda x: x["id"])
         else:
             # Standard session-based scraping
             client = XtreamUISessionClient(
@@ -9026,24 +9033,23 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
         # API-key panels: use JSON POST API
         if panel.get("api_key"):
             pkgs_data = await _xtream_api_call(panel, "get_packages")
-            logger.info(f"get_packages response type={type(pkgs_data).__name__}, keys={list(pkgs_data.keys()) if isinstance(pkgs_data, dict) else 'list'}")
             
-            # Extract packages from response - try multiple formats
+            # Extract packages - handle nested {"status":"success","data":{"packages":[...]}}
             raw_packages = []
             if isinstance(pkgs_data, list):
                 raw_packages = pkgs_data
             elif isinstance(pkgs_data, dict):
-                # Try common response keys
-                for key in ("packages", "data", "result", "lines", "items"):
-                    if key in pkgs_data and isinstance(pkgs_data[key], list):
-                        raw_packages = pkgs_data[key]
-                        break
-                # If still empty, check if the dict itself contains package-like items (keyed by ID)
-                if not raw_packages and not pkgs_data.get("status"):
-                    for k, v in pkgs_data.items():
-                        if isinstance(v, dict) and (v.get("name") or v.get("id")):
-                            v["id"] = v.get("id", k)
-                            raw_packages.append(v)
+                nested = pkgs_data.get("data", pkgs_data)
+                if isinstance(nested, dict):
+                    for key in ("packages", "result", "items"):
+                        if key in nested and isinstance(nested[key], list):
+                            raw_packages = nested[key]
+                            break
+                if not raw_packages:
+                    for key in ("packages", "data", "result"):
+                        if key in pkgs_data and isinstance(pkgs_data[key], list):
+                            raw_packages = pkgs_data[key]
+                            break
             
             logger.info(f"Parsed {len(raw_packages)} packages from API response")
             
@@ -9051,29 +9057,46 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
             trial_packages = []
             for pkg in raw_packages:
                 pkg_id = pkg.get("id") or pkg.get("package_id")
-                duration = pkg.get("duration", pkg.get("months", pkg.get("official_duration", 1)))
-                duration_unit = pkg.get("duration_unit", pkg.get("official_duration_in", "months"))
+                
+                # Parse duration - API may return "1 months" or "24 hours" as string
+                raw_duration = pkg.get("duration", pkg.get("months", pkg.get("official_duration", "1")))
+                if isinstance(raw_duration, str):
+                    import re as re_mod
+                    parts = raw_duration.strip().split()
+                    duration = int(parts[0]) if parts and parts[0].isdigit() else 1
+                    duration_unit = parts[1] if len(parts) > 1 else "months"
+                else:
+                    duration = int(raw_duration) if raw_duration else 1
+                    duration_unit = pkg.get("duration_unit", pkg.get("official_duration_in", "months"))
+                
                 is_trial = pkg.get("is_trial", pkg.get("trial", False))
                 if isinstance(is_trial, (int, str)):
                     is_trial = str(is_trial).lower() in ("1", "true", "yes")
-                max_conn = pkg.get("max_connections", pkg.get("connections", pkg.get("max_allowed_connections", 1)))
-                credits_val = pkg.get("credits", pkg.get("cost", pkg.get("price", pkg.get("wholesale_price", 0))))
+                # Also detect trial from duration (0 hours = trial)
+                if duration == 0 or (isinstance(raw_duration, str) and "0" in raw_duration.split()[0:1]):
+                    is_trial = True
                 
-                # Fetch bouquets for this package
-                bouquet_ids = []
+                max_conn = pkg.get("max_connections", pkg.get("connections", pkg.get("max_allowed_connections", 1)))
+                credits_val = pkg.get("credits_cost", pkg.get("credits", pkg.get("cost", pkg.get("price", 0))))
+                
+                # Get bouquets - use bouquet_ids from package first, then try API
+                bouquet_list = []
+                raw_bids = pkg.get("bouquet_ids") or pkg.get("bouquets") or []
+                for bid in raw_bids:
+                    if isinstance(bid, int):
+                        bouquet_list.append({"id": bid, "name": f"Bouquet {bid}"})
+                    elif isinstance(bid, dict):
+                        bouquet_list.append({"id": bid.get("id"), "name": bid.get("name", "")})
+                
+                # Try to get richer bouquet data with names
                 try:
                     bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
-                    bq_list = []
-                    if isinstance(bq_data, list):
-                        bq_list = bq_data
-                    elif isinstance(bq_data, dict):
-                        for bk in ("bouquets", "data", "result"):
-                            if bk in bq_data and isinstance(bq_data[bk], list):
-                                bq_list = bq_data[bk]
-                                break
-                    bouquet_ids = [{"id": b.get("id") or b.get("bouquet_id"), "name": b.get("name", b.get("bouquet_name", ""))} for b in bq_list if isinstance(b, dict)]
-                except Exception as e:
-                    logger.warning(f"get_bouquets for pkg {pkg_id}: {e}")
+                    bq_nested = bq_data.get("data", bq_data) if isinstance(bq_data, dict) else bq_data
+                    bq_list = bq_nested if isinstance(bq_nested, list) else (bq_nested.get("bouquets", bq_nested.get("data", [])) if isinstance(bq_nested, dict) else [])
+                    if bq_list:
+                        bouquet_list = [{"id": b.get("id") or b.get("bouquet_id"), "name": b.get("name", b.get("bouquet_name", ""))} for b in bq_list if isinstance(b, dict)]
+                except Exception:
+                    pass  # Already have IDs from package
                 
                 formatted = {
                     "id": pkg_id,
@@ -9083,7 +9106,7 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
                     "max_connections": max_conn,
                     "credits": credits_val,
                     "is_trial": is_trial,
-                    "bouquets": bouquet_ids,
+                    "bouquets": bouquet_list,
                 }
                 if is_trial:
                     trial_packages.append(formatted)
@@ -9491,6 +9514,12 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
         panel_name = panel.get("name", f"XtreamUI Panel {panel_index + 1}")
         try:
             logger.info(f"Syncing users from XtreamUI panel: {panel_name}")
+            
+            # Skip API-key panels - no list-all-lines endpoint
+            if panel.get("api_key"):
+                logger.info(f"Skipping {panel_name}: API-key panel (no user list endpoint)")
+                results["panels_synced"].append({"name": panel_name, "type": "xtream", "synced": 0, "updated": 0, "skipped": "api-key panel"})
+                continue
             
             xtream_service = get_xtream_service(panel)
             if not xtream_service:
@@ -10122,6 +10151,15 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
     
     panel = panels[panel_index]
     panel_name = panel.get("name", f"Panel {panel_index + 1}")
+    
+    # API-key panels: this API doesn't have a list-all-lines endpoint
+    # User sync requires session scraping which doesn't work with API-only panels
+    if panel.get("api_key"):
+        return {
+            "message": f"User sync is not available for API-key panels ({panel_name}). This panel uses the JSON reseller API which does not support listing all users. Users are automatically tracked when provisioned through this billing system.",
+            "synced": 0, "updated": 0, "removed": 0, "total": 0,
+            "panel_name": panel_name
+        }
     
     # Initialize XtreamUI service
     xtream_service = get_xtream_service(panel)
