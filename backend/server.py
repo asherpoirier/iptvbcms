@@ -8894,7 +8894,7 @@ async def _xtream_api_call(panel: dict, action: str, extra_data: dict = None) ->
     if extra_data:
         payload.update(extra_data)
     
-    proxy_url = panel.get("proxy_url", "")
+    logger.info(f"XtreamAPI POST {panel_url} action={action}")
     
     async with httpx.AsyncClient(verify=panel.get("ssl_verify", False), timeout=30.0) as client:
         resp = await client.post(
@@ -8902,6 +8902,9 @@ async def _xtream_api_call(panel: dict, action: str, extra_data: dict = None) ->
             json=payload,
             headers={"Content-Type": "application/json"}
         )
+        
+        logger.info(f"XtreamAPI response: status={resp.status_code}, body={resp.text[:500]}")
+        
         data = resp.json()
         
         # Check for API-level errors
@@ -8929,7 +8932,20 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
         if panel.get("api_key"):
             # First get packages, then get bouquets for each
             pkgs_data = await _xtream_api_call(panel, "get_packages")
-            packages = pkgs_data if isinstance(pkgs_data, list) else pkgs_data.get("packages", pkgs_data.get("data", []))
+            # Extract packages list from response
+            packages = []
+            if isinstance(pkgs_data, list):
+                packages = pkgs_data
+            elif isinstance(pkgs_data, dict):
+                for key in ("packages", "data", "result"):
+                    if key in pkgs_data and isinstance(pkgs_data[key], list):
+                        packages = pkgs_data[key]
+                        break
+                if not packages and not pkgs_data.get("status"):
+                    for k, v in pkgs_data.items():
+                        if isinstance(v, dict) and (v.get("name") or v.get("id")):
+                            v["id"] = v.get("id", k)
+                            packages.append(v)
             
             all_bouquets = {}
             for pkg in packages:
@@ -8938,12 +8954,20 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
                     continue
                 try:
                     bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
-                    bq_list = bq_data if isinstance(bq_data, list) else bq_data.get("bouquets", bq_data.get("data", []))
+                    bq_list = []
+                    if isinstance(bq_data, list):
+                        bq_list = bq_data
+                    elif isinstance(bq_data, dict):
+                        for bk in ("bouquets", "data", "result"):
+                            if bk in bq_data and isinstance(bq_data[bk], list):
+                                bq_list = bq_data[bk]
+                                break
                     for bq in bq_list:
-                        bq_id = bq.get("id") or bq.get("bouquet_id")
-                        bq_name = bq.get("name") or bq.get("bouquet_name") or f"Bouquet {bq_id}"
-                        if bq_id:
-                            all_bouquets[int(bq_id)] = {"id": int(bq_id), "name": bq_name}
+                        if isinstance(bq, dict):
+                            bq_id = bq.get("id") or bq.get("bouquet_id")
+                            bq_name = bq.get("name") or bq.get("bouquet_name") or f"Bouquet {bq_id}"
+                            if bq_id:
+                                all_bouquets[int(bq_id)] = {"id": int(bq_id), "name": bq_name}
                 except Exception as e:
                     logger.warning(f"Failed to fetch bouquets for package {pkg_id}: {e}")
             
@@ -9002,26 +9026,54 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
         # API-key panels: use JSON POST API
         if panel.get("api_key"):
             pkgs_data = await _xtream_api_call(panel, "get_packages")
-            raw_packages = pkgs_data if isinstance(pkgs_data, list) else pkgs_data.get("packages", pkgs_data.get("data", []))
+            logger.info(f"get_packages response type={type(pkgs_data).__name__}, keys={list(pkgs_data.keys()) if isinstance(pkgs_data, dict) else 'list'}")
+            
+            # Extract packages from response - try multiple formats
+            raw_packages = []
+            if isinstance(pkgs_data, list):
+                raw_packages = pkgs_data
+            elif isinstance(pkgs_data, dict):
+                # Try common response keys
+                for key in ("packages", "data", "result", "lines", "items"):
+                    if key in pkgs_data and isinstance(pkgs_data[key], list):
+                        raw_packages = pkgs_data[key]
+                        break
+                # If still empty, check if the dict itself contains package-like items (keyed by ID)
+                if not raw_packages and not pkgs_data.get("status"):
+                    for k, v in pkgs_data.items():
+                        if isinstance(v, dict) and (v.get("name") or v.get("id")):
+                            v["id"] = v.get("id", k)
+                            raw_packages.append(v)
+            
+            logger.info(f"Parsed {len(raw_packages)} packages from API response")
             
             regular_packages = []
             trial_packages = []
             for pkg in raw_packages:
                 pkg_id = pkg.get("id") or pkg.get("package_id")
-                duration = pkg.get("duration", pkg.get("months", 1))
-                duration_unit = pkg.get("duration_unit", "months")
-                is_trial = pkg.get("is_trial", False)
-                max_conn = pkg.get("max_connections", pkg.get("connections", 1))
-                credits_val = pkg.get("credits", pkg.get("cost", pkg.get("price", 0)))
+                duration = pkg.get("duration", pkg.get("months", pkg.get("official_duration", 1)))
+                duration_unit = pkg.get("duration_unit", pkg.get("official_duration_in", "months"))
+                is_trial = pkg.get("is_trial", pkg.get("trial", False))
+                if isinstance(is_trial, (int, str)):
+                    is_trial = str(is_trial).lower() in ("1", "true", "yes")
+                max_conn = pkg.get("max_connections", pkg.get("connections", pkg.get("max_allowed_connections", 1)))
+                credits_val = pkg.get("credits", pkg.get("cost", pkg.get("price", pkg.get("wholesale_price", 0))))
                 
                 # Fetch bouquets for this package
                 bouquet_ids = []
                 try:
                     bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
-                    bq_list = bq_data if isinstance(bq_data, list) else bq_data.get("bouquets", bq_data.get("data", []))
-                    bouquet_ids = [{"id": b.get("id") or b.get("bouquet_id"), "name": b.get("name", "")} for b in bq_list]
-                except Exception:
-                    pass
+                    bq_list = []
+                    if isinstance(bq_data, list):
+                        bq_list = bq_data
+                    elif isinstance(bq_data, dict):
+                        for bk in ("bouquets", "data", "result"):
+                            if bk in bq_data and isinstance(bq_data[bk], list):
+                                bq_list = bq_data[bk]
+                                break
+                    bouquet_ids = [{"id": b.get("id") or b.get("bouquet_id"), "name": b.get("name", b.get("bouquet_name", ""))} for b in bq_list if isinstance(b, dict)]
+                except Exception as e:
+                    logger.warning(f"get_bouquets for pkg {pkg_id}: {e}")
                 
                 formatted = {
                     "id": pkg_id,
