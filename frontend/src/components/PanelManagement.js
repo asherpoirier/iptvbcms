@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Save, Plus, Edit, Trash2, Server, X, Check, Package, BookOpen, Users } from 'lucide-react';
+import api from '../api/api';
+import { Save, Plus, Edit, Trash2, Server, X, Check, Package, BookOpen, Users, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function PanelManagement({ settings }) {
@@ -13,6 +14,7 @@ export default function PanelManagement({ settings }) {
   const [syncingPackages, setSyncingPackages] = useState(null);
   const [syncingBouquets, setSyncingBouquets] = useState(null);
   const [syncingUsers, setSyncingUsers] = useState(null);
+  const [showImportModal, setShowImportModal] = useState(null); // panel index
 
   const updateMutation = useMutation({
     mutationFn: (data) => {
@@ -229,6 +231,16 @@ export default function PanelManagement({ settings }) {
                     <Users className="w-4 h-4" />
                     {syncingUsers === index ? 'Syncing...' : 'Sync Users'}
                   </button>
+                  {panel.api_key && (
+                    <button
+                      onClick={() => setShowImportModal(index)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 border border-teal-200"
+                      title="Import users by username or CSV"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Import Users
+                    </button>
+                  )}
 
                 </div>
               </div>
@@ -278,6 +290,138 @@ export default function PanelManagement({ settings }) {
           onSave={handleSavePanel}
         />
       )}
+
+      {/* Import Users Modal */}
+      {showImportModal !== null && (
+        <ImportUsernamesModal
+          panelIndex={showImportModal}
+          panelName={panels[showImportModal]?.name || 'Panel'}
+          onClose={() => setShowImportModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ImportUsernamesModal({ panelIndex, panelName, onClose }) {
+  const [input, setInput] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [results, setResults] = useState(null);
+  const fileRef = useRef(null);
+  const queryClient = useQueryClient();
+
+  const handleImport = async () => {
+    if (!input.trim()) { toast.error('Enter at least one username'); return; }
+    setImporting(true);
+    setResults(null);
+    try {
+      const resp = await api.post(`/api/admin/xtream/import-usernames?panel_index=${panelIndex}`, {
+        usernames: input
+      });
+      setResults(resp.data);
+      queryClient.invalidateQueries(['imported-users']);
+      if (resp.data.imported > 0 || resp.data.updated > 0) {
+        toast.success(resp.data.message);
+      } else if (resp.data.not_found?.length > 0) {
+        toast.warning(`${resp.data.not_found.length} username(s) not found on panel`);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      // Parse CSV: split by commas, newlines, semicolons — each cell is a username
+      const usernames = text.split(/[,;\n\r\t]+/).map(u => u.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      setInput(usernames.join(', '));
+      toast.success(`Loaded ${usernames.length} usernames from CSV`);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Import Users — {panelName}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Enter usernames to look up on the panel and import. Each username will be verified via the panel API.
+          </p>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Usernames</label>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              rows={5}
+              placeholder={"user1, user2, user3\nor one per line:\nuser1\nuser2\nuser3"}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+              data-testid="import-usernames-input"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Separate with commas, newlines, or semicolons</p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+            >
+              <Upload className="w-4 h-4" />
+              Upload CSV
+            </button>
+            <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleCSV} className="hidden" />
+            <span className="text-xs text-gray-500 dark:text-gray-400">CSV with usernames in cells</span>
+          </div>
+
+          {results && (
+            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg text-sm space-y-2">
+              <p className="font-medium text-gray-900 dark:text-white">{results.message}</p>
+              <div className="flex gap-4 text-xs">
+                <span className="text-green-600">Imported: {results.imported}</span>
+                <span className="text-blue-600">Updated: {results.updated}</span>
+                <span className="text-red-600">Not found: {results.not_found?.length || 0}</span>
+              </div>
+              {results.not_found?.length > 0 && (
+                <div>
+                  <p className="text-xs text-red-600 font-medium mt-1">Not found on panel:</p>
+                  <p className="text-xs text-red-500 font-mono">{results.not_found.join(', ')}</p>
+                </div>
+              )}
+              {results.errors?.length > 0 && (
+                <div>
+                  <p className="text-xs text-red-600 font-medium mt-1">Errors:</p>
+                  {results.errors.map((e, i) => <p key={i} className="text-xs text-red-500">{e}</p>)}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Close</button>
+            <button
+              onClick={handleImport}
+              disabled={importing || !input.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium"
+              data-testid="import-usernames-submit"
+            >
+              <Upload className="w-4 h-4" />
+              {importing ? 'Importing...' : 'Import'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
