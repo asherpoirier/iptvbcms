@@ -9522,27 +9522,38 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
                 api_updated = 0
                 api_lines = []
                 
-                for action in ("get_lines", "list_lines", "get_users", "list_users", "get_all_lines"):
-                    try:
-                        data = await _xtream_api_call(panel, action)
-                        raw = []
-                        if isinstance(data, list):
-                            raw = data
-                        elif isinstance(data, dict):
-                            nested = data.get("data", data)
-                            if isinstance(nested, list):
-                                raw = nested
-                            elif isinstance(nested, dict):
-                                for k in ("lines", "users", "data", "result"):
-                                    if k in nested and isinstance(nested[k], list):
-                                        raw = nested[k]
-                                        break
-                        if raw:
-                            api_lines = raw
-                            logger.info(f"API '{action}' returned {len(api_lines)} lines for {panel_name}")
-                            break
-                    except Exception:
-                        continue
+                for action in ("lookup_line", "get_lines", "list_lines", "get_users", "list_users", "get_all_lines"):
+                    # Try with no params, then with common search params
+                    attempts = [{}]
+                    if action == "lookup_line":
+                        attempts = [{}, {"username": "*"}, {"username": "%"}, {"search": ""}, {"query": ""}]
+                    
+                    for extra in attempts:
+                        try:
+                            data = await _xtream_api_call(panel, action, extra if extra else None)
+                            raw = []
+                            if isinstance(data, list):
+                                raw = data
+                            elif isinstance(data, dict):
+                                nested = data.get("data", data)
+                                if isinstance(nested, list):
+                                    raw = nested
+                                elif isinstance(nested, dict):
+                                    for k in ("lines", "users", "data", "result", "line"):
+                                        if k in nested and isinstance(nested[k], list):
+                                            raw = nested[k]
+                                            break
+                                    # Single line result (lookup returns one line)
+                                    if not raw and nested.get("username"):
+                                        raw = [nested]
+                            if raw:
+                                api_lines = raw
+                                logger.info(f"API '{action}' (params={extra}) returned {len(api_lines)} lines for {panel_name}")
+                                break
+                        except Exception:
+                            continue
+                    if api_lines:
+                        break
                 
                 for line in api_lines:
                     uname = line.get("username", "")
@@ -10225,29 +10236,37 @@ async def sync_users_from_panel(panel_index: int = 0, current_user: dict = Depen
         found_action = None
         
         # Try common list actions (different XtreamUI forks use different names)
-        for action in ("get_lines", "list_lines", "get_users", "list_users", "get_all_lines", "get_reseller_lines"):
-            try:
-                data = await _xtream_api_call(panel, action)
-                # Extract lines from response
-                raw = []
-                if isinstance(data, list):
-                    raw = data
-                elif isinstance(data, dict):
-                    nested = data.get("data", data)
-                    if isinstance(nested, list):
-                        raw = nested
-                    elif isinstance(nested, dict):
-                        for k in ("lines", "users", "data", "result"):
-                            if k in nested and isinstance(nested[k], list):
-                                raw = nested[k]
-                                break
-                if raw:
-                    lines = raw
-                    found_action = action
-                    logger.info(f"API user sync: '{action}' returned {len(lines)} lines")
-                    break
-            except Exception:
-                continue
+        for action in ("lookup_line", "get_lines", "list_lines", "get_users", "list_users", "get_all_lines", "get_reseller_lines"):
+            attempts = [None]
+            if action == "lookup_line":
+                attempts = [None, {"username": "*"}, {"username": "%"}, {"search": ""}, {"query": ""}]
+            
+            for extra in attempts:
+                try:
+                    data = await _xtream_api_call(panel, action, extra)
+                    raw = []
+                    if isinstance(data, list):
+                        raw = data
+                    elif isinstance(data, dict):
+                        nested = data.get("data", data)
+                        if isinstance(nested, list):
+                            raw = nested
+                        elif isinstance(nested, dict):
+                            for k in ("lines", "users", "data", "result", "line"):
+                                if k in nested and isinstance(nested[k], list):
+                                    raw = nested[k]
+                                    break
+                            if not raw and nested.get("username"):
+                                raw = [nested]
+                    if raw:
+                        lines = raw
+                        found_action = action
+                        logger.info(f"API user sync: '{action}' (params={extra}) returned {len(lines)} lines")
+                        break
+                except Exception:
+                    continue
+            if lines:
+                break
         
         if not lines:
             return {
