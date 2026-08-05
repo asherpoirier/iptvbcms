@@ -8885,22 +8885,31 @@ async def _xtream_api_call(panel: dict, action: str, extra_data: dict = None) ->
     import httpx
     api_key = panel.get("api_key", "")
     panel_url = panel.get("panel_url", "").rstrip("/")
+    
+    # Ensure URL points to the reseller API endpoint
+    if not panel_url.endswith(".php"):
+        panel_url = f"{panel_url}/reseller_api.php"
+    
     payload = {"api_key": api_key, "action": action}
     if extra_data:
         payload.update(extra_data)
     
-    proxies = None
-    if panel.get("proxy_url"):
-        proxies = {"http://": panel["proxy_url"], "https://": panel["proxy_url"]}
+    proxy_url = panel.get("proxy_url", "")
     
-    async with httpx.AsyncClient(verify=panel.get("ssl_verify", False), proxies=proxies, timeout=30.0) as client:
+    async with httpx.AsyncClient(verify=panel.get("ssl_verify", False), timeout=30.0) as client:
         resp = await client.post(
             panel_url,
             json=payload,
             headers={"Content-Type": "application/json"}
         )
+        data = resp.json()
+        
+        # Check for API-level errors
+        if isinstance(data, dict) and data.get("status") == "error":
+            raise Exception(data.get("message", "API error"))
+        
         resp.raise_for_status()
-        return resp.json()
+        return data
 
 
 @app.get("/api/admin/bouquets/sync")
