@@ -34,7 +34,7 @@ export default function NxtDashPanelManagement({ settings }) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => adminAPI.testNxtDash(),
+    mutationFn: (panelIndex) => adminAPI.testNxtDash(panelIndex),
     onSuccess: (response) => {
       toast.success(response.data?.message || 'Connection successful!');
       setTestingPanelId(null);
@@ -133,8 +133,8 @@ export default function NxtDashPanelManagement({ settings }) {
     const settingsUpdate = { ...settings, nxtdash: { panels } };
     adminAPI.updateSettings(settingsUpdate).then(() => {
       queryClient.invalidateQueries(['admin-settings']);
-      testMutation.mutate();
-    }).catch(() => testMutation.mutate());
+      testMutation.mutate(index);
+    }).catch(() => testMutation.mutate(index));
   };
 
   return (

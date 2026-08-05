@@ -37,7 +37,7 @@ export default function OneStreamPanelManagement({ settings }) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => adminAPI.testOneStream(),
+    mutationFn: (panelIndex) => adminAPI.testOneStream(panelIndex),
     onSuccess: (response) => {
       toast.success(response.data?.message || 'Connection successful!');
       setTestingPanelId(null);
@@ -176,7 +176,7 @@ export default function OneStreamPanelManagement({ settings }) {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
-                  onClick={() => { setTestingPanelId(index); testMutation.mutate(); }}
+                  onClick={() => { setTestingPanelId(index); testMutation.mutate(index); }}
                   disabled={testingPanelId === index}
                   className="flex items-center gap-1 px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 disabled:opacity-50"
                 >

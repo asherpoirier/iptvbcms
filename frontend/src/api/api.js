@@ -166,7 +166,7 @@ export const adminAPI = {
   createCustomer: (data) => api.post('/api/admin/customers/create', data),
 
   // XuiOne Panel endpoints
-  testXuiOne: () => api.post('/api/admin/xuione/test'),
+  testXuiOne: (panelIndex = 0) => api.post(`/api/admin/xuione/test?panel_index=${panelIndex}`),
   syncXuiOnePackages: (panelIndex = 0) => api.get(`/api/admin/xuione/sync-packages?panel_index=${panelIndex}`),
   syncXuiOneBouquets: (panelIndex = 0) => api.get(`/api/admin/xuione/sync-bouquets?panel_index=${panelIndex}`),
   syncXuiOneUsers: (panelIndex = 0) => api.post(`/api/admin/xuione/sync-users?panel_index=${panelIndex}`),
@@ -183,7 +183,7 @@ export const adminAPI = {
   syncTrialPackagesFromPanel: (panelIndex = 0) => api.get(`/api/admin/packages/sync-trial?panel_index=${panelIndex}`),
   updateBouquets: (data) => api.put('/api/admin/bouquets', data),
   getPackages: () => api.get('/api/admin/packages'),
-  testXtreamUI: () => api.post('/api/admin/xtreamui/test'),
+  testXtreamUI: (panelIndex = 0) => api.post(`/api/admin/xtreamui/test?panel_index=${panelIndex}`),
   getTickets: () => api.get('/api/admin/tickets'),
   replyToTicket: (id, data) => api.post(`/api/admin/tickets/${id}/reply`, data),
   updateTicketStatus: (id, data) => api.put(`/api/admin/tickets/${id}/status`, data),
@@ -212,12 +212,12 @@ export const adminAPI = {
   // Imported User Credits
   addCreditsToImportedUser: (userId, credits) => api.post(`/api/admin/imported-users/${userId}/add-credits`, { credits }),
   // 1-Stream
-  testOneStream: () => api.post('/api/admin/onestream/test'),
+  testOneStream: (panelIndex = 0) => api.post(`/api/admin/onestream/test?panel_index=${panelIndex}`),
   syncOneStreamPackages: (panelIndex = 0) => api.get(`/api/admin/onestream/packages?panel_index=${panelIndex}`),
   syncOneStreamBouquets: (panelIndex = 0) => api.get(`/api/admin/onestream/bouquets?panel_index=${panelIndex}`),
   syncOneStreamUsers: (panelIndex = 0) => api.post(`/api/admin/onestream/sync-users?panel_index=${panelIndex}`),
   // NXT Dash
-  testNxtDash: () => api.post('/api/admin/nxtdash/test'),
+  testNxtDash: (panelIndex = 0) => api.post(`/api/admin/nxtdash/test?panel_index=${panelIndex}`),
   getNxtDashPackages: (panelIndex = 0) => api.get(`/api/admin/nxtdash/packages?panel_index=${panelIndex}`),
   getNxtDashBouquets: (panelIndex = 0) => api.get(`/api/admin/nxtdash/bouquets?panel_index=${panelIndex}`),
   updateNxtDashBouquetNames: (bouquets, panelIndex = 0) => api.put(`/api/admin/nxtdash/bouquets?panel_index=${panelIndex}`, { bouquets }),

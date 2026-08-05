@@ -29,7 +29,7 @@ export default function PanelManagement({ settings }) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => adminAPI.testXtreamUI(),
+    mutationFn: (panelIndex) => adminAPI.testXtreamUI(panelIndex),
     onSuccess: () => {
       toast.success('Connection successful!');
       setTestingPanelId(null);
@@ -132,9 +132,8 @@ export default function PanelManagement({ settings }) {
   };
 
   const handleTestPanel = (panel, index) => {
-    // TODO: Test specific panel
     setTestingPanelId(index);
-    testMutation.mutate();
+    testMutation.mutate(index);
   };
 
   const handleSyncPackages = (index) => {

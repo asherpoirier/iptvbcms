@@ -163,6 +163,43 @@ async def ensure_indexes():
         [{"$set": {"panel_index": {"$toInt": "$panel_index"}}}]
     )
     
+    # Backfill null panel_type to "xtream" and null panel_index to 0
+    fixed_products = await db.products.update_many(
+        {"panel_type": {"$eq": None}},
+        {"$set": {"panel_type": "xtream"}}
+    )
+    if fixed_products.modified_count:
+        logger.info(f"Startup: Backfilled panel_type='xtream' on {fixed_products.modified_count} products")
+    
+    fixed_pi = await db.products.update_many(
+        {"panel_index": {"$eq": None}},
+        {"$set": {"panel_index": 0}}
+    )
+    if fixed_pi.modified_count:
+        logger.info(f"Startup: Backfilled panel_index=0 on {fixed_pi.modified_count} products")
+    
+    # Also fix services
+    fixed_svc_pt = await db.services.update_many(
+        {"panel_type": {"$eq": None}},
+        {"$set": {"panel_type": "xtream"}}
+    )
+    if fixed_svc_pt.modified_count:
+        logger.info(f"Startup: Backfilled panel_type='xtream' on {fixed_svc_pt.modified_count} services")
+    
+    fixed_svc_pi = await db.services.update_many(
+        {"panel_index": {"$eq": None}},
+        {"$set": {"panel_index": 0}}
+    )
+    if fixed_svc_pi.modified_count:
+        logger.info(f"Startup: Backfilled panel_index=0 on {fixed_svc_pi.modified_count} services")
+    
+    # Normalize string panel_index to int on products
+    await db.products.update_many(
+        {"panel_index": {"$type": "string"}},
+        [{"$set": {"panel_index": {"$toInt": "$panel_index"}}}]
+    )
+
+    
     # Step 2: Drop old index if exists
     try:
         await db.imported_users.drop_index("unique_imported_user")
@@ -232,6 +269,22 @@ def safe_int(value, default=1):
     if m:
         return int(m.group(1))
     return default
+
+
+def safe_panel_index(value):
+    """Safely get panel_index as int, defaulting to 0"""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+def safe_panel_type(value):
+    """Safely get panel_type, defaulting to 'xtream'"""
+    if not value or not isinstance(value, str):
+        return "xtream"
+    return value
 
 
 async def safe_upsert_imported_user(query: dict, doc: dict):
@@ -4309,7 +4362,7 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                         logger.error(f"Bundle sub-product {bp_id} not found, skipping")
                         continue
                     bp_item = {**item, "product_id": bp_id, "product_name": f"{item['product_name']} — {bp.get('name', '')}"}
-                    bp_panel_type = bp.get("panel_type", "xtream")
+                    bp_panel_type = safe_panel_type(bp.get("panel_type"))
                     logger.info(f"  Provisioning bundle item: {bp.get('name')} (Panel: {bp_panel_type})")
                     if bp_panel_type == "manual":
                         svc = {"user_id": order["user_id"], "order_id": order_id, "product_id": bp_id, "product_name": bp_item["product_name"], "account_type": "manual", "term_months": item.get("term_months", 1), "status": "active", "panel_type": "manual", "setup_instructions": bp.get("setup_instructions", ""), "start_date": datetime.utcnow(), "created_at": datetime.utcnow()}
@@ -4327,8 +4380,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                 continue
             
             # Get panel type and index from product
-            panel_type = product.get("panel_type", "xtream")
-            panel_index = product.get("panel_index", 0)
+            panel_type = safe_panel_type(product.get("panel_type"))
+            panel_index = safe_panel_index(product.get("panel_index"))
             
             logger.info(f"Provisioning service for product: {product.get('name')} (Panel: {panel_type}, Index: {panel_index})")
             
@@ -4398,8 +4451,8 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             logger.warning("XtreamUI not configured, skipping provisioning")
             return
         
-        # Get panel index from product (default to 0 if not set)
-        panel_index = product.get("panel_index", 0)
+        # Get panel index from product (safe coercion)
+        panel_index = safe_panel_index(product.get("panel_index"))
         
         # Validate panel index
         if panel_index >= len(panels):
@@ -4410,6 +4463,127 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
         
         # Get panel name for display
         panel_name = panel.get("name", f"Server {panel_index + 1}")
+        
+        # ===== API-KEY PANEL: Use JSON POST API =====
+        if panel.get("api_key"):
+            logger.info(f"Using API-key provisioning for panel: {panel_name}")
+            
+            username = generate_username()
+            password = generate_password()
+            
+            if item["account_type"] == "reseller" and order.get("reseller_credentials"):
+                username = order["reseller_credentials"].get("username", username)
+                password = order["reseller_credentials"].get("password", password)
+            
+            package_id = product.get("xtream_package_id")
+            bouquets = product.get("bouquets", [])
+            term_months = item.get("term_months", 1)
+            
+            # Check for renewal
+            action_type = item.get("action_type", "create_new")
+            renewal_service_id = item.get("renewal_service_id")
+            
+            if renewal_service_id and action_type in ("renew", "extend"):
+                existing = await services_collection.find_one({"_id": str_to_objectid(renewal_service_id)})
+                if existing and existing.get("xtream_user_id"):
+                    # Extend existing line
+                    try:
+                        result = await _xtream_api_call(panel, "extend_line", {
+                            "user_id": existing["xtream_user_id"],
+                            "package_id": package_id
+                        })
+                        logger.info(f"API extend_line result: {result}")
+                        
+                        # Update expiry
+                        pkg_duration = product.get("duration") or term_months
+                        pkg_unit = product.get("duration_unit", "months")
+                        if pkg_unit in ("months", "month"):
+                            new_expiry = datetime.utcnow() + timedelta(days=int(pkg_duration) * 30)
+                        elif pkg_unit in ("years", "year"):
+                            new_expiry = datetime.utcnow() + timedelta(days=int(pkg_duration) * 365)
+                        else:
+                            new_expiry = datetime.utcnow() + timedelta(days=int(pkg_duration))
+                        
+                        await services_collection.update_one(
+                            {"_id": str_to_objectid(renewal_service_id)},
+                            {"$set": {"expiry_date": new_expiry, "status": "active"}}
+                        )
+                        logger.info(f"Extended line {existing['xtream_user_id']} until {new_expiry}")
+                        return
+                    except Exception as e:
+                        logger.error(f"API extend_line failed: {e}, creating new line")
+            
+            # Create new line
+            try:
+                create_data = {
+                    "username": username,
+                    "password": password,
+                    "package_id": package_id,
+                }
+                if bouquets:
+                    create_data["bouquets"] = [int(b) for b in bouquets if b]
+                
+                result = await _xtream_api_call(panel, "create_line", create_data)
+                logger.info(f"API create_line result: {result}")
+                
+                line_id = result.get("user_id") or result.get("line_id") or result.get("id")
+                created_user = result.get("username", username)
+                created_pass = result.get("password", password)
+                
+                pkg_duration = product.get("duration") or term_months
+                pkg_unit = product.get("duration_unit", "months")
+                if pkg_unit in ("months", "month"):
+                    expiry_date = datetime.utcnow() + timedelta(days=int(pkg_duration) * 30)
+                elif pkg_unit in ("years", "year"):
+                    expiry_date = datetime.utcnow() + timedelta(days=int(pkg_duration) * 365)
+                else:
+                    expiry_date = datetime.utcnow() + timedelta(days=int(pkg_duration))
+                
+                service_dict = {
+                    "user_id": order["user_id"],
+                    "order_id": order_id,
+                    "product_id": item["product_id"],
+                    "product_name": item["product_name"],
+                    "account_type": item.get("account_type", "subscriber"),
+                    "term_months": term_months,
+                    "xtream_username": created_user,
+                    "xtream_password": created_pass,
+                    "xtream_user_id": line_id,
+                    "streaming_url": panel.get("streaming_url", ""),
+                    "status": "active",
+                    "panel_type": "xtream",
+                    "panel_index": panel_index,
+                    "panel_name": panel_name,
+                    "expiry_date": expiry_date,
+                    "start_date": datetime.utcnow(),
+                    "created_at": datetime.utcnow()
+                }
+                await services_collection.insert_one(service_dict)
+                logger.info(f"API-key provisioned: user={created_user}, line_id={line_id}")
+                
+                if email_service:
+                    try:
+                        await email_service.send_service_activated(
+                            customer_email=user["email"],
+                            customer_name=user["name"],
+                            service_name=item["product_name"],
+                            username=created_user,
+                            password=created_pass,
+                            streaming_url=panel.get("streaming_url", ""),
+                            max_connections=product.get("max_connections", 1),
+                            expiry_date=expiry_date.strftime("%Y-%m-%d"),
+                            customer_id=order["user_id"]
+                        )
+                    except Exception as e:
+                        logger.error(f"Email send error: {e}")
+                return
+            except Exception as e:
+                logger.error(f"API create_line failed: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return
+        
+        # ===== STANDARD PANEL: Session-based provisioning =====
         
         # Initialize XtreamUI service for this specific panel
         xtream_service = XtreamUIService(
@@ -5059,7 +5233,7 @@ async def provision_xuione_service(order_id: str, order: dict, user: dict, item:
             return
         
         # Get panel index from product
-        panel_index = product.get("panel_index", 0)
+        panel_index = safe_panel_index(product.get("panel_index"))
         
         # Validate panel index
         if panel_index >= len(panels):
@@ -5489,11 +5663,14 @@ async def provision_onestream_service(order_id: str, order: dict, user: dict, it
     """Provision 1-Stream service via API"""
     try:
         os_panels = settings.get("onestream", {}).get("panels", [])
-        panel_index = product.get("panel_index", 0)
+        panel_index = safe_panel_index(product.get("panel_index"))
         
         if not os_panels or panel_index >= len(os_panels):
-            logger.error("1-Stream panel not configured")
-            return
+            logger.error(f"1-Stream panel not configured (index {panel_index}, {len(os_panels)} panels available)")
+            if os_panels:
+                panel_index = 0
+            else:
+                return
         
         panel = os_panels[panel_index]
         panel_name = panel.get("name", f"1-Stream Panel {panel_index + 1}")
@@ -5811,11 +5988,14 @@ async def provision_nxtdash_service(order_id: str, order: dict, user: dict, item
     """Provision NXT Dash service via API"""
     try:
         nd_panels = settings.get("nxtdash", {}).get("panels", [])
-        panel_index = product.get("panel_index", 0)
+        panel_index = safe_panel_index(product.get("panel_index"))
 
         if not nd_panels or panel_index >= len(nd_panels):
-            logger.error("NXT Dash panel not configured")
-            return
+            logger.error(f"NXT Dash panel not configured (index {panel_index}, {len(nd_panels)} panels available)")
+            if nd_panels:
+                panel_index = 0
+            else:
+                return
 
         panel = nd_panels[panel_index]
         panel_name = panel.get("name", f"NXT Dash Panel {panel_index + 1}")
@@ -6458,11 +6638,14 @@ async def provision_ghostsurf_service(order_id: str, order: dict, user: dict, it
     """Provision GhostSurf VPN service"""
     try:
         gs_panels = settings.get("ghostsurf", {}).get("panels", [])
-        panel_index = product.get("panel_index", 0)
+        panel_index = safe_panel_index(product.get("panel_index"))
         
         if not gs_panels or panel_index >= len(gs_panels):
-            logger.error("GhostSurf panel not configured")
-            return
+            logger.error(f"GhostSurf panel not configured (index {panel_index}, {len(gs_panels)} panels available)")
+            if gs_panels:
+                panel_index = 0
+            else:
+                return
         
         panel = gs_panels[panel_index]
         panel_name = panel.get("name", f"GhostSurf VPN Panel {panel_index + 1}")
@@ -7194,18 +7377,17 @@ async def send_sms_notification(event_type: str, message: str):
 from xuione_service import XuiOneService, get_xuione_service
 
 @app.post("/api/admin/xuione/test")
-async def test_xuione_connection(current_user: dict = Depends(get_current_admin_user)):
+async def test_xuione_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Test XuiOne panel connection"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
     settings = await get_settings()
     panels = settings.get("xuione", {}).get("panels", [])
     
     if not panels:
         raise HTTPException(status_code=400, detail="No XuiOne panels configured. Please add a panel first.")
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail=f"Panel index {panel_index} not found")
     
-    panel = panels[0]
+    panel = panels[panel_index]
     logger.info(f"Testing XuiOne panel: {panel.get('name', 'Unknown')}")
     logger.info(f"Panel URL: {panel.get('panel_url', 'Not set')}")
     
@@ -7506,13 +7688,15 @@ async def sync_xuione_users(panel_index: int = 0, current_user: dict = Depends(g
 # ===== 1-STREAM PANEL ENDPOINTS =====
 
 @app.post("/api/admin/onestream/test")
-async def test_onestream_connection(current_user: dict = Depends(get_current_admin_user)):
+async def test_onestream_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Test connection to 1-Stream panel"""
     settings = await get_settings()
     panels = settings.get("onestream", {}).get("panels", [])
     if not panels:
         raise HTTPException(status_code=400, detail="No 1-Stream panels configured")
-    panel = panels[0]
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail=f"Panel index {panel_index} not found")
+    panel = panels[panel_index]
     service = get_onestream_service(panel)
     if not service:
         raise HTTPException(status_code=500, detail="1-Stream service not available - check panel_url, api_key and auth_user_token")
@@ -7703,13 +7887,15 @@ async def sync_onestream_users(panel_index: int = 0, current_user: dict = Depend
 # ===== NXT DASH PANEL ROUTES =====
 
 @app.post("/api/admin/nxtdash/test")
-async def test_nxtdash_connection(current_user: dict = Depends(get_current_admin_user)):
+async def test_nxtdash_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Test connection to NXT Dash panel"""
     settings = await get_settings()
     panels = settings.get("nxtdash", {}).get("panels", [])
     if not panels:
         raise HTTPException(status_code=400, detail="No NXT Dash panels configured")
-    panel = panels[0]
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail=f"Panel index {panel_index} not found")
+    panel = panels[panel_index]
     service = get_nxtdash_service(panel)
     if not service:
         raise HTTPException(status_code=500, detail="NXT Dash service not available - check panel_url, token, username and password")
@@ -8692,6 +8878,31 @@ async def restore_template_version(
     
     return {"message": f"Template restored to version {version['version_number']}"}
 
+
+async def _xtream_api_call(panel: dict, action: str, extra_data: dict = None) -> dict:
+    """Make a JSON POST call to XtreamUI panels with api_key-based auth.
+    Used for panels that expose a reseller_api.php JSON endpoint."""
+    import httpx
+    api_key = panel.get("api_key", "")
+    panel_url = panel.get("panel_url", "").rstrip("/")
+    payload = {"api_key": api_key, "action": action}
+    if extra_data:
+        payload.update(extra_data)
+    
+    proxies = None
+    if panel.get("proxy_url"):
+        proxies = {"http://": panel["proxy_url"], "https://": panel["proxy_url"]}
+    
+    async with httpx.AsyncClient(verify=panel.get("ssl_verify", False), proxies=proxies, timeout=30.0) as client:
+        resp = await client.post(
+            panel_url,
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 @app.get("/api/admin/bouquets/sync")
 async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Fetch bouquets from specific XtreamUI panel and sync to system"""
@@ -8705,26 +8916,47 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
     panel = panels[panel_index]
     
     try:
-        # Use session client to fetch bouquets from specific panel
-        client = XtreamUISessionClient(
-            panel_url=panel["panel_url"],
-            username=panel["admin_username"],
-            password=panel["admin_password"],
-            http_basic_user=panel.get("http_basic_user", ""),
-            http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", "")
-        )
-        
-        bouquets = client.fetch_bouquets_from_packages()
+        # API-key panels: use JSON POST API
+        if panel.get("api_key"):
+            # First get packages, then get bouquets for each
+            pkgs_data = await _xtream_api_call(panel, "get_packages")
+            packages = pkgs_data if isinstance(pkgs_data, list) else pkgs_data.get("packages", pkgs_data.get("data", []))
+            
+            all_bouquets = {}
+            for pkg in packages:
+                pkg_id = pkg.get("id") or pkg.get("package_id")
+                if not pkg_id:
+                    continue
+                try:
+                    bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
+                    bq_list = bq_data if isinstance(bq_data, list) else bq_data.get("bouquets", bq_data.get("data", []))
+                    for bq in bq_list:
+                        bq_id = bq.get("id") or bq.get("bouquet_id")
+                        bq_name = bq.get("name") or bq.get("bouquet_name") or f"Bouquet {bq_id}"
+                        if bq_id:
+                            all_bouquets[int(bq_id)] = {"id": int(bq_id), "name": bq_name}
+                except Exception as e:
+                    logger.warning(f"Failed to fetch bouquets for package {pkg_id}: {e}")
+            
+            bouquets = list(all_bouquets.values())
+        else:
+            # Standard session-based scraping
+            client = XtreamUISessionClient(
+                panel_url=panel["panel_url"],
+                username=panel["admin_username"],
+                password=panel["admin_password"],
+                http_basic_user=panel.get("http_basic_user", ""),
+                http_basic_pass=panel.get("http_basic_pass", ""),
+                proxy_url=panel.get("proxy_url", "")
+            )
+            bouquets = client.fetch_bouquets_from_packages()
         
         if bouquets:
-            # Save bouquets for this specific panel
             await settings_collection.update_one(
                 {},
                 {"$set": {f"bouquets_panel_{panel_index}": bouquets, "updated_at": datetime.utcnow()}},
                 upsert=True
             )
-            
             return {
                 "success": True,
                 "message": f"Synced {len(bouquets)} bouquets from {panel['name']}",
@@ -8734,6 +8966,8 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
         else:
             raise HTTPException(status_code=500, detail="Could not fetch bouquets from panel")
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Bouquet sync error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -8756,6 +8990,56 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
     panel = panels[panel_index]
     
     try:
+        # API-key panels: use JSON POST API
+        if panel.get("api_key"):
+            pkgs_data = await _xtream_api_call(panel, "get_packages")
+            raw_packages = pkgs_data if isinstance(pkgs_data, list) else pkgs_data.get("packages", pkgs_data.get("data", []))
+            
+            regular_packages = []
+            trial_packages = []
+            for pkg in raw_packages:
+                pkg_id = pkg.get("id") or pkg.get("package_id")
+                duration = pkg.get("duration", pkg.get("months", 1))
+                duration_unit = pkg.get("duration_unit", "months")
+                is_trial = pkg.get("is_trial", False)
+                max_conn = pkg.get("max_connections", pkg.get("connections", 1))
+                credits_val = pkg.get("credits", pkg.get("cost", pkg.get("price", 0)))
+                
+                # Fetch bouquets for this package
+                bouquet_ids = []
+                try:
+                    bq_data = await _xtream_api_call(panel, "get_bouquets", {"package_id": pkg_id})
+                    bq_list = bq_data if isinstance(bq_data, list) else bq_data.get("bouquets", bq_data.get("data", []))
+                    bouquet_ids = [{"id": b.get("id") or b.get("bouquet_id"), "name": b.get("name", "")} for b in bq_list]
+                except Exception:
+                    pass
+                
+                formatted = {
+                    "id": pkg_id,
+                    "name": pkg.get("name", f"Package {pkg_id}"),
+                    "duration": duration,
+                    "duration_unit": duration_unit,
+                    "max_connections": max_conn,
+                    "credits": credits_val,
+                    "is_trial": is_trial,
+                    "bouquets": bouquet_ids,
+                }
+                if is_trial:
+                    trial_packages.append(formatted)
+                else:
+                    regular_packages.append(formatted)
+            
+            return {
+                "success": True,
+                "packages": regular_packages,
+                "trial_packages": trial_packages,
+                "count": len(regular_packages),
+                "trial_count": len(trial_packages),
+                "panel_name": panel.get("name", f"Panel {panel_index}"),
+                "panel_index": panel_index
+            }
+        
+        # Standard session-based scraping
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
@@ -8816,6 +9100,31 @@ async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dic
     panel = panels[panel_index]
     
     try:
+        # API-key panels: use JSON POST API (trial packages come from get_packages with is_trial flag)
+        if panel.get("api_key"):
+            pkgs_data = await _xtream_api_call(panel, "get_packages")
+            raw_packages = pkgs_data if isinstance(pkgs_data, list) else pkgs_data.get("packages", pkgs_data.get("data", []))
+            trial_packages = []
+            for pkg in raw_packages:
+                if pkg.get("is_trial", False):
+                    trial_packages.append({
+                        "id": pkg.get("id") or pkg.get("package_id"),
+                        "name": pkg.get("name", "Trial"),
+                        "duration": pkg.get("duration", 1),
+                        "duration_unit": pkg.get("duration_unit", "days"),
+                        "max_connections": pkg.get("max_connections", 1),
+                        "credits": 0,
+                        "is_trial": True,
+                        "bouquets": [],
+                    })
+            return {
+                "success": True,
+                "packages": trial_packages,
+                "count": len(trial_packages),
+                "panel_name": panel.get("name", f"Panel {panel_index}")
+            }
+        
+        # Standard session-based scraping
         client = XtreamUISessionClient(
             panel_url=panel["panel_url"],
             username=panel["admin_username"],
@@ -11590,19 +11899,36 @@ async def update_bouquets(bouquets: List[dict], current_user: dict = Depends(get
     return {"message": "Bouquets updated successfully"}
 
 @app.post("/api/admin/xtreamui/test")
-async def test_xtreamui_connection(current_user: dict = Depends(get_current_admin_user)):
+async def test_xtreamui_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Test XtreamUI connection"""
     settings = await get_settings()
     xtream_settings = settings.get("xtream", {})
-    
-    # Get panels array
     panels = xtream_settings.get("panels", [])
     
     if not panels or len(panels) == 0:
         raise HTTPException(status_code=400, detail="No XtreamUI panels configured. Please add a panel first.")
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail=f"Panel index {panel_index} not found")
     
-    # Test first active panel
-    panel = panels[0]
+    panel = panels[panel_index]
+    
+    # API-key panels: test with get_credits
+    if panel.get("api_key"):
+        try:
+            result = await _xtream_api_call(panel, "get_credits")
+            credits = result.get("credits", result.get("balance", "N/A"))
+            return {"message": f"Connected to {panel.get('name', 'XtreamUI')} via API! Credits: {credits}"}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"API connection failed: {str(e)}")
+    
+    # Standard session-based test
+    xtream_service = get_xtream_service(panel)
+    if not xtream_service:
+        raise HTTPException(status_code=400, detail="Failed to initialize XtreamUI service")
+    result = xtream_service.test_connection()
+    if result.get("success"):
+        return {"message": f"Connected to {panel.get('name', 'XtreamUI')} successfully!"}
+    raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
 
 # ===== REFERRAL SYSTEM ENDPOINTS =====
 

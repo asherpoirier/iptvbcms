@@ -29,7 +29,7 @@ export default function XuiOnePanelManagement({ settings }) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => adminAPI.testXuiOne(),
+    mutationFn: (panelIndex) => adminAPI.testXuiOne(panelIndex),
     onSuccess: () => {
       toast.success('Connection successful!');
       setTestingPanelId(null);
@@ -140,7 +140,7 @@ export default function XuiOnePanelManagement({ settings }) {
 
   const handleTestPanel = (panel, index) => {
     setTestingPanelId(index);
-    testMutation.mutate();
+    testMutation.mutate(index);
   };
 
   const handleSyncPackages = (index) => {
