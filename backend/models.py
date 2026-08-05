@@ -232,6 +232,7 @@ class XtreamPanel(BaseModel):
     http_basic_user: str = ""  # Separate nginx basic auth user (if different from panel login)
     http_basic_pass: str = ""  # Separate nginx basic auth password
     proxy_url: str = ""  # Residential proxy URL to bypass Cloudflare WAF
+    api_key: str = ""  # Optional reseller API key for JSON API panels
 
 
 
@@ -431,12 +432,25 @@ class SEOSettings(BaseModel):
     custom_head_code: str = ""
 
 
+class GhostSurfPanel(BaseModel):
+    id: Optional[str] = None
+    name: str = ""
+    panel_url: str = "https://ghostsurf.io/api/v1/reseller/api"
+    api_key: str = ""
+    active: bool = True
+
+class GhostSurfSettings(BaseModel):
+    panels: List[GhostSurfPanel] = []
+
+
+
 class Settings(BaseModel):
     id: Optional[str] = None
     xtream: XtreamSettings = Field(default_factory=XtreamSettings)
     xuione: XuiOneSettings = Field(default_factory=XuiOneSettings)
     onestream: OneStreamSettings = Field(default_factory=OneStreamSettings)
     nxtdash: NxtDashSettings = Field(default_factory=NxtDashSettings)
+    ghostsurf: GhostSurfSettings = Field(default_factory=GhostSurfSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     paypal: PayPalSettings = Field(default_factory=PayPalSettings)
     stripe: StripeSettings = Field(default_factory=StripeSettings)

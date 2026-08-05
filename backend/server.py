@@ -6953,7 +6953,7 @@ async def update_admin_settings(settings_update: Settings,
     existing = await settings_collection.find_one()
     if existing:
         # Detect removed panels and clean up their data
-        for panel_type_key in ["xtream", "xuione", "onestream", "nxtdash"]:
+        for panel_type_key in ["xtream", "xuione", "onestream", "nxtdash", "ghostsurf"]:
             old_panels = existing.get(panel_type_key, {}).get("panels", [])
             new_panels = settings_dict.get(panel_type_key, {}).get("panels", [])
             old_names = {p.get("name") for p in old_panels if p.get("name")}
