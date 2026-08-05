@@ -8712,8 +8712,7 @@ async def sync_bouquets_from_panel(panel_index: int = 0, current_user: dict = De
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", ""),
-            api_key=panel.get("api_key", "")
+            proxy_url=panel.get("proxy_url", "")
         )
         
         bouquets = client.fetch_bouquets_from_packages()
@@ -8763,8 +8762,7 @@ async def sync_packages_from_panel(panel_index: int = 0, current_user: dict = De
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", ""),
-            api_key=panel.get("api_key", "")
+            proxy_url=panel.get("proxy_url", "")
         )
         
         # Fetch BOTH regular and trial packages
@@ -8824,8 +8822,7 @@ async def sync_trial_packages_from_panel(panel_index: int = 0, current_user: dic
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", ""),
-            api_key=panel.get("api_key", "")
+            proxy_url=panel.get("proxy_url", "")
         )
         
         trial_packages = client.fetch_trial_packages()
@@ -10247,8 +10244,7 @@ async def add_credits_to_imported_user(user_id: str, data: AddCreditsRequest, cu
             password=panel["admin_password"],
             http_basic_user=panel.get("http_basic_user", ""),
             http_basic_pass=panel.get("http_basic_pass", ""),
-            proxy_url=panel.get("proxy_url", ""),
-            api_key=panel.get("api_key", "")
+            proxy_url=panel.get("proxy_url", "")
         )
         result = client.add_credits(username=username, email="", credits=credits)
         if result.get("success"):
