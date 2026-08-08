@@ -48,6 +48,7 @@ import DownloadsPage from './pages/DownloadsPage';
 import PayPalSuccessPage from './pages/PayPalSuccessPage';
 import LauncherPayPage from './pages/LauncherPayPage';
 import LauncherDashboard from './pages/LauncherDashboard';
+import LauncherManagePage from './pages/LauncherManagePage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -202,6 +203,7 @@ function App() {
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/order/:productId" element={<OrderProductPage />} />
             <Route path="/launcher/pay/:orderId" element={<LauncherPayPage />} />
+            <Route path="/launcher/manage/:deviceToken" element={<LauncherManagePage />} />
             
             {/* Protected routes */}
             <Route

@@ -829,3 +829,115 @@ async def get_launcher_analytics(request: Request):
         "monthly_revenue": monthly,
         "devices": recent_devices,
     }
+
+
+# ──────────────────────────────────────────────
+# Launcher: Manage page data (token in URL)
+# ──────────────────────────────────────────────
+
+@router.get("/manage-info/{device_token}")
+async def get_launcher_manage_info(device_token: str):
+    """Public endpoint for the launcher manage page — looks up device by token."""
+    token_hash = _hash_token(device_token)
+    device = await db.launcher_devices.find_one({"token_hash": token_hash})
+    if not device:
+        raise HTTPException(status_code=404, detail="Invalid or expired device token")
+    
+    if device.get("status") == "revoked":
+        raise HTTPException(status_code=403, detail="Device token has been revoked")
+    
+    # Update last_seen
+    await db.launcher_devices.update_one({"_id": device["_id"]}, {"$set": {"last_seen_at": datetime.utcnow()}})
+    
+    # Get linked service
+    service = None
+    if device.get("service_id"):
+        service = await db.services.find_one({"_id": ObjectId(device["service_id"])})
+    elif device.get("xtream_username"):
+        service = await db.services.find_one({"xtream_username": device["xtream_username"], "status": {"$in": ["active", "expired"]}})
+    
+    # Get customer info
+    customer = None
+    if device.get("customer_id"):
+        customer = await db.users.find_one({"_id": ObjectId(device["customer_id"])})
+    
+    settings = await _get_settings()
+    currency = settings.get("currency", "USD")
+    if isinstance(currency, dict):
+        currency = currency.get("code", "USD")
+    
+    # Find compatible renewal products
+    renewal_products = []
+    if service and service.get("product_id"):
+        product = await db.products.find_one({"_id": ObjectId(service["product_id"]), "active": True})
+        if product:
+            prices = product.get("prices", {})
+            for term, price in prices.items():
+                renewal_products.append({
+                    "product_id": str(product["_id"]),
+                    "name": product.get("name", ""),
+                    "term_months": int(term),
+                    "price": float(price),
+                    "currency": currency,
+                })
+        # Also find other active products for the same panel
+        async for p in db.products.find({
+            "active": True,
+            "panel_type": service.get("panel_type", "xtream"),
+            "panel_index": service.get("panel_index", 0),
+            "_id": {"$ne": ObjectId(service["product_id"])}
+        }).limit(10):
+            prices = p.get("prices", {})
+            for term, price in prices.items():
+                renewal_products.append({
+                    "product_id": str(p["_id"]),
+                    "name": p.get("name", ""),
+                    "term_months": int(term),
+                    "price": float(price),
+                    "currency": currency,
+                })
+    
+    # Build response
+    result = {
+        "device_id": device.get("device_id", ""),
+        "customer_name": customer.get("name", "") if customer else "",
+        "customer_email": customer.get("email", "") if customer else "",
+        "credit_balance": customer.get("credit_balance", 0) if customer else 0,
+    }
+    
+    if service:
+        expiry = service.get("expiry_date")
+        days_remaining = 0
+        if expiry:
+            if isinstance(expiry, str):
+                expiry = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            delta = expiry - datetime.utcnow()
+            days_remaining = max(0, delta.days)
+        
+        result.update({
+            "has_service": True,
+            "service_status": service.get("status", "unknown"),
+            "product_name": service.get("product_name", ""),
+            "username": service.get("xtream_username") or service.get("vpn_username", ""),
+            "expires_at": expiry.isoformat() if expiry else None,
+            "days_remaining": days_remaining,
+            "connections": service.get("max_connections", 1),
+            "panel_type": service.get("panel_type", "xtream"),
+            "streaming_url": service.get("streaming_url", ""),
+        })
+    else:
+        result["has_service"] = False
+    
+    result["renewal_products"] = renewal_products
+    result["currency"] = currency
+    
+    # Branding
+    branding = settings.get("branding", {})
+    result["branding"] = {
+        "company_name": branding.get("company_name") or settings.get("company_name", "IPTV"),
+        "logo_url": branding.get("logo_url", ""),
+        "support_email": settings.get("support_email", settings.get("company_email", "")),
+    }
+    
+    return result
+
