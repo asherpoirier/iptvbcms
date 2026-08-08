@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
+import api from '../api/api';
 import { ArrowLeft } from 'lucide-react';
 import BrandingSettings from '../components/BrandingSettings';
 import PanelManagement from '../components/PanelManagement';
@@ -391,12 +392,11 @@ function LauncherKeySettings() {
 
   const fetchKeys = async () => {
     try {
-      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
-      const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (resp.ok) setKeys(await resp.json());
-    } catch {}
+      const resp = await api.get('/api/launcher/admin/keys');
+      setKeys(resp.data);
+    } catch (err) {
+      console.error('Failed to fetch launcher keys:', err);
+    }
     setLoading(false);
   };
 
@@ -405,32 +405,25 @@ function LauncherKeySettings() {
   const createKey = async () => {
     setCreating(true);
     try {
-      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
-      const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: label || 'Launcher Key' })
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setNewKey(data.api_key);
-        setLabel('');
-        fetchKeys();
-      }
-    } catch {}
+      const resp = await api.post('/api/launcher/admin/keys', { label: label || 'Launcher Key' });
+      setNewKey(resp.data.api_key);
+      setLabel('');
+      fetchKeys();
+    } catch (err) {
+      console.error('Failed to create launcher key:', err);
+      alert('Failed to create key: ' + (err.response?.data?.detail || err.message));
+    }
     setCreating(false);
   };
 
   const revokeKey = async (keyId) => {
     if (!window.confirm('Revoke this API key? Launchers using it will stop working.')) return;
     try {
-      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
-      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys/${keyId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/api/launcher/admin/keys/${keyId}`);
       fetchKeys();
-    } catch {}
+    } catch (err) {
+      console.error('Failed to revoke key:', err);
+    }
   };
 
   return (
