@@ -245,6 +245,17 @@ export default function AdminSettings() {
               >
                 AI Chatbot
               </button>
+              <button
+                onClick={() => setActiveTab('launcher')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
+                  activeTab === 'launcher' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Launcher API
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  activeTab === 'launcher' ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
+                }`}>New</span>
+              </button>
             </nav>
           </div>
 
@@ -358,6 +369,10 @@ export default function AdminSettings() {
             {activeTab === 'chatbot' && (
               <ChatbotSettings settings={settings} />
             )}
+
+            {activeTab === 'launcher' && (
+              <LauncherKeySettings />
+            )}
             </div>
           </div>
         </div>
@@ -365,6 +380,135 @@ export default function AdminSettings() {
     </div>
   );
 }
+
+
+function LauncherKeySettings() {
+  const [keys, setKeys] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [creating, setCreating] = React.useState(false);
+  const [label, setLabel] = React.useState('');
+  const [newKey, setNewKey] = React.useState(null);
+
+  const fetchKeys = async () => {
+    try {
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (resp.ok) setKeys(await resp.json());
+    } catch {}
+    setLoading(false);
+  };
+
+  React.useEffect(() => { fetchKeys(); }, []);
+
+  const createKey = async () => {
+    setCreating(true);
+    try {
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label || 'Launcher Key' })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setNewKey(data.api_key);
+        setLabel('');
+        fetchKeys();
+      }
+    } catch {}
+    setCreating(false);
+  };
+
+  const revokeKey = async (keyId) => {
+    if (!window.confirm('Revoke this API key? Launchers using it will stop working.')) return;
+    try {
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/launcher/admin/keys/${keyId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchKeys();
+    } catch {}
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Launcher API Keys</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Generate API keys for TV/STB launcher apps. Keys authenticate all launcher API requests.</p>
+      </div>
+
+      {/* Create new key */}
+      <div className="flex gap-3">
+        <input
+          type="text" value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="Key label (e.g. Android Launcher)"
+          className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+          data-testid="launcher-key-label"
+        />
+        <button onClick={createKey} disabled={creating}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+          data-testid="create-launcher-key-btn"
+        >
+          {creating ? 'Generating...' : 'Generate Key'}
+        </button>
+      </div>
+
+      {/* New key display */}
+      {newKey && (
+        <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded-lg">
+          <p className="text-sm font-bold text-green-800 dark:text-green-300 mb-2">New API Key — copy it now (shown only once):</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-sm font-mono bg-white dark:bg-gray-800 px-3 py-2 rounded border border-green-300 dark:border-green-600 text-gray-900 dark:text-white break-all select-all">{newKey}</code>
+            <button onClick={() => { navigator.clipboard.writeText(newKey); }}
+              className="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700">Copy</button>
+          </div>
+          <button onClick={() => setNewKey(null)} className="text-xs text-green-600 dark:text-green-400 mt-2 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Keys list */}
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : keys.length === 0 ? (
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          No API keys yet. Generate one to enable the launcher API.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {keys.map((k) => (
+            <div key={k.id} className={`flex items-center justify-between p-4 rounded-lg border ${k.status === 'revoked' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800 opacity-60' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">{k.label || 'Unnamed Key'}</p>
+                <p className="text-xs text-gray-500 font-mono">{k.prefix}</p>
+                <p className="text-xs text-gray-400">{k.status === 'revoked' ? 'Revoked' : `Last used: ${k.last_used ? new Date(k.last_used).toLocaleString() : 'Never'}`}</p>
+              </div>
+              {k.status !== 'revoked' && (
+                <button onClick={() => revokeKey(k.id)} className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded border border-red-300 dark:border-red-700">Revoke</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* API docs summary */}
+      <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-2">Launcher API Endpoints</h4>
+        <div className="text-xs text-gray-600 dark:text-gray-400 font-mono space-y-1">
+          <p><span className="text-blue-600">GET</span> /api/launcher/config — Enabled gateways & branding</p>
+          <p><span className="text-blue-600">GET</span> /api/launcher/packages — Purchasable packages</p>
+          <p><span className="text-green-600">POST</span> /api/launcher/checkout — Create order → checkout URL</p>
+          <p><span className="text-blue-600">GET</span> /api/launcher/order/:id — Poll payment status</p>
+          <p><span className="text-blue-600">GET</span> /api/launcher/account — Device line status</p>
+          <p className="mt-2 text-gray-500">All require <code>X-Launcher-Key</code> header</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 
 function CurrencySettings({ settings }) {

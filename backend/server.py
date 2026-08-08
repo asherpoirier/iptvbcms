@@ -81,6 +81,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Launcher API router
+from launcher_api import router as launcher_router, init_launcher_api
+app.include_router(launcher_router)
+
+
 # MongoDB connection
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017/iptv_billing")
 DB_NAME = os.getenv("DB_NAME", "test_database")
@@ -519,6 +524,10 @@ async def startup_event():
     refund_service = RefundService(db, credit_service)
     license_manager = LicenseManager(db)
     logger.info("Business services initialized")
+    
+    # Initialize Launcher API
+    init_launcher_api(db, get_settings, provision_order_services)
+    logger.info("Launcher API initialized")
     
     # Validate license on startup (check env var first, then settings)
     current_domain = license_manager.get_current_domain()

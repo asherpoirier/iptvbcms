@@ -46,6 +46,8 @@ import AdminImportedUsers from './pages/AdminImportedUsers';
 import TicketsPage from './pages/TicketsPage';
 import DownloadsPage from './pages/DownloadsPage';
 import PayPalSuccessPage from './pages/PayPalSuccessPage';
+import LauncherPayPage from './pages/LauncherPayPage';
+import LauncherDashboard from './pages/LauncherDashboard';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -199,6 +201,7 @@ function App() {
             <Route path="/verify-email" element={<EmailVerificationPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/order/:productId" element={<OrderProductPage />} />
+            <Route path="/launcher/pay/:orderId" element={<LauncherPayPage />} />
             
             {/* Protected routes */}
             <Route
@@ -278,6 +281,7 @@ function App() {
               }
             />
             <Route path="/admin/imported-users" element={<ProtectedRoute><AdminRoute><AdminImportedUsers /></AdminRoute></ProtectedRoute>} />
+            <Route path="/admin/launcher" element={<ProtectedRoute><AdminRoute><LauncherDashboard /></AdminRoute></ProtectedRoute>} />
 
             <Route
               path="/admin/customers"

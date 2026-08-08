@@ -7,7 +7,7 @@ import { useCurrencyStore } from '../store/currency';
 import { 
   Home, ShoppingCart, Users, Server, MessageSquare, FileText, 
   BarChart3, Settings, LogOut, DollarSign, TrendingUp, Plus, Shield, 
-  UserPlus, Menu, X, Package, Mail, Download, Tag, RefreshCw, ChevronDown, ChevronRight, BookOpen
+  UserPlus, Menu, X, Package, Mail, Download, Tag, RefreshCw, ChevronDown, ChevronRight, BookOpen, Smartphone
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,6 +51,7 @@ export default function AdminDashboard() {
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/admin' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/admin/analytics' },
+    { id: 'launcher', label: 'Launcher', icon: Smartphone, path: '/admin/launcher' },
     { 
       id: 'customers', 
       label: 'Customers', 
