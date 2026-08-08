@@ -28,6 +28,20 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+async def _verify_admin(request: Request):
+    """Verify admin JWT from Authorization header."""
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Admin auth required")
+    from auth import verify_token
+    token = auth_header.split(" ", 1)[1]
+    payload = verify_token(token)
+    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
 async def _verify_launcher_key(x_launcher_key: str = Header(None)):
     """Verify the launcher API key from X-Launcher-Key header."""
     if not x_launcher_key:
@@ -58,19 +72,7 @@ async def _verify_launcher_key(x_launcher_key: str = Header(None)):
 @router.post("/admin/keys")
 async def create_launcher_key(request: Request):
     """Generate a new launcher API key. Returns plaintext ONCE."""
-    from server import get_current_admin_user, Depends as _D
-    # Manual auth check since we can't use Depends in the same way
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Admin auth required")
-    
-    # Verify admin JWT
-    from server import verify_token, users_collection
-    token = auth_header.split(" ", 1)[1]
-    payload = verify_token(token)
-    user = await users_collection.find_one({"_id": ObjectId(payload["sub"])})
-    if not user or user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    await _verify_admin(request)
     
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     label = body.get("label", "Launcher Key")
@@ -107,15 +109,7 @@ async def create_launcher_key(request: Request):
 @router.get("/admin/keys")
 async def list_launcher_keys(request: Request):
     """List all launcher API keys (prefix only, no plaintext)."""
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Admin auth required")
-    from server import verify_token, users_collection
-    token = auth_header.split(" ", 1)[1]
-    payload = verify_token(token)
-    user = await users_collection.find_one({"_id": ObjectId(payload["sub"])})
-    if not user or user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    await _verify_admin(request)
     
     settings = await _get_settings()
     keys = settings.get("launcher", {}).get("api_keys", [])
@@ -125,15 +119,7 @@ async def list_launcher_keys(request: Request):
 @router.delete("/admin/keys/{key_id}")
 async def revoke_launcher_key(key_id: str, request: Request):
     """Revoke a launcher API key."""
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Admin auth required")
-    from server import verify_token, users_collection
-    token = auth_header.split(" ", 1)[1]
-    payload = verify_token(token)
-    user = await users_collection.find_one({"_id": ObjectId(payload["sub"])})
-    if not user or user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    await _verify_admin(request)
     
     result = await db.settings.update_one(
         {"launcher.api_keys.id": key_id},
@@ -783,15 +769,7 @@ async def check_launcher_ghostpay_status(order_id: str, invoice_id: str, backgro
 @router.get("/admin/analytics")
 async def get_launcher_analytics(request: Request):
     """Device analytics: active launchers, revenue, activity."""
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Admin auth required")
-    from server import verify_token, users_collection
-    token = auth_header.split(" ", 1)[1]
-    payload = verify_token(token)
-    user = await users_collection.find_one({"_id": ObjectId(payload["sub"])})
-    if not user or user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    await _verify_admin(request)
     
     # Total devices
     total_devices = await db.launcher_devices.count_documents({})
