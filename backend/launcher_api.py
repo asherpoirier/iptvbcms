@@ -264,6 +264,281 @@ async def get_launcher_account(
 
 
 # ──────────────────────────────────────────────
+# Launcher: Import existing line (adopt)
+# ──────────────────────────────────────────────
+
+@router.post("/import")
+async def import_existing_line(request: Request, key: dict = Depends(_verify_launcher_key)):
+    """Adopt an existing IPTV/VPN line into the launcher by username + password.
+    Verifies credentials against the panel, creates a service record + device token.
+    
+    Body: { "username": "...", "password": "...", "device_id": "uuid" }
+    Returns: { "device_token": "...", "status": "active", "expires_at": "...", ... }
+    """
+    body = await request.json()
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    device_id = (body.get("device_id") or "").strip()
+    
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+    if not device_id:
+        raise HTTPException(status_code=400, detail="device_id required")
+    
+    settings = await _get_settings()
+    
+    # 1. Check if this line already has a device token for this device
+    existing_device = await db.launcher_devices.find_one({
+        "xtream_username": username, "device_id": device_id, "status": "active"
+    })
+    if existing_device:
+        # Already imported — return fresh status without issuing new token
+        service = await db.services.find_one({"xtream_username": username, "status": {"$in": ["active", "expired"]}})
+        if not service:
+            service = await db.services.find_one({"vpn_username": username, "status": {"$in": ["active", "expired"]}})
+        
+        expiry = service.get("expiry_date") if service else None
+        days_remaining = 0
+        if expiry:
+            if isinstance(expiry, str):
+                expiry = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            days_remaining = max(0, (expiry - datetime.utcnow()).days)
+        
+        await db.launcher_devices.update_one({"_id": existing_device["_id"]}, {"$set": {"last_seen_at": datetime.utcnow()}})
+        
+        return {
+            "status": "already_imported",
+            "device_token_issued": True,
+            "service_status": service.get("status", "unknown") if service else "no_service",
+            "username": username,
+            "expires_at": expiry.isoformat() if expiry else None,
+            "days_remaining": days_remaining,
+            "package": service.get("product_name", "") if service else "",
+            "message": "Line already imported on this device. Use your existing device token."
+        }
+    
+    # 2. Try to verify the line on each panel
+    line_data = None
+    matched_panel_type = None
+    matched_panel_index = None
+    matched_panel_name = None
+    
+    # Try XtreamUI panels (API-key panels use lookup_line, standard panels use get_line_info)
+    xtream_panels = settings.get("xtream", {}).get("panels", [])
+    for idx, panel in enumerate(xtream_panels):
+        try:
+            if panel.get("api_key"):
+                # API-key panel: use lookup_line
+                data = await _xtream_api_call(panel, "lookup_line", {"username": username})
+                line = data.get("data", data) if isinstance(data, dict) else data
+                if isinstance(line, dict) and line.get("username"):
+                    # Verify password if returned
+                    if line.get("password") and password and line["password"] != password:
+                        continue  # Wrong password, try next panel
+                    line_data = line
+                    matched_panel_type = "xtream"
+                    matched_panel_index = idx
+                    matched_panel_name = panel.get("name", f"Panel {idx + 1}")
+                    break
+            else:
+                # Standard panel: try XtreamUI player API for credential check
+                import httpx
+                panel_url = panel.get("streaming_url") or panel.get("panel_url", "")
+                if panel_url:
+                    clean_url = panel_url.rstrip("/")
+                    async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+                        resp = await client.get(f"{clean_url}/player_api.php?username={username}&password={password}")
+                        if resp.status_code == 200:
+                            pdata = resp.json()
+                            if pdata.get("user_info") and pdata["user_info"].get("username"):
+                                user_info = pdata["user_info"]
+                                line_data = {
+                                    "username": user_info.get("username", username),
+                                    "password": password,
+                                    "exp_date": user_info.get("exp_date"),
+                                    "max_connections": user_info.get("max_connections", "1"),
+                                    "status": user_info.get("status", "Active"),
+                                    "id": user_info.get("id") or user_info.get("user_id"),
+                                }
+                                matched_panel_type = "xtream"
+                                matched_panel_index = idx
+                                matched_panel_name = panel.get("name", f"Panel {idx + 1}")
+                                break
+        except Exception as e:
+            logger.debug(f"Import check failed on xtream panel {idx}: {e}")
+            continue
+    
+    # Try GhostSurf panels if not found yet
+    if not line_data:
+        gs_panels = settings.get("ghostsurf", {}).get("panels", [])
+        for idx, panel in enumerate(gs_panels):
+            try:
+                from ghostsurf_service import get_ghostsurf_service
+                gs = get_ghostsurf_service(settings, idx)
+                if gs:
+                    accounts = await gs.list_accounts()
+                    if not isinstance(accounts, list):
+                        accounts = accounts.get("accounts", accounts.get("data", []))
+                    for acct in accounts:
+                        if acct.get("username") == username:
+                            creds = await gs.get_credentials(str(acct.get("id", "")))
+                            if password and creds.get("password") and creds["password"] != password:
+                                continue
+                            line_data = {
+                                "username": acct.get("username"),
+                                "password": creds.get("password", ""),
+                                "exp_date": acct.get("expires_at"),
+                                "id": acct.get("id"),
+                                "max_connections": acct.get("max_devices", 5),
+                                "status": acct.get("status", "active"),
+                            }
+                            matched_panel_type = "ghostsurf"
+                            matched_panel_index = idx
+                            matched_panel_name = panel.get("name", f"GhostSurf {idx + 1}")
+                            break
+                if line_data:
+                    break
+            except Exception as e:
+                logger.debug(f"Import check failed on ghostsurf panel {idx}: {e}")
+                continue
+    
+    if not line_data:
+        raise HTTPException(status_code=404, detail="Line not found on any configured panel. Check username and password.")
+    
+    # 3. Parse line data
+    expiry_date = None
+    exp_val = line_data.get("exp_date") or line_data.get("expiry") or line_data.get("expires_at", "")
+    if exp_val:
+        if isinstance(exp_val, (int, float)) and exp_val > 0:
+            expiry_date = datetime.utcfromtimestamp(exp_val)
+        elif isinstance(exp_val, str):
+            for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                try:
+                    expiry_date = datetime.strptime(str(exp_val).split(".")[0].replace("Z", ""), fmt)
+                    break
+                except ValueError:
+                    continue
+    
+    line_status = "active"
+    raw_status = str(line_data.get("status", "")).lower()
+    if raw_status in ("disabled", "banned", "suspended"):
+        line_status = "suspended"
+    elif expiry_date and expiry_date < datetime.utcnow():
+        line_status = "expired"
+    
+    days_remaining = 0
+    if expiry_date:
+        days_remaining = max(0, (expiry_date - datetime.utcnow()).days)
+    
+    max_conn = 1
+    try:
+        max_conn = int(line_data.get("max_connections", 1))
+    except (ValueError, TypeError):
+        max_conn = 1
+    
+    # 4. Create or find launcher customer
+    customer = await db.users.find_one({"launcher_device_id": device_id})
+    if not customer:
+        result = await db.users.insert_one({
+            "email": f"launcher_{device_id[:8]}@device.local",
+            "name": f"Launcher {device_id[:8]}",
+            "password": "",
+            "role": "user",
+            "email_verified": True,
+            "credit_balance": 0.0,
+            "launcher_device_id": device_id,
+            "created_via": "launcher_import",
+            "created_at": datetime.utcnow()
+        })
+        customer_id = str(result.inserted_id)
+    else:
+        customer_id = str(customer["_id"])
+    
+    # 5. Create or update service record
+    existing_service = await db.services.find_one({
+        "xtream_username" if matched_panel_type != "ghostsurf" else "vpn_username": username,
+        "panel_type": matched_panel_type,
+        "panel_index": matched_panel_index,
+    })
+    
+    streaming_url = ""
+    if matched_panel_type == "xtream":
+        panel = xtream_panels[matched_panel_index]
+        streaming_url = panel.get("streaming_url", panel.get("panel_url", ""))
+    
+    if existing_service:
+        service_id = str(existing_service["_id"])
+        await db.services.update_one({"_id": existing_service["_id"]}, {"$set": {
+            "user_id": customer_id,
+            "status": line_status,
+            "expiry_date": expiry_date,
+            "max_connections": max_conn,
+            "last_synced": datetime.utcnow(),
+        }})
+    else:
+        svc_doc = {
+            "user_id": customer_id,
+            "product_name": f"Imported Line ({matched_panel_name})",
+            "account_type": "subscriber",
+            "panel_type": matched_panel_type,
+            "panel_index": matched_panel_index,
+            "panel_name": matched_panel_name,
+            "status": line_status,
+            "expiry_date": expiry_date,
+            "max_connections": max_conn,
+            "streaming_url": streaming_url,
+            "start_date": datetime.utcnow(),
+            "created_at": datetime.utcnow(),
+            "imported_via": "launcher",
+        }
+        if matched_panel_type == "ghostsurf":
+            svc_doc["vpn_username"] = username
+            svc_doc["vpn_password"] = line_data.get("password", "")
+            svc_doc["ghostsurf_account_id"] = str(line_data.get("id", ""))
+        else:
+            svc_doc["xtream_username"] = username
+            svc_doc["xtream_password"] = line_data.get("password", password)
+            svc_doc["xtream_user_id"] = line_data.get("id")
+        
+        result = await db.services.insert_one(svc_doc)
+        service_id = str(result.inserted_id)
+    
+    # 6. Issue device token
+    plaintext = secrets.token_urlsafe(32)
+    token_hash = _hash_token(plaintext)
+    
+    await db.launcher_devices.insert_one({
+        "device_id": device_id,
+        "token_hash": token_hash,
+        "service_id": service_id,
+        "customer_id": customer_id,
+        "xtream_username": username,
+        "status": "active",
+        "imported_via": "launcher_import",
+        "created_at": datetime.utcnow(),
+        "last_seen_at": datetime.utcnow(),
+    })
+    
+    logger.info(f"Launcher import: {username} on {matched_panel_name} → device {device_id[:12]}...")
+    
+    return {
+        "status": "imported",
+        "device_token": plaintext,
+        "service_status": line_status,
+        "username": username,
+        "streaming_url": streaming_url,
+        "expires_at": expiry_date.isoformat() if expiry_date else None,
+        "days_remaining": days_remaining,
+        "connections": max_conn,
+        "panel_type": matched_panel_type,
+        "panel_name": matched_panel_name,
+        "package": f"Imported Line ({matched_panel_name})",
+        "manage_url": f"/launcher/manage/{plaintext}",
+    }
+
+
+
+# ──────────────────────────────────────────────
 # Launcher: Checkout
 # ──────────────────────────────────────────────
 
