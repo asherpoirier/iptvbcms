@@ -130,11 +130,32 @@ export default function LauncherPayPage() {
           <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <Check className="w-10 h-10 text-green-400" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Payment Complete</h1>
-          <p className="text-gray-400 mb-6">Your service is being activated. You can close this window.</p>
-          <div className="bg-gray-800 rounded-xl p-4 text-left space-y-2">
-            <p className="text-sm text-gray-500">Package</p>
-            <p className="text-lg font-semibold text-white">{order?.package}</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Payment Complete!</h1>
+          <p className="text-gray-400 mb-6">
+            {order?.gateway === 'ghostpay' 
+              ? 'Crypto payment confirmed.' 
+              : 'Card payment processed.'}
+            {' '}Your service is being activated.
+          </p>
+          <div className="bg-gray-800 rounded-xl p-5 text-left space-y-3">
+            <div>
+              <p className="text-xs text-gray-500">Package</p>
+              <p className="text-lg font-semibold text-white">{order?.package}</p>
+            </div>
+            <div className="flex justify-between">
+              <div>
+                <p className="text-xs text-gray-500">Amount</p>
+                <p className="text-white font-medium">${order?.amount?.toFixed(2)} {order?.currency}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-green-400 font-medium">Paid</p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 p-4 bg-blue-900/20 border border-blue-800 rounded-xl">
+            <p className="text-blue-300 text-sm font-medium">Return to your TV</p>
+            <p className="text-blue-400/70 text-xs mt-1">The launcher will update automatically. You can close this page.</p>
           </div>
         </div>
       </div>
