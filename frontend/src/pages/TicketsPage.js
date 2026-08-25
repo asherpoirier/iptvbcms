@@ -17,6 +17,9 @@ const ticketsAPI = {
   getOne: (id) => axios.get(`${API_URL}/api/tickets/${id}`, {
     headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token}` }
   }),
+  reply: (id, message) => axios.post(`${API_URL}/api/tickets/${id}/reply`, { message }, {
+    headers: { Authorization: `Bearer ${JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token}` }
+  }),
 };
 
 export default function TicketsPage() {
@@ -298,10 +301,37 @@ function CreateTicketModal({ onClose, onSuccess }) {
 }
 
 function ViewTicketModal({ ticket, onClose }) {
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState(ticket.messages || []);
+  const queryClient = useQueryClient();
+  const messagesEndRef = React.useRef(null);
+  const isClosed = ticket.status === 'closed';
+
+  React.useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleReply = async (e) => {
+    e.preventDefault();
+    if (!replyText.trim() || sending) return;
+    setSending(true);
+    try {
+      await ticketsAPI.reply(ticket.id, replyText);
+      setMessages([...messages, { message: replyText, is_admin: false, created_at: new Date().toISOString() }]);
+      setReplyText('');
+      queryClient.invalidateQueries(['tickets']);
+      toast.success('Reply sent!');
+    } catch (err) {
+      toast.error('Failed to send reply: ' + (err.response?.data?.detail || err.message));
+    }
+    setSending(false);
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{ticket.subject}</h2>
             <div className="flex gap-2 mt-2">
@@ -326,8 +356,8 @@ function ViewTicketModal({ ticket, onClose }) {
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
-          {ticket.messages?.map((msg, idx) => (
+        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          {messages.map((msg, idx) => (
             <div
               key={idx}
               className={`p-4 rounded-lg ${
@@ -347,7 +377,37 @@ function ViewTicketModal({ ticket, onClose }) {
               <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{msg.message}</p>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
+
+        {/* Reply form */}
+        {isClosed ? (
+          <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">This ticket is closed. Open a new ticket if you need further help.</p>
+          </div>
+        ) : (
+          <form onSubmit={handleReply} className="px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shrink-0">
+            <div className="flex gap-3">
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Type your reply..."
+                rows={2}
+                className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                data-testid="ticket-reply-input"
+              />
+              <button
+                type="submit"
+                disabled={sending || !replyText.trim()}
+                className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 self-end"
+                data-testid="ticket-reply-submit"
+              >
+                <Send className="w-4 h-4" />
+                {sending ? 'Sending...' : 'Reply'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

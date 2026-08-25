@@ -815,12 +815,30 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
-      // Only save ONE price entry based on the package duration
-      const prices = {};
+      // Parse the actual duration from the package
       const pkg = selectedPackage || product;
-      const durationMonths = pkg ? convertDurationToMonths(pkg.duration || 1, pkg.duration_unit || pkg.duration_in || 'months') : 1;
+      let actualDuration = null;
+      let actualDurationUnit = 'months';
       
-      // Find the price value from whichever field has it
+      if (pkg) {
+        let rawDur = pkg.duration;
+        let rawUnit = pkg.duration_unit || pkg.duration_in || 'months';
+        
+        // Handle string durations like "12 months" or "24 hours"
+        if (typeof rawDur === 'string') {
+          const parts = rawDur.trim().split(/\s+/);
+          rawDur = parseInt(parts[0]) || 1;
+          if (parts.length > 1) rawUnit = parts[1];
+        }
+        
+        actualDuration = parseInt(rawDur) || 1;
+        actualDurationUnit = rawUnit;
+      }
+      
+      const durationMonths = pkg ? convertDurationToMonths(actualDuration || 1, actualDurationUnit) : 1;
+      
+      // Save price with the correct duration key
+      const prices = {};
       const priceValue = data[`price_${durationMonths}`] || data.price_1 || data.price_3 || data.price_6 || data.price_12 || '0';
       prices[String(durationMonths)] = parseFloat(priceValue);
 
@@ -843,8 +861,8 @@ function ProductFormModal({ product, onClose, onSuccess }) {
         trial_duration: data.trial_duration || 0,
         trial_duration_unit: data.trial_duration_unit || 'days',
         setup_instructions: data.setup_instructions || '',
-        duration: selectedPackage?.duration || product?.duration || null,
-        duration_unit: selectedPackage?.duration_unit || product?.duration_unit || 'months',
+        duration: actualDuration || (product?.duration ? parseInt(product.duration) : null),
+        duration_unit: actualDurationUnit || product?.duration_unit || 'months',
         show_channels: data.show_channels,
       };
 

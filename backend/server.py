@@ -204,6 +204,70 @@ async def ensure_indexes():
         [{"$set": {"panel_index": {"$toInt": "$panel_index"}}}]
     )
 
+    # Fix products with duration=None by inferring from product name
+    async for prod in db.products.find({"$or": [{"duration": None}, {"duration": {"$exists": False}}]}):
+        pname = (prod.get("name") or "").upper()
+        dur = None
+        dur_unit = "months"
+        if "ANNUAL" in pname or "YEARLY" in pname or "12 MONTH" in pname or "1 YEAR" in pname:
+            dur = 12
+        elif "6 MONTH" in pname:
+            dur = 6
+        elif "3 MONTH" in pname:
+            dur = 3
+        elif "2 MONTH" in pname:
+            dur = 2
+        elif "24 HOUR" in pname:
+            dur = 1
+            dur_unit = "days"
+        elif "48 HOUR" in pname:
+            dur = 2
+            dur_unit = "days"
+        elif "1 MONTH" in pname or "MONTH" in pname:
+            dur = 1
+        
+        if dur:
+            # Also fix the prices key to match
+            old_prices = prod.get("prices", {})
+            if old_prices:
+                dur_months = dur if dur_unit == "months" else max(1, dur // 30)
+                if dur_unit == "days":
+                    dur_months = 1
+                first_price = list(old_prices.values())[0]
+                new_prices = {str(dur_months): first_price}
+                await db.products.update_one(
+                    {"_id": prod["_id"]},
+                    {"$set": {"duration": dur, "duration_unit": dur_unit, "prices": new_prices}}
+                )
+                logger.info(f"Startup: Fixed product '{prod.get('name')}' -> duration={dur} {dur_unit}, prices={new_prices}")
+    
+    # Also fix services with wrong expiry (annual products with ~30 day expiry)
+    async for prod in db.products.find({"duration": {"$gte": 2}, "duration_unit": "months"}):
+        prod_dur_days = int(prod["duration"]) * 30
+        async for svc in db.services.find({
+            "product_id": str(prod["_id"]),
+            "status": {"$in": ["active", "expired"]},
+            "start_date": {"$exists": True}
+        }):
+            start = svc.get("start_date")
+            expiry = svc.get("expiry_date")
+            if start and expiry:
+                if isinstance(start, str):
+                    try: start = datetime.fromisoformat(start.replace("Z", ""))
+                    except: continue
+                if isinstance(expiry, str):
+                    try: expiry = datetime.fromisoformat(expiry.replace("Z", ""))
+                    except: continue
+                actual_days = (expiry - start).days
+                if actual_days < prod_dur_days - 5:  # Service was given less time than it should
+                    correct_expiry = start + timedelta(days=prod_dur_days)
+                    await db.services.update_one(
+                        {"_id": svc["_id"]},
+                        {"$set": {"expiry_date": correct_expiry, "term_months": int(prod["duration"])}}
+                    )
+                    logger.info(f"Startup: Fixed service '{svc.get('xtream_username')}' expiry {expiry.date()} -> {correct_expiry.date()} ({prod.get('name')})")
+
+
     
     # Step 2: Drop old index if exists
     try:
@@ -3212,10 +3276,16 @@ async def get_services(current_user: dict = Depends(get_current_user)):
             if imported and imported.get("expiry_date"):
                 panel_expiry = imported["expiry_date"]
                 service_expiry = service.get("expiry_date")
+                # Convert strings to datetime if needed
+                if isinstance(panel_expiry, str):
+                    try: panel_expiry = datetime.fromisoformat(panel_expiry.replace("Z", "+00:00").replace("+00:00", ""))
+                    except: panel_expiry = None
+                if isinstance(service_expiry, str):
+                    try: service_expiry = datetime.fromisoformat(service_expiry.replace("Z", "+00:00").replace("+00:00", ""))
+                    except: service_expiry = None
                 # Update if panel expiry differs from service expiry
                 if panel_expiry and (not service_expiry or abs((panel_expiry - service_expiry).total_seconds()) > 3600):
                     service["expiry_date"] = panel_expiry
-                    # Also update the stored record
                     await services_collection.update_one(
                         {"_id": str_to_objectid(service["id"])},
                         {"$set": {"expiry_date": panel_expiry}}
@@ -3407,6 +3477,57 @@ async def get_ticket(ticket_id: str, current_user: dict = Depends(get_current_us
     ticket["id"] = str(ticket["_id"])
     del ticket["_id"]
     return ticket
+
+@app.post("/api/tickets/{ticket_id}/reply")
+async def customer_reply_to_ticket(ticket_id: str, reply: dict, current_user: dict = Depends(get_current_user)):
+    """Customer adds a reply to their own ticket"""
+    user_id = current_user["sub"]
+    
+    ticket = await tickets_collection.find_one({
+        "_id": str_to_objectid(ticket_id),
+        "user_id": user_id
+    })
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    message = reply.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
+    new_message = {
+        "message": message,
+        "is_admin": False,
+        "created_at": datetime.utcnow()
+    }
+    
+    await tickets_collection.update_one(
+        {"_id": str_to_objectid(ticket_id)},
+        {
+            "$push": {"messages": new_message},
+            "$set": {"status": "open", "updated_at": datetime.utcnow()}
+        }
+    )
+    
+    # Notify admin via Telegram/email
+    user = await users_collection.find_one({"_id": str_to_objectid(user_id)})
+    try:
+        await send_telegram_notification(
+            "ticket_reply",
+            f"💬 *Customer Reply*\n\nTicket: #{ticket_id[:8]}...\nSubject: {ticket.get('subject', 'N/A')}\nFrom: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nMessage:\n{message[:200]}..."
+        )
+    except Exception:
+        pass
+    
+    try:
+        await send_admin_email_notification(
+            "ticket_reply",
+            f"Customer replied to ticket #{ticket_id[:8]}: {ticket.get('subject', 'N/A')}",
+            f"From: {user.get('name', 'Unknown') if user else 'Unknown'}\n\nMessage:\n{message[:300]}"
+        )
+    except Exception:
+        pass
+    
+    return {"message": "Reply added successfully"}
 
 @app.get("/api/admin/tickets")
 async def get_all_tickets(current_user: dict = Depends(get_current_admin_user)):
@@ -4672,6 +4793,33 @@ async def provision_xtream_service(order_id: str, order: dict, user: dict, item:
             # Use product's actual duration from panel package, fallback to term_months
             pkg_duration = product.get("duration") or product.get("official_duration")
             pkg_duration_unit = product.get("duration_unit") or product.get("official_duration_in") or "months"
+            
+            # If duration is a string like "12 months", parse it
+            if isinstance(pkg_duration, str):
+                parts = pkg_duration.strip().split()
+                try:
+                    pkg_duration = int(parts[0])
+                    if len(parts) > 1:
+                        pkg_duration_unit = parts[1]
+                except (ValueError, IndexError):
+                    pkg_duration = None
+            
+            # If still no duration, infer from product name
+            if not pkg_duration:
+                pname = (product.get("name") or "").upper()
+                if "ANNUAL" in pname or "YEARLY" in pname or "12 MONTH" in pname or "1 YEAR" in pname:
+                    pkg_duration = 12
+                    pkg_duration_unit = "months"
+                    logger.info(f"Inferred 12-month duration from product name: {product.get('name')}")
+                elif "6 MONTH" in pname:
+                    pkg_duration = 6
+                    pkg_duration_unit = "months"
+                elif "3 MONTH" in pname:
+                    pkg_duration = 3
+                    pkg_duration_unit = "months"
+                elif "24 HOUR" in pname or "1 DAY" in pname:
+                    pkg_duration = 1
+                    pkg_duration_unit = "days"
             
             if pkg_duration:
                 pkg_duration = int(pkg_duration)
