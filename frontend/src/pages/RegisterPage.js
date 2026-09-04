@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { authAPI } from '../api/api';
+import api from '../api/api';
 import { useAuthStore } from '../store/store';
 import { UserPlus, Server, AlertCircle } from 'lucide-react';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -13,6 +15,15 @@ export default function RegisterPage() {
   const [formData, setFormData] = useState({ name: '', email: '', password: '', referral_code: referralCode });
   const [error, setError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const { executeRecaptcha } = useGoogleReCaptcha();
+
+  const { data: recaptchaConfig } = useQuery({
+    queryKey: ['recaptcha-config'],
+    queryFn: async () => {
+      const response = await api.get('/api/recaptcha/sitekey');
+      return response.data;
+    },
+  });
 
   const registerMutation = useMutation({
     mutationFn: (data) => authAPI.register(data),
@@ -30,10 +41,21 @@ export default function RegisterPage() {
     },
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    registerMutation.mutate(formData);
+    
+    let recaptchaToken = '';
+    if (recaptchaConfig?.enabled && executeRecaptcha) {
+      try {
+        recaptchaToken = await executeRecaptcha('register');
+      } catch (err) {
+        setError('reCAPTCHA verification failed. Please refresh and try again.');
+        return;
+      }
+    }
+    
+    registerMutation.mutate({ ...formData, recaptcha_token: recaptchaToken });
   };
 
   return (

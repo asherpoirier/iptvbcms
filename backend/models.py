@@ -52,6 +52,7 @@ class UserCreate(BaseModel):
     password: str
     name: str
     referral_code: Optional[str] = None
+    recaptcha_token: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: str  # Can be email OR username
