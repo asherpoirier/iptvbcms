@@ -395,6 +395,13 @@ class WiseSettings(BaseModel):
     profile_id: str = ""
     instructions: str = ""
 
+
+class TermsSettings(BaseModel):
+    enabled: bool = False
+    title: str = "Terms and Conditions"
+    content: str = ""  # HTML content for the terms
+
+
 class InvoiceSettings(BaseModel):
     company_name: str = ""
     company_address: str = ""
@@ -469,6 +476,7 @@ class Settings(BaseModel):
     helcim: HelcimSettings = Field(default_factory=HelcimSettings)
     invoice: InvoiceSettings = Field(default_factory=InvoiceSettings)
     seo: SEOSettings = Field(default_factory=SEOSettings)
+    terms: TermsSettings = Field(default_factory=TermsSettings)
     currency: str = "USD"
     refunds_enabled: bool = True  # Enable/disable refund feature
     company_name: str = "IPTV Billing"

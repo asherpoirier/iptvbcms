@@ -1642,6 +1642,18 @@ async def get_recaptcha_sitekey():
         "enabled": recaptcha.get("enabled", False)
     }
 
+@app.get("/api/terms")
+async def get_terms():
+    """Get terms and conditions (public endpoint)"""
+    settings = await get_settings()
+    terms = settings.get("terms", {})
+    return {
+        "enabled": terms.get("enabled", False),
+        "title": terms.get("title", "Terms and Conditions"),
+        "content": terms.get("content", "")
+    }
+
+
 # ===== PRODUCT ROUTES =====
 
 @app.get("/api/products")
