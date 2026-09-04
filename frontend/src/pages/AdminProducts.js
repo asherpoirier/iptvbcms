@@ -638,7 +638,12 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     index: product?.panel_index || 0 
   });
   const [selectedPackage, setSelectedPackage] = useState(null);
-  const [packageType, setPackageType] = useState(product?.is_trial ? 'trial' : 'regular'); // 'regular' or 'trial'
+  const [packageType, setPackageType] = useState(product?.is_trial ? 'trial' : 'regular');
+  
+  // For editing: determine the existing price term
+  const existingPriceTerm = product ? (Object.keys(product.prices || {})[0] || '1') : '1';
+  const existingPrice = product ? (Object.values(product.prices || {})[0] || '') : '';
+  
   const [formData, setFormData] = useState({
     name: product?.name || '',
     description: product?.description || '',
@@ -653,11 +658,16 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     price_3: product?.prices?.['3'] || '',
     price_6: product?.prices?.['6'] || '',
     price_12: product?.prices?.['12'] || '',
+    // For editing: store the current price in a generic field
+    edit_price: existingPrice,
+    edit_term: existingPriceTerm,
     panel_index: product?.panel_index || 0,
     panel_type: product?.panel_type || 'xtream',
     is_trial: product?.is_trial || false,
     setup_instructions: product?.setup_instructions || '',
     show_channels: product?.show_channels !== false,
+    duration: product?.duration || null,
+    duration_unit: product?.duration_unit || 'months',
   });
 
   // Fetch settings to get panels list
@@ -815,32 +825,36 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
-      // Parse the actual duration from the package
-      const pkg = selectedPackage || product;
+      // For editing: use the existing term and edited price
+      // For new: parse from the selected package
+      let prices = {};
       let actualDuration = null;
       let actualDurationUnit = 'months';
       
-      if (pkg) {
-        let rawDur = pkg.duration;
-        let rawUnit = pkg.duration_unit || pkg.duration_in || 'months';
-        
-        // Handle string durations like "12 months" or "24 hours"
-        if (typeof rawDur === 'string') {
-          const parts = rawDur.trim().split(/\s+/);
-          rawDur = parseInt(parts[0]) || 1;
-          if (parts.length > 1) rawUnit = parts[1];
+      if (isEditing) {
+        // Use the existing term key and the edited price value
+        const term = data.edit_term || existingPriceTerm || '1';
+        const price = parseFloat(data.edit_price) || 0;
+        prices[String(term)] = price;
+        actualDuration = data.duration || product?.duration || parseInt(term);
+        actualDurationUnit = data.duration_unit || product?.duration_unit || 'months';
+      } else {
+        const pkg = selectedPackage;
+        if (pkg) {
+          let rawDur = pkg.duration;
+          let rawUnit = pkg.duration_unit || pkg.duration_in || 'months';
+          if (typeof rawDur === 'string') {
+            const parts = rawDur.trim().split(/\s+/);
+            rawDur = parseInt(parts[0]) || 1;
+            if (parts.length > 1) rawUnit = parts[1];
+          }
+          actualDuration = parseInt(rawDur) || 1;
+          actualDurationUnit = rawUnit;
         }
-        
-        actualDuration = parseInt(rawDur) || 1;
-        actualDurationUnit = rawUnit;
+        const durationMonths = selectedPackage ? convertDurationToMonths(actualDuration || 1, actualDurationUnit) : 1;
+        const priceValue = data[`price_${durationMonths}`] || data.price_1 || data.price_3 || data.price_6 || data.price_12 || '0';
+        prices[String(durationMonths)] = parseFloat(priceValue);
       }
-      
-      const durationMonths = pkg ? convertDurationToMonths(actualDuration || 1, actualDurationUnit) : 1;
-      
-      // Save price with the correct duration key
-      const prices = {};
-      const priceValue = data[`price_${durationMonths}`] || data.price_1 || data.price_3 || data.price_6 || data.price_12 || '0';
-      prices[String(durationMonths)] = parseFloat(priceValue);
 
       const productData = {
         name: data.name,
@@ -1205,7 +1219,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     max="10"
                     value={formData.max_connections}
                     onChange={(e) => setFormData({ ...formData, max_connections: e.target.value })}
-                    disabled={selectedPackage !== null || isEditing}
+                    disabled={selectedPackage !== null && !isEditing}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                   />
                   {selectedPackage && (
@@ -1219,7 +1233,12 @@ function ProductFormModal({ product, onClose, onSuccess }) {
             {/* Pricing */}
             <div className="md:col-span-2">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 mt-4">Pricing</h3>
-              {selectedPackage && (
+              {isEditing && product?.duration && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Duration: <strong>{product.duration} {product.duration_unit || 'months'}</strong>
+                </p>
+              )}
+              {!isEditing && selectedPackage && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Package duration: <strong>{selectedPackage.duration} {selectedPackage.duration_unit}</strong>
                 </p>
@@ -1228,7 +1247,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Price {selectedPackage ? `(${selectedPackage.duration} ${selectedPackage.duration_unit})` : ''}
+                Price {isEditing ? `(${existingPriceTerm} month${existingPriceTerm !== '1' ? 's' : ''} term)` : selectedPackage ? `(${selectedPackage.duration} ${selectedPackage.duration_unit})` : ''}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-3 text-gray-500 dark:text-gray-400">$</span>
@@ -1237,12 +1256,15 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                   min="0"
                   step="0.01"
                   required
-                  value={selectedPackage ? 
+                  value={isEditing ? formData.edit_price :
+                    selectedPackage ? 
                     (formData[`price_${convertDurationToMonths(selectedPackage.duration, selectedPackage.duration_unit)}`] || selectedPackage.credits) :
                     (formData.price_1 || formData.price_3 || formData.price_6 || formData.price_12 || '')
                   }
                   onChange={(e) => {
-                    if (selectedPackage) {
+                    if (isEditing) {
+                      setFormData({ ...formData, edit_price: e.target.value });
+                    } else if (selectedPackage) {
                       const months = convertDurationToMonths(selectedPackage.duration, selectedPackage.duration_unit);
                       setFormData({ ...formData, [`price_${months}`]: e.target.value });
                     } else {
@@ -1250,10 +1272,29 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                     }
                   }}
                   className="w-full pl-8 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  placeholder={selectedPackage ? selectedPackage.credits : "15.00"}
+                  placeholder="15.00"
                 />
               </div>
-              {selectedPackage && (
+              {isEditing && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration</label>
+                    <input type="number" min="1" value={formData.duration || ''} onChange={(e) => setFormData({...formData, duration: parseInt(e.target.value) || null})}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" placeholder="12" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration Unit</label>
+                    <select value={formData.duration_unit} onChange={(e) => setFormData({...formData, duration_unit: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                      <option value="months">Months</option>
+                      <option value="days">Days</option>
+                      <option value="hours">Hours</option>
+                      <option value="years">Years</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+              {!isEditing && selectedPackage && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Package cost: ${selectedPackage.credits} | Set your selling price above
                 </p>
