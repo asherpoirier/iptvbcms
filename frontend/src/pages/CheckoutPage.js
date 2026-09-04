@@ -43,6 +43,18 @@ export default function CheckoutPage() {
   const [btcPolling, setBtcPolling] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
+  // Terms and conditions state
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+
+  const { data: termsData } = useQuery({
+    queryKey: ['terms'],
+    queryFn: async () => {
+      const resp = await axios.get(`${API_URL}/api/terms`);
+      return resp.data;
+    },
+  });
+
   // GhostPay state
   const [ghostpayLoading, setGhostpayLoading] = useState(false);
 
@@ -143,6 +155,11 @@ export default function CheckoutPage() {
 
     if (!paymentMethod) {
       setError('Please select a payment method');
+      return;
+    }
+
+    if (termsData?.enabled && !termsAccepted) {
+      setError('You must agree to the Terms and Conditions to continue');
       return;
     }
 
@@ -847,6 +864,59 @@ export default function CheckoutPage() {
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg flex items-start gap-2">
                     <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                     <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Terms and Conditions */}
+              {termsData?.enabled && (
+                <div className="px-6 pb-4">
+                  <div className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <input
+                      type="checkbox"
+                      id="terms-checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      className="w-5 h-5 mt-0.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer shrink-0"
+                      data-testid="terms-checkbox"
+                    />
+                    <label htmlFor="terms-checkbox" className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                      I agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={() => setShowTermsModal(true)}
+                        className="text-blue-600 hover:text-blue-700 underline font-medium"
+                        data-testid="view-terms-link"
+                      >
+                        {termsData.title || 'Terms and Conditions'}
+                      </button>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Terms Modal */}
+              {showTermsModal && termsData && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+                    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">{termsData.title}</h3>
+                      <button onClick={() => setShowTermsModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    </div>
+                    <div className="p-6 overflow-y-auto flex-1 prose dark:prose-invert max-w-none text-sm"
+                      dangerouslySetInnerHTML={{ __html: termsData.content }}
+                    />
+                    <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex gap-3 shrink-0">
+                      <button onClick={() => { setTermsAccepted(true); setShowTermsModal(false); }}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                        data-testid="accept-terms-btn">
+                        I Agree
+                      </button>
+                      <button onClick={() => setShowTermsModal(false)}
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                        Close
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

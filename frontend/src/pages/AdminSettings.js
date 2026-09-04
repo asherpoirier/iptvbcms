@@ -257,6 +257,14 @@ export default function AdminSettings() {
                   activeTab === 'launcher' ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
                 }`}>New</span>
               </button>
+              <button
+                onClick={() => setActiveTab('terms')}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
+                  activeTab === 'terms' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Terms & Conditions
+              </button>
             </nav>
           </div>
 
@@ -373,6 +381,10 @@ export default function AdminSettings() {
 
             {activeTab === 'launcher' && (
               <LauncherKeySettings />
+            )}
+
+            {activeTab === 'terms' && (
+              <TermsSettings settings={settings} />
             )}
             </div>
           </div>
@@ -498,6 +510,106 @@ function LauncherKeySettings() {
           <p className="mt-2 text-gray-500">All require <code>X-Launcher-Key</code> header</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+
+function TermsSettings({ settings }) {
+  const [enabled, setEnabled] = React.useState(settings?.terms?.enabled || false);
+  const [title, setTitle] = React.useState(settings?.terms?.title || 'Terms and Conditions');
+  const [content, setContent] = React.useState(settings?.terms?.content || '');
+  const [saving, setSaving] = React.useState(false);
+  const [sourceMode, setSourceMode] = React.useState(false);
+  const editorRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (settings?.terms) {
+      setEnabled(settings.terms.enabled || false);
+      setTitle(settings.terms.title || 'Terms and Conditions');
+      setContent(settings.terms.content || '');
+    }
+  }, [settings]);
+
+  React.useEffect(() => {
+    if (!sourceMode && editorRef.current && editorRef.current.innerHTML !== content) {
+      editorRef.current.innerHTML = content || '';
+    }
+  }, [content, sourceMode]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put('/api/admin/settings', {
+        ...settings,
+        terms: { enabled, title, content }
+      });
+      alert('Terms saved!');
+    } catch (err) {
+      alert('Failed to save: ' + (err.response?.data?.detail || err.message));
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Terms & Conditions</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">When enabled, customers must agree to these terms before completing checkout.</p>
+      </div>
+
+      {/* Enable toggle */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div>
+          <p className="font-medium text-gray-900 dark:text-white">Require Terms Agreement</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Show checkbox on checkout that customers must accept</p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="sr-only peer" data-testid="terms-enabled-toggle" />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
+
+      {/* Title */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          data-testid="terms-title-input" />
+      </div>
+
+      {/* Content editor */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Content</label>
+          <button type="button" onClick={() => setSourceMode(!sourceMode)}
+            className={`px-3 py-1 text-xs rounded font-medium ${sourceMode ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+            {sourceMode ? 'Visual' : 'HTML'}
+          </button>
+        </div>
+        {sourceMode ? (
+          <textarea value={content} onChange={(e) => setContent(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-950 text-green-400 font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg outline-none resize-none"
+            rows={15} spellCheck={false} placeholder="<h2>Terms and Conditions</h2><p>...</p>" data-testid="terms-html-editor" />
+        ) : (
+          <div
+            ref={editorRef}
+            contentEditable
+            onInput={() => setContent(editorRef.current?.innerHTML || '')}
+            className="w-full min-h-[300px] px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white outline-none overflow-auto prose dark:prose-invert max-w-none"
+            data-testid="terms-visual-editor"
+            suppressContentEditableWarning
+          />
+        )}
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Supports HTML. Use headings, lists, links, etc.</p>
+      </div>
+
+      <button onClick={handleSave} disabled={saving}
+        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+        data-testid="save-terms-btn">
+        {saving ? 'Saving...' : 'Save Terms'}
+      </button>
     </div>
   );
 }
