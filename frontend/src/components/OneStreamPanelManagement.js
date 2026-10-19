@@ -68,9 +68,17 @@ export default function OneStreamPanelManagement({ settings }) {
     setEditingPanel(null);
   };
 
-  const handleRemovePanel = (index) => {
-    if (window.confirm('Remove this 1-Stream panel? Users from this panel will be removed on next sync.')) {
-      setPanels(panels.filter((_, i) => i !== index));
+  const handleRemovePanel = async (index) => {
+    const panel = panels[index];
+    if (!window.confirm(`Remove 1-Stream panel "${panel?.name || panel?.url || index + 1}"? Its imported users and their service records will be deleted from billing.`)) return;
+    const remaining = panels.filter((_, i) => i !== index);
+    try {
+      await adminAPI.updateSettings({ ...settings, onestream: { panels: remaining } });
+      setPanels(remaining);
+      queryClient.invalidateQueries(['admin-settings']);
+      toast.success('1-Stream panel removed');
+    } catch (error) {
+      toast.error('Failed to remove panel: ' + (error.response?.data?.detail || error.message));
     }
   };
 

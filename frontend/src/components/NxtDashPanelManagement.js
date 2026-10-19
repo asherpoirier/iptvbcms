@@ -121,9 +121,17 @@ export default function NxtDashPanelManagement({ settings }) {
     setEditingPanel(null);
   };
 
-  const handleRemovePanel = (index) => {
-    if (window.confirm('Remove this NXT Dash panel?')) {
-      setPanels(panels.filter((_, i) => i !== index));
+  const handleRemovePanel = async (index) => {
+    const panel = panels[index];
+    if (!window.confirm(`Remove NXT Dash panel "${panel?.name || panel?.url || index + 1}"? Its imported users and their service records will be deleted from billing.`)) return;
+    const remaining = panels.filter((_, i) => i !== index);
+    try {
+      await adminAPI.updateSettings({ ...settings, nxtdash: { panels: remaining } });
+      setPanels(remaining);
+      queryClient.invalidateQueries(['admin-settings']);
+      toast.success('NXT Dash panel removed');
+    } catch (error) {
+      toast.error('Failed to remove panel: ' + (error.response?.data?.detail || error.message));
     }
   };
 
