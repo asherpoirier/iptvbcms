@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
 import api from '../api/api';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import BrandingSettings from '../components/BrandingSettings';
 import PanelManagement from '../components/PanelManagement';
 import XuiOnePanelManagement from '../components/XuiOnePanelManagement';
@@ -32,6 +32,104 @@ import { toast } from 'sonner';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('panels');
+  const [expandedGroups, setExpandedGroups] = useState({ panels: true });
+
+  const toggleGroup = (group) => {
+    setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
+  };
+
+  // Auto-expand the group that contains the active tab
+  const groupForTab = {
+    panels: 'panels', xuione: 'panels', onestream: 'panels', nxtdash: 'panels',
+    aether: 'panels', gold: 'panels', ghostsurf: 'panels',
+    payment: 'billing', shipping: 'billing', currency: 'billing',
+    invoices: 'billing', refunds: 'billing', credits: 'billing',
+    email: 'communication', notifications: 'communication', chatbot: 'communication',
+    account: 'security', '2fa': 'security', recaptcha: 'security',
+    branding: 'appearance', seo: 'appearance', terms: 'appearance',
+    license: 'system', updates: 'system', backups: 'system',
+    timezone: 'system', launcher: 'system',
+  };
+
+  const handleTabClick = (tab) => {
+    setActiveTab(tab);
+    const group = groupForTab[tab];
+    if (group && !expandedGroups[group]) {
+      setExpandedGroups(prev => ({ ...prev, [group]: true }));
+    }
+  };
+
+  const menuGroups = [
+    {
+      key: 'panels',
+      label: 'Panels',
+      items: [
+        { key: 'panels', label: 'XtreamUI Panels' },
+        { key: 'xuione', label: 'XuiOne Panels' },
+        { key: 'onestream', label: '1-Stream Panels' },
+        { key: 'nxtdash', label: 'NXT Dash Panels' },
+        { key: 'aether', label: 'Aether Panels', testId: 'settings-tab-aether', badge: 'New', badgeColor: 'violet' },
+        { key: 'gold', label: 'Gold Panels', testId: 'settings-tab-gold', badge: 'New', badgeColor: 'amber' },
+        { key: 'ghostsurf', label: 'GhostSurf VPN' },
+      ],
+    },
+    {
+      key: 'billing',
+      label: 'Store & Billing',
+      items: [
+        { key: 'payment', label: 'Payment Gateways' },
+        { key: 'shipping', label: 'Shipping', testId: 'settings-tab-shipping', badge: 'New', badgeColor: 'violet' },
+        { key: 'currency', label: 'Currency' },
+        { key: 'invoices', label: 'Invoices' },
+        { key: 'refunds', label: 'Refunds' },
+        { key: 'credits', label: 'Credits & Referrals' },
+      ],
+    },
+    {
+      key: 'communication',
+      label: 'Communication',
+      items: [
+        { key: 'email', label: 'Email' },
+        { key: 'notifications', label: 'Notifications' },
+        { key: 'chatbot', label: 'AI Chatbot' },
+      ],
+    },
+    {
+      key: 'security',
+      label: 'Security & Account',
+      items: [
+        { key: 'account', label: 'My Account' },
+        { key: '2fa', label: 'Two-Factor Auth' },
+        { key: 'recaptcha', label: 'reCAPTCHA' },
+      ],
+    },
+    {
+      key: 'appearance',
+      label: 'Appearance',
+      items: [
+        { key: 'branding', label: 'Branding' },
+        { key: 'seo', label: 'SEO' },
+        { key: 'terms', label: 'Terms & Conditions' },
+      ],
+    },
+    {
+      key: 'system',
+      label: 'System',
+      items: [
+        { key: 'license', label: 'License' },
+        { key: 'updates', label: 'Updates' },
+        { key: 'backups', label: 'Backups' },
+        { key: 'timezone', label: 'Timezone' },
+        { key: 'launcher', label: 'Launcher API', badge: 'New', badgeColor: 'teal' },
+      ],
+    },
+  ];
+
+  const badgeColors = {
+    violet: { active: 'bg-white/20 text-white', inactive: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+    amber: { active: 'bg-white/20 text-white', inactive: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+    teal: { active: 'bg-white/20 text-white', inactive: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
+  };
   
   const { data: settings, isLoading } = useQuery({
     queryKey: ['admin-settings'],
@@ -67,237 +165,55 @@ export default function AdminSettings() {
           {/* Sidebar Navigation */}
           <div className="lg:col-span-1">
             <nav className="bg-white dark:bg-gray-900 rounded-lg shadow p-2 space-y-1">
-              <button
-                onClick={() => setActiveTab('panels')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'panels' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                XtreamUI Panels
-              </button>
-              <button
-                onClick={() => setActiveTab('xuione')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'xuione' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                XuiOne Panels
-              </button>
-              <button
-                onClick={() => setActiveTab('onestream')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  activeTab === 'onestream' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                1-Stream Panels
-              </button>
-              <button
-                onClick={() => setActiveTab('nxtdash')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'nxtdash' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                NXT Dash Panels
-              </button>
-              <button
-                onClick={() => setActiveTab('aether')}
-                data-testid="settings-tab-aether"
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  activeTab === 'aether' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Aether Panels
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'aether' ? 'bg-white/20 text-white' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
-                }`}>New</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('gold')}
-                data-testid="settings-tab-gold"
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  activeTab === 'gold' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Gold Panels
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'gold' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                }`}>New</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('ghostsurf')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'ghostsurf' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                GhostSurf VPN
-              </button>
-              <button
-                onClick={() => setActiveTab('shipping')}
-                data-testid="settings-tab-shipping"
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  activeTab === 'shipping' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Shipping
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'shipping' ? 'bg-white/20 text-white' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
-                }`}>New</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('branding')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'branding' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Branding
-              </button>
-              <button
-                onClick={() => setActiveTab('payment')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'payment' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Payment Gateways
-              </button>
-              <button
-                onClick={() => setActiveTab('email')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Email
-              </button>
-              <button
-                onClick={() => setActiveTab('credits')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'credits' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Credits & Referrals
-              </button>
-              <button
-                onClick={() => setActiveTab('notifications')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'notifications' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Notifications
-              </button>
-              <button
-                onClick={() => setActiveTab('refunds')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'refunds' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Refunds
-              </button>
-              <button
-                onClick={() => setActiveTab('invoices')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'invoices' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Invoices
-              </button>
-              <button
-                onClick={() => setActiveTab('account')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'account' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                My Account
-              </button>
-              <button
-                onClick={() => setActiveTab('2fa')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === '2fa' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Two-Factor Auth
-              </button>
-              <button
-                onClick={() => setActiveTab('recaptcha')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'recaptcha' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                reCAPTCHA
-              </button>
-              <button
-                onClick={() => setActiveTab('currency')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'currency' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Currency
-              </button>
-              <button
-                onClick={() => setActiveTab('timezone')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'timezone' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Timezone
-              </button>
-              <button
-                onClick={() => setActiveTab('license')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'license' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                License
-              </button>
-              <button
-                onClick={() => setActiveTab('updates')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'updates' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Updates
-              </button>
-              <button
-                onClick={() => setActiveTab('backups')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'backups' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Backups
-              </button>
-              <button
-                onClick={() => setActiveTab('seo')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'seo' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                SEO
-              </button>
-              <button
-                onClick={() => setActiveTab('chatbot')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'chatbot' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                AI Chatbot
-              </button>
-              <button
-                onClick={() => setActiveTab('launcher')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  activeTab === 'launcher' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Launcher API
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === 'launcher' ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
-                }`}>New</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('terms')}
-                className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium ${
-                  activeTab === 'terms' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Terms & Conditions
-              </button>
+              {menuGroups.map((group) => {
+                const isExpanded = expandedGroups[group.key];
+                const hasActiveChild = group.items.some(item => item.key === activeTab);
+                return (
+                  <div key={group.key}>
+                    {/* Group Header */}
+                    <button
+                      onClick={() => toggleGroup(group.key)}
+                      className={`w-full text-left px-4 py-3 rounded-lg text-sm font-semibold flex items-center justify-between transition-colors ${
+                        hasActiveChild
+                          ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                          : 'text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      {group.label}
+                      {isExpanded
+                        ? <ChevronDown className="w-4 h-4 text-gray-400" />
+                        : <ChevronRight className="w-4 h-4 text-gray-400" />
+                      }
+                    </button>
+                    {/* Sub-items */}
+                    {isExpanded && (
+                      <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-gray-200 dark:border-gray-700 pl-2">
+                        {group.items.map((item) => (
+                          <button
+                            key={item.key}
+                            onClick={() => handleTabClick(item.key)}
+                            data-testid={item.testId || undefined}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
+                              activeTab === item.key
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
+                            }`}
+                          >
+                            {item.label}
+                            {item.badge && (
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                activeTab === item.key
+                                  ? badgeColors[item.badgeColor]?.active
+                                  : badgeColors[item.badgeColor]?.inactive
+                              }`}>{item.badge}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </nav>
           </div>
 
