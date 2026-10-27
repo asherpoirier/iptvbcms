@@ -34,7 +34,7 @@ class InvoiceGenerator:
             elements = []
             styles = getSampleStyleSheet()
             
-            company_name = s.get('company_name') or invoice_data.get('company_name', 'IPTV Billing')
+            company_name = s.get('company_name') or invoice_data.get('company_name', 'Billing Panel')
             
             # ---- HEADER ----
             header_style = ParagraphStyle('Header', parent=styles['Heading1'],

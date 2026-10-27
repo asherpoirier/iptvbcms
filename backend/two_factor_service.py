@@ -17,7 +17,7 @@ class TwoFactorService:
         return pyotp.random_base32()
     
     @staticmethod
-    def generate_qr_code(secret: str, email: str, issuer: str = "IPTV Billing") -> str:
+    def generate_qr_code(secret: str, email: str, issuer: str = "Billing Panel") -> str:
         """Generate QR code as base64 image for Google Authenticator"""
         try:
             # Create TOTP URI

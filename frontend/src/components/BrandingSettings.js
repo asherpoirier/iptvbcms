@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 export default function BrandingSettings({ settings }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
-    site_name: settings?.branding?.site_name || 'IPTV Billing',
+    site_name: settings?.branding?.site_name || 'Billing Panel',
     logo_url: settings?.branding?.logo_url || '',
     theme: settings?.branding?.theme || 'light',
     primary_color: settings?.branding?.primary_color || '#2563eb',
@@ -126,7 +126,7 @@ export default function BrandingSettings({ settings }) {
           value={formData.site_name}
           onChange={(e) => setFormData({ ...formData, site_name: e.target.value })}
           className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-          placeholder="IPTV Billing"
+          placeholder="My Store"
         />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           This appears in the header, footer, and page title
@@ -223,7 +223,7 @@ export default function BrandingSettings({ settings }) {
             </div>
             <p className="text-xs text-gray-500 mt-2">
               Preview: <span className="font-mono text-gray-700 dark:text-gray-300" data-testid="provision-notes-preview">
-                {(formData.provision_notes_template || '').replace(/\{\{site_name\}\}/g, formData.site_name || 'IPTV Billing').replace(/\{\{customer_name\}\}/g, 'John Doe').replace(/\{\{email\}\}/g, 'john@example.com').replace(/\{\{order_id\}\}/g, 'abc123').replace(/\{\{username\}\}/g, 'johndoe99').replace(/\{\{product_name\}\}/g, '1 Month Plan')}
+                {(formData.provision_notes_template || '').replace(/\{\{site_name\}\}/g, formData.site_name || 'Billing Panel').replace(/\{\{customer_name\}\}/g, 'John Doe').replace(/\{\{email\}\}/g, 'john@example.com').replace(/\{\{order_id\}\}/g, 'abc123').replace(/\{\{username\}\}/g, 'johndoe99').replace(/\{\{product_name\}\}/g, '1 Month Plan')}
               </span>
             </p>
           </div>

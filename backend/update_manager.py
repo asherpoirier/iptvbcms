@@ -1,5 +1,5 @@
 """
-Auto-Update System for IPTV Billing Panel - SAFE VERSION
+Auto-Update System for Billing Panel - SAFE VERSION
 Pulls updates from GitHub using overlay method (no file deletion)
 """
 import os

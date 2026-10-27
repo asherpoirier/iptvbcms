@@ -143,7 +143,7 @@ class XtreamUIService:
                 return {'success': False, 'error': 'Login failed - no session'}
             
             # Build reseller notes with customer name
-            reseller_notes = f"IPTV Billing System: {customer_name}" if customer_name else "IPTV Billing System"
+            reseller_notes = f"Billing System: {customer_name}" if customer_name else "Billing System"
             
             # Get reseller member_id by fetching the form page
             member_id = '0'

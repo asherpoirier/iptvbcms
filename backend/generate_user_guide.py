@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IPTV Billing - Admin User Guide PDF Generator
+Admin User Guide PDF Generator
 Generates a comprehensive PDF user guide with Table of Contents
 """
 from fpdf import FPDF
@@ -18,7 +18,7 @@ class UserGuidePDF(FPDF):
         if self.page_no() > 1:
             self.set_font('Helvetica', 'I', 9)
             self.set_text_color(120, 120, 120)
-            self.cell(0, 10, 'IPTV Billing - Admin User Guide', align='L')
+            self.cell(0, 10, 'Admin User Guide', align='L')
             self.ln(3)
             self.set_draw_color(200, 200, 200)
             self.line(10, self.get_y(), self.w - 10, self.get_y())
@@ -42,7 +42,7 @@ class UserGuidePDF(FPDF):
         self.set_y(55)
         self.set_font('Helvetica', 'B', 36)
         self.set_text_color(255, 255, 255)
-        self.cell(0, 18, 'IPTV Billing', align='C', new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 18, 'Billing Panel', align='C', new_x="LMARGIN", new_y="NEXT")
         self.set_font('Helvetica', '', 18)
         self.cell(0, 12, 'Administrator User Guide', align='C', new_x="LMARGIN", new_y="NEXT")
         self.set_font('Helvetica', 'I', 12)
@@ -349,7 +349,7 @@ def generate_guide():
     pdf.add_section('Getting Started')
     
     pdf.add_subsection('Logging In')
-    pdf.add_paragraph('To access the IPTV Billing admin panel, navigate to your domain and log in with your administrator credentials.')
+    pdf.add_paragraph('To access the Billing Panel admin panel, navigate to your domain and log in with your administrator credentials.')
     pdf.add_step(1, 'Open your browser and go to your billing panel URL (e.g., https://yourdomain.com/login)')
     pdf.add_step(2, 'Enter your admin email address and password')
     pdf.add_step(3, 'If Two-Factor Authentication (2FA) is enabled, enter the 6-digit code from your authenticator app')
@@ -718,7 +718,7 @@ def generate_guide():
     pdf.add_paragraph('Configure Google reCAPTCHA v3 to protect login and registration forms from bots and automated attacks. Enter your Site Key and Secret Key from the Google reCAPTCHA admin console.')
     
     pdf.add_subsection('License')
-    pdf.add_paragraph('View and manage your IPTV Billing license. This shows your current license status, licensed domain, and expiration date. Enter or update your license key here to keep your system activated.')
+    pdf.add_paragraph('View and manage your Billing Panel license. This shows your current license status, licensed domain, and expiration date. Enter or update your license key here to keep your system activated.')
     
     pdf.add_subsection('Updates')
     pdf.add_paragraph('Check for and apply system updates. The Update Manager shows your current version, available updates, and provides a one-click update process. Always backup your system before applying updates.')

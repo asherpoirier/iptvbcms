@@ -213,7 +213,7 @@ export default function HomePage() {
           <div className="flex justify-between items-center h-16">
             <Link to="/" className="flex items-center gap-2">
               <Server className="w-8 h-8" style={{ color: branding.primary_color || '#3b82f6' }} />
-              <span className="text-xl font-bold dark:text-white">{branding.site_name || 'IPTV Billing'}</span>
+              <span className="text-xl font-bold dark:text-white">{branding.site_name || 'Billing Panel'}</span>
             </Link>
             
             <div className="flex items-center gap-4">

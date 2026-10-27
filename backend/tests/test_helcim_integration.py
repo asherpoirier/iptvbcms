@@ -1,6 +1,6 @@
 """
 Helcim Payment Gateway Integration Tests
-Tests for the new Helcim payment gateway feature in IPTV Billing Panel.
+Tests for the new Helcim payment gateway feature in Billing Panel.
 """
 
 import pytest

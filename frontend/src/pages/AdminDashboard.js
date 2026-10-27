@@ -120,7 +120,7 @@ export default function AdminDashboard() {
               <Server className="w-8 h-8 text-blue-600" />
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
-                <p className="text-sm text-gray-600 dark:text-gray-400">IPTV Billing System</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Billing System</p>
               </div>
             </div>
             <div className="flex items-center gap-4">

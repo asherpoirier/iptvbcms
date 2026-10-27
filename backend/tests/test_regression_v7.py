@@ -1,6 +1,6 @@
 """
 Post-Merge Regression Test Suite (v6/v7 merge)
-Tests all critical API endpoints for IPTV Billing System
+Tests all critical API endpoints for Billing System
 
 Test Categories:
 1. Auth Flow (login, register, /me)

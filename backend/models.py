@@ -377,10 +377,10 @@ class SMTPSettings(BaseModel):
     username: str = ""
     password: str = ""
     from_email: str = ""
-    from_name: str = "IPTV Billing"
+    from_name: str = "Billing Panel"
 
 class BrandingSettings(BaseModel):
-    site_name: str = "IPTV Billing"
+    site_name: str = "Billing Panel"
     logo_url: str = ""
     theme: str = "light"  # light or dark
     primary_color: str = "#2563eb"  # blue-600
@@ -552,7 +552,7 @@ class Settings(BaseModel):
     terms: TermsSettings = Field(default_factory=TermsSettings)
     currency: str = "USD"
     refunds_enabled: bool = True  # Enable/disable refund feature
-    company_name: str = "IPTV Billing"
+    company_name: str = "Billing Panel"
     company_email: str = ""
     support_email: str = ""
     license_key: str = ""

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Backend API Testing for WHMCS-style IPTV Billing Platform
+Backend API Testing for WHMCS-style Billing Platform
 Focus: Testing extend/create service feature at checkout
 """
 

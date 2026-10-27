@@ -86,7 +86,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI
-app = FastAPI(title="IPTV Billing System", version="1.0.0")
+app = FastAPI(title="Billing System", version="1.0.0")
 
 # CORS middleware
 app.add_middleware(
@@ -679,7 +679,7 @@ async def get_shipping_settings() -> dict:
 @app.on_event("startup")
 async def startup_event():
     """Initialize application"""
-    logger.info("Starting IPTV Billing System...")
+    logger.info("Starting Billing System...")
     
     # Create indexes
     await users_collection.create_index("email", unique=True)
@@ -1303,7 +1303,7 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Startup account creation failed: {e}")
     
-    logger.info("IPTV Billing System started successfully!")
+    logger.info("Billing System started successfully!")
 
 # Health check
 @app.get("/api/health")
@@ -1854,7 +1854,7 @@ async def setup_2fa(current_user: dict = Depends(get_current_admin_user)):
     qr_code = TwoFactorService.generate_qr_code(
         secret,
         user["email"],
-        issuer="IPTV Billing Admin"
+        issuer="Billing Panel Admin"
     )
     
     # Store secret temporarily (not enabled yet)
@@ -3826,7 +3826,7 @@ async def download_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
             "subtotal": order.get("subtotal", invoice["total"]),
             "discount_amount": order.get("discount_amount", 0),
             "credits_used": order.get("credits_used", 0),
-            "company_name": inv_settings.get("company_name") or settings.get("company_name", "IPTV Billing"),
+            "company_name": inv_settings.get("company_name") or settings.get("company_name", "Billing Panel"),
             "company_email": inv_settings.get("company_email") or settings.get("company_email", "")
         }
         
@@ -8562,7 +8562,7 @@ async def get_branding():
     """Get branding settings (public - no auth required)"""
     settings = await get_settings()
     branding = settings.get("branding", {
-        "site_name": "IPTV Billing",
+        "site_name": "Billing Panel",
         "logo_url": "",
         "theme": "light",
         "primary_color": "#2563eb",
@@ -8912,7 +8912,7 @@ async def test_telegram_notification(request: TestTelegramRequest, current_user:
     try:
         # Get branding for site name
         settings = await get_settings()
-        site_name = settings.get("branding", {}).get("site_name", "IPTV Billing")
+        site_name = settings.get("branding", {}).get("site_name", "Billing Panel")
         
         message = f"🔔 *Test Notification*\n\nThis is a test message from {site_name}.\n\nYour Telegram notifications are configured correctly! ✅"
         
@@ -15073,7 +15073,7 @@ async def get_seo_settings():
     seo = settings.get("seo", {})
     branding = settings.get("branding", {})
     return {
-        "meta_title": seo.get("meta_title") or branding.get("site_name", "IPTV Billing"),
+        "meta_title": seo.get("meta_title") or branding.get("site_name", "Billing Panel"),
         "meta_description": seo.get("meta_description") or branding.get("hero_description", ""),
         "meta_keywords": seo.get("meta_keywords", ""),
         "og_title": seo.get("og_title") or seo.get("meta_title") or branding.get("site_name", ""),

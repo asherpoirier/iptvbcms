@@ -87,7 +87,7 @@ export default function RegisterPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Link to="/" className="flex items-center gap-2">
             <Server className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">IPTV Billing</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Billing Panel</h1>
           </Link>
         </div>
       </header>

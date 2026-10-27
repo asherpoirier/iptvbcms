@@ -13,7 +13,7 @@ const loadInitialBranding = () => {
     }
   }
   return {
-    site_name: 'IPTV Billing',
+    site_name: 'Billing Panel',
     logo_url: '',
     theme: 'light',
     primary_color: '#2563eb',
