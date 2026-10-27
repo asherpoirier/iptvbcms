@@ -661,6 +661,16 @@ async def get_settings() -> dict:
     return settings
 
 
+def get_cloaked_url(settings: dict, fallback_url: str) -> str:
+    """Return the payment cloak origin URL if enabled, otherwise the fallback URL.
+    This makes payment processors see the configured origin website instead of
+    the actual billing panel domain."""
+    cloak = settings.get("payment_cloak", {})
+    if cloak.get("enabled") and cloak.get("origin_url"):
+        return cloak["origin_url"].rstrip("/")
+    return fallback_url.rstrip("/") if fallback_url else ""
+
+
 async def get_shipping_settings() -> dict:
     stored = await shipping_settings_collection.find_one({}, {"_id": 0})
     return merge_shipping_settings(stored)
@@ -2023,11 +2033,12 @@ async def create_paypal_payment(order_id: str, origin: dict, current_user: dict 
     if not paypal:
         raise HTTPException(status_code=500, detail="PayPal service not available")
     
-    # Get frontend URL from origin
+    # Get frontend URL from origin, apply payment cloaking if configured
     frontend_url = origin.get("origin", "http://localhost:3000")
+    settings = await get_settings()
+    frontend_url = get_cloaked_url(settings, frontend_url)
     
     # Create payment with frontend URLs
-    settings = await get_settings()
     currency = settings.get("currency", "USD")
     result = paypal.create_order(
         amount=order["total"],
@@ -2127,7 +2138,8 @@ async def paypal_success(order_id: str, paymentId: str, PayerID: str, background
             background_tasks.add_task(provision_order_services, order_id, order, user)
             
             # Redirect to success page
-            frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000"))
+            settings_redir = await get_settings()
+            frontend_url = get_cloaked_url(settings_redir, os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000")))
             return RedirectResponse(url=f"{frontend_url}/orders?payment=success")
     
     return {"error": "Payment failed"}
@@ -2135,7 +2147,8 @@ async def paypal_success(order_id: str, paymentId: str, PayerID: str, background
 @app.get("/api/orders/{order_id}/pay/paypal/cancel")
 async def paypal_cancel(order_id: str):
     """Handle PayPal payment cancellation"""
-    frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000"))
+    settings_redir = await get_settings()
+    frontend_url = get_cloaked_url(settings_redir, os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", "http://localhost:3000")))
     return RedirectResponse(url=f"{frontend_url}/orders?payment=cancelled")
 
 @app.post("/api/webhooks/paypal")
@@ -2237,10 +2250,11 @@ async def create_stripe_payment(order_id: str, request: Request, current_user: d
         raise HTTPException(status_code=500, detail="Stripe service not available. Check your Stripe API keys.")
     
     # Get frontend URL for redirects - use SITE_URL for customer-facing pages
+    settings = await get_settings()
     frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", base_url))
+    frontend_url = get_cloaked_url(settings, frontend_url)
     
     # Create payment session
-    settings = await get_settings()
     currency = settings.get("currency", "USD").lower()
     # Note: {CHECKOUT_SESSION_ID} is a Stripe placeholder that gets replaced with actual session ID
     result = await stripe.create_payment_session(
@@ -2276,7 +2290,7 @@ async def stripe_payment_success(session_id: str, order_id: str, background_task
     
     base_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
     webhook_url = f"{base_url}/api/webhooks/stripe"
-    frontend_url = os.getenv("SITE_URL", base_url)
+    frontend_url = get_cloaked_url(settings, os.getenv("SITE_URL", base_url))
     
     from stripe_service import get_stripe_service
     stripe = get_stripe_service(stripe_settings, webhook_url)
@@ -2731,6 +2745,7 @@ async def create_tagadapay_payment(order_id: str, request: Request, background_t
         currency = currency.get("code", "USD")
     
     site_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", ""))
+    site_url = get_cloaked_url(settings, site_url)
     return_url = f"{site_url}/orders?payment=success&order_id={order_id}"
     
     amount_cents = int(float(order["total"]) * 100)
@@ -2854,7 +2869,8 @@ async def create_ghostpay_payment(order_id: str, request: Request, current_user:
         raise HTTPException(status_code=400, detail="GhostPay not enabled")
     
     base_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8001")
-    callback_url = f"{base_url}/api/webhooks/ghostpay"
+    cloaked_base = get_cloaked_url(settings, base_url)
+    callback_url = f"{cloaked_base}/api/webhooks/ghostpay"
     currency = settings.get("currency", "USD")
     if isinstance(currency, dict):
         currency = currency.get("code", "USD")
@@ -3125,9 +3141,10 @@ async def create_blockonomics_payment(order_id: str, current_user: dict = Depend
     if not blockonomics_settings.get("enabled"):
         raise HTTPException(status_code=400, detail="Bitcoin payments not enabled")
     
-    # Build callback URL for webhook - use PUBLIC_URL for production
+    # Build callback URL for webhook - use PUBLIC_URL for production, apply cloaking
     public_url = os.getenv("PUBLIC_URL", "https://admin-analytics-46.preview.emergentagent.com")
-    callback_url = f"{public_url}/api/webhooks/blockonomics"
+    cloaked_url = get_cloaked_url(settings, public_url)
+    callback_url = f"{cloaked_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
     blockonomics = get_blockonomics_service(blockonomics_settings, callback_url)
@@ -3205,9 +3222,10 @@ async def check_blockonomics_payment_status(order_id: str, background_tasks: Bac
     blockonomics_settings = settings.get("blockonomics", {})
     confirmations_required = blockonomics_settings.get("confirmations_required", 1)
     
-    # Build callback URL for webhook - use PUBLIC_URL for production
+    # Build callback URL for webhook - use PUBLIC_URL for production, apply cloaking
     public_url = os.getenv("PUBLIC_URL", "https://admin-analytics-46.preview.emergentagent.com")
-    callback_url = f"{public_url}/api/webhooks/blockonomics"
+    cloaked_url = get_cloaked_url(settings, public_url)
+    callback_url = f"{cloaked_url}/api/webhooks/blockonomics"
     
     from blockonomics_service import get_blockonomics_service
     blockonomics = get_blockonomics_service(blockonomics_settings, callback_url)

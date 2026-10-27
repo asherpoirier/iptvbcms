@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminAPI } from '../api/api';
-import { Save, CreditCard, DollarSign, Bitcoin, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+import { Save, CreditCard, DollarSign, Bitcoin, GripVertical, ArrowUp, ArrowDown, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function PaymentGatewaySettings({ settings }) {
@@ -51,6 +51,8 @@ export default function PaymentGatewaySettings({ settings }) {
     helcim_api_token: settings?.helcim?.api_token || '',
     helcim_terminal_id: settings?.helcim?.terminal_id || '',
     payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+    payment_cloak_enabled: settings?.payment_cloak?.enabled || false,
+    payment_cloak_origin_url: settings?.payment_cloak?.origin_url || '',
   });
 
   React.useEffect(() => {
@@ -96,6 +98,8 @@ export default function PaymentGatewaySettings({ settings }) {
         helcim_api_token: settings?.helcim?.api_token || '',
         helcim_terminal_id: settings?.helcim?.terminal_id || '',
         payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+        payment_cloak_enabled: settings?.payment_cloak?.enabled || false,
+        payment_cloak_origin_url: settings?.payment_cloak?.origin_url || '',
       });
     }
   }, [settings]);
@@ -171,7 +175,11 @@ export default function PaymentGatewaySettings({ settings }) {
           api_token: data.helcim_api_token,
           terminal_id: data.helcim_terminal_id
         },
-        payment_method_order: data.payment_method_order
+        payment_method_order: data.payment_method_order,
+        payment_cloak: {
+          enabled: data.payment_cloak_enabled,
+          origin_url: data.payment_cloak_origin_url
+        }
       };
       return adminAPI.updateSettings(settingsUpdate);
     },
@@ -225,6 +233,58 @@ export default function PaymentGatewaySettings({ settings }) {
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
           Configure payment methods available to customers
         </p>
+      </div>
+
+      {/* Payment Cloaking Section */}
+      <div className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800/50 dark:to-slate-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+        <h4 className="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-gray-600" />
+          Payment Cloaking
+        </h4>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          When enabled, payment processors will see the configured origin website URL instead of your billing panel domain in all redirect URLs, callback URLs, and return URLs.
+        </p>
+        <div className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 mb-4">
+          <div>
+            <p className="font-medium text-gray-900 dark:text-white">Enable Payment Cloaking</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Route all payment processor URLs through your origin website</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.payment_cloak_enabled}
+              onChange={(e) => setFormData({ ...formData, payment_cloak_enabled: e.target.checked })}
+              className="sr-only peer"
+              data-testid="payment-cloak-toggle"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+        {formData.payment_cloak_enabled && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Origin Website URL
+            </label>
+            <input
+              type="url"
+              value={formData.payment_cloak_origin_url}
+              onChange={(e) => setFormData({ ...formData, payment_cloak_origin_url: e.target.value })}
+              placeholder="https://your-origin-website.com"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              data-testid="payment-cloak-origin-url"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              This URL will appear as the origin for all payment callbacks, redirects, and return URLs sent to payment processors (Stripe, PayPal, GhostPay, Blockonomics, TagadaPay, etc.)
+            </p>
+            {formData.payment_cloak_origin_url && (
+              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">Preview — Payment processors will see:</p>
+                <p className="text-xs text-blue-700 dark:text-blue-400 font-mono">{formData.payment_cloak_origin_url.replace(/\/$/, '')}/checkout?payment=success</p>
+                <p className="text-xs text-blue-700 dark:text-blue-400 font-mono">{formData.payment_cloak_origin_url.replace(/\/$/, '')}/api/webhooks/stripe</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Payment Method Order Section */}
