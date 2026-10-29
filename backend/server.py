@@ -2835,6 +2835,24 @@ async def tagadapay_webhook(request: Request, background_tasks: BackgroundTasks)
 
 # ===== SUMUP ROUTES =====
 
+@app.post("/api/admin/test-sumup")
+async def test_sumup_connection(current_user: dict = Depends(get_current_admin_user)):
+    """Test SumUp API key and merchant code"""
+    settings = await get_settings()
+    sumup_settings = settings.get("sumup", {})
+    api_key = sumup_settings.get("api_key", "").strip()
+    merchant_code = sumup_settings.get("merchant_code", "").strip()
+
+    if not api_key:
+        return {"success": False, "error": "No API key configured"}
+    if not merchant_code:
+        return {"success": False, "error": "No merchant code configured"}
+
+    from sumup_service import SumUpService
+    service = SumUpService(api_key=api_key, merchant_code=merchant_code, sandbox=sumup_settings.get("sandbox", False))
+    result = await service.test_connection()
+    return result
+
 @app.post("/api/orders/{order_id}/pay/sumup")
 async def create_sumup_payment(order_id: str, request: Request, current_user: dict = Depends(get_current_user)):
     """Create SumUp checkout for order — returns checkout_id for the card widget"""

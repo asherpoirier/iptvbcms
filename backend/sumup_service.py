@@ -13,13 +13,43 @@ SUMUP_API_URL = "https://api.sumup.com"
 
 class SumUpService:
     def __init__(self, api_key: str, merchant_code: str, sandbox: bool = False):
-        self.api_key = api_key
-        self.merchant_code = merchant_code
+        self.api_key = api_key.strip()
+        self.merchant_code = merchant_code.strip()
         self.sandbox = sandbox
         self.headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test API key validity by fetching merchant profile."""
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(
+                    f"{SUMUP_API_URL}/v0.1/me",
+                    headers=self.headers,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return {
+                        "success": True,
+                        "merchant_code": data.get("merchant_profile", {}).get("merchant_code", ""),
+                        "business_name": data.get("merchant_profile", {}).get("business_name", ""),
+                        "country": data.get("merchant_profile", {}).get("country", ""),
+                    }
+                else:
+                    body = response.text
+                    try:
+                        body = response.json()
+                    except Exception:
+                        pass
+                    return {
+                        "success": False,
+                        "error": f"HTTP {response.status_code}",
+                        "detail": body,
+                    }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def create_checkout(
         self,

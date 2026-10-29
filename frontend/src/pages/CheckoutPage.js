@@ -589,42 +589,67 @@ export default function CheckoutPage() {
 
       // Mount the SumUp card widget
       setSumupMounted(true);
+
+      // Store orderId and token in window for the callback (closure can be lost)
+      window._sumupOrderId = orderId;
+      window._sumupCheckoutId = checkoutId;
+      window._sumupToken = token;
+
       setTimeout(() => {
         if (window.SumUpCard) {
+          const widgetEl = document.getElementById('sumup-card-widget');
+          if (widgetEl) widgetEl.innerHTML = ''; // clear any previous mount
+
           window._sumupCardInstance = window.SumUpCard.mount({
             id: 'sumup-card-widget',
             checkoutId: checkoutId,
-            onResponse: async function(type, body) {
-              console.log('SumUp response:', type, body);
+            onResponse: function(type, body) {
+              console.log('SumUp onResponse:', type, JSON.stringify(body));
+              // 'sent' = payment submitted, wait for final
+              // 'success' = payment completed
+              // 'error' / 'fail' = payment failed
               if (type === 'success') {
-                // Verify payment server-side
-                try {
-                  const verifyResponse = await axios.post(
-                    `${API_URL}/api/orders/${orderId}/sumup/verify`,
-                    { checkout_id: checkoutId },
-                    { headers: { Authorization: `Bearer ${token}` } }
-                  );
+                // Use a non-async wrapper to verify payment
+                const verifyToken = window._sumupToken;
+                const verifyOrderId = window._sumupOrderId;
+                const verifyCheckoutId = window._sumupCheckoutId;
+                axios.post(
+                  `${API_URL}/api/orders/${verifyOrderId}/sumup/verify`,
+                  { checkout_id: verifyCheckoutId },
+                  { headers: { Authorization: `Bearer ${verifyToken}` } }
+                ).then(function(verifyResponse) {
                   if (verifyResponse.data.success && verifyResponse.data.status === 'PAID') {
                     clearCart();
                     toast.success('Payment successful! Your services are being provisioned.');
-                    navigate('/orders');
+                    window.location.href = '/orders';
                   } else {
-                    setError('Payment verification pending. Please check your orders page.');
-                    navigate('/orders');
+                    toast.info('Payment processing. Check your orders page.');
+                    window.location.href = '/orders';
                   }
-                } catch (verifyErr) {
+                }).catch(function(verifyErr) {
                   console.error('SumUp verify error:', verifyErr);
-                  setError('Payment completed but verification failed. Please contact support.');
-                }
+                  toast.error('Payment completed but verification failed. Please contact support.');
+                  window.location.href = '/orders';
+                });
               } else if (type === 'error' || type === 'fail') {
-                setError('Payment failed. Please try again.');
+                console.error('SumUp payment failed:', body);
+                setError('Payment failed: ' + (body?.message || body?.error || 'Please try again.'));
+                setSumupLoading(false);
+                setSumupMounted(false);
               }
-              setSumupLoading(false);
-              setSumupMounted(false);
+              // 'sent' type = just waiting, do nothing
+            },
+            onLoad: function() {
+              console.log('SumUp card widget loaded');
             }
           });
+        } else {
+          console.error('SumUpCard SDK not available on window');
+          setError('SumUp SDK failed to load. Please refresh and try again.');
+          setSumupLoading(false);
+          setSumupMounted(false);
         }
-      }, 100);
+      }, 300);
 
       setSumupLoading(false);
     } catch (err) {

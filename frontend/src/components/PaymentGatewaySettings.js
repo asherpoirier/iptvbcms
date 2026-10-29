@@ -826,6 +826,25 @@ export default function PaymentGatewaySettings({ settings }) {
                 data-testid="sumup-merchant-code" />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Your SumUp merchant code (visible in your account profile)</p>
             </div>
+            <button type="button" onClick={async () => {
+              try {
+                const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+                const res = await fetch('/api/admin/test-sumup', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data.success) {
+                  toast.success(`SumUp connected! Business: ${data.business_name || 'N/A'}, Merchant: ${data.merchant_code || 'N/A'}, Country: ${data.country || 'N/A'}`);
+                } else {
+                  toast.error(`SumUp test failed: ${data.error || 'Unknown error'}${data.detail ? ' — ' + (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : ''}`);
+                }
+              } catch (e) {
+                toast.error('SumUp test failed: ' + e.message);
+              }
+            }} className="w-full px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 font-medium text-sm flex items-center justify-center gap-2" data-testid="sumup-test-btn">
+              🔌 Test Connection
+            </button>
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook URL</label>
               <div className="flex items-center gap-2">
