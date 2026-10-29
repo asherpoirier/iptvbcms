@@ -8,7 +8,7 @@ export default function PaymentGatewaySettings({ settings }) {
   const queryClient = useQueryClient();
   
   // Default payment method order
-  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay', 'tagadapay'];
+  const defaultOrder = ['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise', 'helcim', 'stripe', 'paypal', 'square', 'blockonomics', 'ghostpay', 'tagadapay', 'sumup'];
   
   const [formData, setFormData] = useState({
     paypal_enabled: settings?.paypal?.enabled || false,
@@ -50,7 +50,11 @@ export default function PaymentGatewaySettings({ settings }) {
     helcim_enabled: settings?.helcim?.enabled || false,
     helcim_api_token: settings?.helcim?.api_token || '',
     helcim_terminal_id: settings?.helcim?.terminal_id || '',
-    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+    payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay','sumup'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+    sumup_enabled: settings?.sumup?.enabled || false,
+    sumup_api_key: settings?.sumup?.api_key || '',
+    sumup_merchant_code: settings?.sumup?.merchant_code || '',
+    sumup_sandbox: settings?.sumup?.sandbox || false,
     payment_cloak_enabled: settings?.payment_cloak?.enabled || false,
     payment_cloak_origin_url: settings?.payment_cloak?.origin_url || '',
   });
@@ -97,7 +101,11 @@ export default function PaymentGatewaySettings({ settings }) {
         helcim_enabled: settings?.helcim?.enabled || false,
         helcim_api_token: settings?.helcim?.api_token || '',
         helcim_terminal_id: settings?.helcim?.terminal_id || '',
-        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+        payment_method_order: (() => { const o = [...(settings?.payment_method_order || defaultOrder)]; if (!o.includes('emt')) o.splice(1, 0, 'emt'); ['zelle','cashapp','venmo','wise','helcim','ghostpay','tagadapay','sumup'].forEach(m => { if (!o.includes(m)) o.push(m); }); return o; })(),
+        sumup_enabled: settings?.sumup?.enabled || false,
+        sumup_api_key: settings?.sumup?.api_key || '',
+        sumup_merchant_code: settings?.sumup?.merchant_code || '',
+        sumup_sandbox: settings?.sumup?.sandbox || false,
         payment_cloak_enabled: settings?.payment_cloak?.enabled || false,
         payment_cloak_origin_url: settings?.payment_cloak?.origin_url || '',
       });
@@ -175,6 +183,12 @@ export default function PaymentGatewaySettings({ settings }) {
           api_token: data.helcim_api_token,
           terminal_id: data.helcim_terminal_id
         },
+        sumup: {
+          enabled: data.sumup_enabled,
+          api_key: data.sumup_api_key,
+          merchant_code: data.sumup_merchant_code,
+          sandbox: data.sumup_sandbox
+        },
         payment_method_order: data.payment_method_order,
         payment_cloak: {
           enabled: data.payment_cloak_enabled,
@@ -221,6 +235,7 @@ export default function PaymentGatewaySettings({ settings }) {
     blockonomics: { name: 'Bitcoin (Blockonomics)', icon: Bitcoin, color: 'text-orange-500' },
     ghostpay: { name: 'Crypto (GhostPay)', icon: Bitcoin, color: 'text-purple-500' },
     tagadapay: { name: 'TagadaPay', icon: CreditCard, color: 'text-teal-500' },
+    sumup: { name: 'SumUp', icon: CreditCard, color: 'text-blue-500' },
   };
 
   return (
@@ -752,6 +767,75 @@ export default function PaymentGatewaySettings({ settings }) {
                 <button type="button" onClick={() => navigator.clipboard.writeText(`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/tagadapay`)}
                   className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 text-sm">Copy</button>
               </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SumUp */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <CreditCard className="w-6 h-6 text-blue-500" />
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white">SumUp</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Accept card payments via SumUp card widget</p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={formData.sumup_enabled}
+              onChange={(e) => setFormData({ ...formData, sumup_enabled: e.target.checked })}
+              className="sr-only peer" data-testid="sumup-toggle" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-blue-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          </label>
+        </div>
+        {formData.sumup_enabled && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Sandbox Mode</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Use sandbox merchant for testing (no real charges)</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={formData.sumup_sandbox}
+                  onChange={(e) => setFormData({ ...formData, sumup_sandbox: e.target.checked })}
+                  className="sr-only peer" data-testid="sumup-sandbox-toggle" />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-amber-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+              </label>
+            </div>
+            {formData.sumup_sandbox && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <p className="text-xs text-amber-800 dark:text-amber-300"><strong>Sandbox active</strong> — Use a sandbox merchant API key from SumUp Dashboard → Developer Settings → Sandboxes. Test card: <code className="bg-amber-100 dark:bg-amber-800 px-1 rounded">4200 0000 0000 0091</code> with any CVV, future expiry and any name.</p>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+              <input type="password" value={formData.sumup_api_key}
+                onChange={(e) => setFormData({ ...formData, sumup_api_key: e.target.value })}
+                placeholder="sup_sk_..."
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                data-testid="sumup-api-key" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">From SumUp Dashboard → Developer Settings → API Keys</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Merchant Code</label>
+              <input type="text" value={formData.sumup_merchant_code}
+                onChange={(e) => setFormData({ ...formData, sumup_merchant_code: e.target.value })}
+                placeholder="MH4H92C7"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                data-testid="sumup-merchant-code" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Your SumUp merchant code (visible in your account profile)</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook URL</label>
+              <div className="flex items-center gap-2">
+                <input type="text" readOnly
+                  value={`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/sumup`}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono" />
+                <button type="button" onClick={() => navigator.clipboard.writeText(`${settings?.BACKEND_PUBLIC_URL || settings?.PUBLIC_URL || window.location.origin}/api/webhooks/sumup`)}
+                  className="px-3 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 text-sm">Copy</button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Set as <code>return_url</code> — SumUp sends checkout status change notifications here</p>
             </div>
           </div>
         )}

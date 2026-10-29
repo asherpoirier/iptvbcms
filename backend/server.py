@@ -2833,6 +2833,149 @@ async def tagadapay_webhook(request: Request, background_tasks: BackgroundTasks)
         logger.error(f"TagadaPay webhook error: {e}")
         return {"status": "error"}
 
+# ===== SUMUP ROUTES =====
+
+@app.post("/api/orders/{order_id}/pay/sumup")
+async def create_sumup_payment(order_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Create SumUp checkout for order — returns checkout_id for the card widget"""
+    user_id = current_user["sub"]
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id), "user_id": user_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Order already paid")
+
+    settings = await get_settings()
+    from sumup_service import get_sumup_service
+    sumup = get_sumup_service(settings)
+    if not sumup:
+        raise HTTPException(status_code=400, detail="SumUp not enabled")
+
+    currency = settings.get("currency", "EUR")
+    if isinstance(currency, dict):
+        currency = currency.get("code", "EUR")
+
+    # Build webhook/return URL with payment cloaking support
+    base_url = os.getenv("BACKEND_PUBLIC_URL", str(request.base_url).rstrip('/'))
+    cloaked_base = get_cloaked_url(settings, base_url)
+    return_url = f"{cloaked_base}/api/webhooks/sumup"
+
+    frontend_url = os.getenv("SITE_URL", os.getenv("BACKEND_PUBLIC_URL", base_url))
+    frontend_url = get_cloaked_url(settings, frontend_url)
+    redirect_url = f"{frontend_url}/checkout?payment=success&order_id={order_id}"
+
+    result = await sumup.create_checkout(
+        amount=order["total"],
+        currency=currency,
+        checkout_reference=order_id,
+        description=f"Order {order_id}",
+        return_url=return_url,
+        redirect_url=redirect_url,
+    )
+
+    if result["success"]:
+        await db.payment_transactions.insert_one({
+            "order_id": order_id,
+            "user_id": user_id,
+            "gateway": "sumup",
+            "payment_id": result["checkout_id"],
+            "payment_status": "pending",
+            "amount": order["total"],
+            "created_at": datetime.utcnow()
+        })
+        return {"success": True, "checkout_id": result["checkout_id"]}
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "SumUp checkout creation failed"))
+
+
+@app.post("/api/orders/{order_id}/sumup/verify")
+async def verify_sumup_payment(order_id: str, data: dict, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """Verify SumUp checkout status after widget reports success"""
+    user_id = current_user["sub"]
+    checkout_id = data.get("checkout_id")
+    if not checkout_id:
+        raise HTTPException(status_code=400, detail="checkout_id required")
+
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id), "user_id": user_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        return {"success": True, "already_paid": True}
+
+    settings = await get_settings()
+    from sumup_service import get_sumup_service
+    sumup = get_sumup_service(settings)
+    if not sumup:
+        raise HTTPException(status_code=400, detail="SumUp not enabled")
+
+    result = await sumup.get_checkout(checkout_id)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to verify checkout"))
+
+    if result["status"] == "PAID":
+        # Mark order as paid
+        await orders_collection.update_one(
+            {"_id": str_to_objectid(order_id)},
+            {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "sumup", "payment_id": checkout_id}}
+        )
+        await invoices_collection.update_one(
+            {"order_id": order_id},
+            {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+        )
+        await db.payment_transactions.update_one(
+            {"order_id": order_id, "gateway": "sumup"},
+            {"$set": {"payment_status": "paid"}}
+        )
+        user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+        if user:
+            background_tasks.add_task(provision_order_services, order_id, order, user)
+        return {"success": True, "status": "PAID"}
+    else:
+        return {"success": False, "status": result["status"]}
+
+
+@app.post("/api/webhooks/sumup")
+async def sumup_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Handle SumUp CHECKOUT_STATUS_CHANGED webhook"""
+    try:
+        data = await request.json()
+        event_type = data.get("event_type", "")
+        checkout_id = data.get("id", "")
+
+        logger.info(f"SumUp webhook received: {event_type} for checkout {checkout_id}")
+
+        if event_type == "CHECKOUT_STATUS_CHANGED" and checkout_id:
+            settings = await get_settings()
+            from sumup_service import get_sumup_service
+            sumup = get_sumup_service(settings)
+            if sumup:
+                result = await sumup.get_checkout(checkout_id)
+                if result["success"] and result["status"] == "PAID":
+                    checkout_ref = result["data"].get("checkout_reference", "")
+                    if checkout_ref:
+                        order = await orders_collection.find_one({"_id": str_to_objectid(checkout_ref)})
+                        if order and order["status"] != "paid":
+                            await orders_collection.update_one(
+                                {"_id": str_to_objectid(checkout_ref)},
+                                {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "sumup", "payment_id": checkout_id}}
+                            )
+                            await invoices_collection.update_one(
+                                {"order_id": checkout_ref},
+                                {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+                            )
+                            await db.payment_transactions.update_one(
+                                {"order_id": checkout_ref, "gateway": "sumup"},
+                                {"$set": {"payment_status": "paid"}}
+                            )
+                            user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+                            if user:
+                                background_tasks.add_task(provision_order_services, checkout_ref, order, user)
+
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"SumUp webhook error: {e}")
+        return {"status": "error"}
+
 # ===== GHOSTPAY (CRYPTO) ROUTES =====
 
 @app.get("/api/ghostpay/cryptos")
@@ -4527,10 +4670,14 @@ async def get_payment_config():
             "enabled": settings.get("tagadapay", {}).get("enabled", False),
             "store_id": settings.get("tagadapay", {}).get("store_id", "")
         },
+        "sumup": {
+            "enabled": settings.get("sumup", {}).get("enabled", False),
+            "sandbox": settings.get("sumup", {}).get("sandbox", False)
+        },
         "manual": {
             "enabled": settings.get("manual", {}).get("enabled", True)
         },
-        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay", "tagadapay"]),
+        "payment_method_order": settings.get("payment_method_order", ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics", "ghostpay", "tagadapay", "sumup"]),
         "currency": {"code": settings.get("currency", "USD"), "symbol": CURRENCY_SYMBOLS.get(settings.get("currency", "USD"), "$")}
     }
 

@@ -91,6 +91,11 @@ export default function CheckoutPage() {
   // Helcim payment state
   const [helcimLoading, setHelcimLoading] = useState(false);
 
+  // SumUp payment state
+  const [sumupLoading, setSumupLoading] = useState(false);
+  const [sumupCheckoutId, setSumupCheckoutId] = useState(null);
+  const [sumupMounted, setSumupMounted] = useState(false);
+
   // Check if cart has reseller products that need new credentials
   const hasNewResellerProduct = items.some(item => 
     item.account_type === 'reseller' && item.action_type !== 'extend'
@@ -139,6 +144,7 @@ export default function CheckoutPage() {
       blockonomics: settings.blockonomics?.enabled,
       ghostpay: settings.ghostpay?.enabled,
       tagadapay: settings.tagadapay?.enabled,
+      sumup: settings.sumup?.enabled,
       emt: settings.emt?.enabled,
       zelle: settings.zelle?.enabled,
       cashapp: settings.cashapp?.enabled,
@@ -529,6 +535,102 @@ export default function CheckoutPage() {
       console.error('Helcim payment error:', err);
       setError(`Helcim payment failed: ${err.response?.data?.detail || err.message}`);
       setHelcimLoading(false);
+    }
+  };
+
+  // SumUp payment handler
+  const handleSumUpPay = async () => {
+    try {
+      setError('');
+      setSumupLoading(true);
+
+      const orderData = {
+        items: buildOrderItems(),
+        total: getGrandTotal(),
+        ...shippingPayload(),
+        coupon_code: appliedCouponCode,
+        use_credits: creditsUsed,
+        reseller_credentials: hasNewResellerProduct ? {
+          username: resellerUsername, password: resellerPassword,
+          add_credits_to_existing: resellerAddCredits
+        } : null
+      };
+
+      const orderResponse = await ordersAPI.create(orderData);
+      const orderId = orderResponse.data.order_id || orderResponse.data.id;
+      setCurrentOrderId(orderId);
+
+      // Create SumUp checkout
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      const sumupResponse = await axios.post(
+        `${API_URL}/api/orders/${orderId}/pay/sumup`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!sumupResponse.data.success || !sumupResponse.data.checkout_id) {
+        throw new Error('Failed to create SumUp checkout');
+      }
+
+      const checkoutId = sumupResponse.data.checkout_id;
+      setSumupCheckoutId(checkoutId);
+
+      // Load SumUp SDK if not loaded
+      if (!document.querySelector('script[src*="gateway.sumup.com"]')) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://gateway.sumup.com/gateway/ecom/card/v2/sdk.js';
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('Failed to load SumUp SDK'));
+          document.head.appendChild(script);
+        });
+      }
+
+      // Mount the SumUp card widget
+      setSumupMounted(true);
+      setTimeout(() => {
+        if (window.SumUpCard) {
+          window._sumupCardInstance = window.SumUpCard.mount({
+            id: 'sumup-card-widget',
+            checkoutId: checkoutId,
+            onResponse: async function(type, body) {
+              console.log('SumUp response:', type, body);
+              if (type === 'success') {
+                // Verify payment server-side
+                try {
+                  const verifyResponse = await axios.post(
+                    `${API_URL}/api/orders/${orderId}/sumup/verify`,
+                    { checkout_id: checkoutId },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  if (verifyResponse.data.success && verifyResponse.data.status === 'PAID') {
+                    clearCart();
+                    toast.success('Payment successful! Your services are being provisioned.');
+                    navigate('/orders');
+                  } else {
+                    setError('Payment verification pending. Please check your orders page.');
+                    navigate('/orders');
+                  }
+                } catch (verifyErr) {
+                  console.error('SumUp verify error:', verifyErr);
+                  setError('Payment completed but verification failed. Please contact support.');
+                }
+              } else if (type === 'error' || type === 'fail') {
+                setError('Payment failed. Please try again.');
+              }
+              setSumupLoading(false);
+              setSumupMounted(false);
+            }
+          });
+        }
+      }, 100);
+
+      setSumupLoading(false);
+    } catch (err) {
+      console.error('SumUp payment error:', err);
+      setError(`SumUp payment failed: ${err.response?.data?.detail || err.message}`);
+      setSumupLoading(false);
     }
   };
 
@@ -1219,6 +1321,21 @@ export default function CheckoutPage() {
                         </label>
                       );
                     }
+
+                    if (method === 'sumup' && settings?.sumup?.enabled) {
+                      return (
+                        <label key="sumup" className="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-blue-500 transition bg-white dark:bg-gray-800" data-testid="sumup-payment-option">
+                          <input type="radio" name="payment" value="sumup" checked={paymentMethod === 'sumup'} onChange={(e) => setPaymentMethod(e.target.value)} className="w-4 h-4 text-blue-500" />
+                          <div className="ml-3 flex items-center gap-2">
+                            <CreditCard className="w-5 h-5 text-blue-500" />
+                            <div>
+                              <p className="font-semibold text-gray-900 dark:text-white">SumUp</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">Pay with credit or debit card</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    }
                     
                     return null;
                   })}
@@ -1574,6 +1691,28 @@ export default function CheckoutPage() {
                       {ghostpayLoading ? 'Redirecting to GhostPay...' : `Pay with ${ghostpayCrypto || ghostpayCryptos[0]?.name || 'Crypto'} (GhostPay)`}
                     </button>
                     <p className="text-xs text-center text-gray-500 dark:text-gray-400">You will be redirected to GhostPay to complete payment. Your order activates automatically once the payment confirms.</p>
+                  </div>
+                ) : paymentMethod === 'sumup' && settings?.sumup?.enabled ? (
+                  <div className="space-y-3">
+                    {!sumupMounted ? (
+                      <button
+                        onClick={handleSumUpPay}
+                        disabled={sumupLoading || items.length === 0}
+                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                        data-testid="sumup-pay-btn"
+                      >
+                        <CreditCard className="w-5 h-5" />
+                        {sumupLoading ? 'Preparing checkout...' : `Pay $${getGrandTotal().toFixed(2)} with SumUp`}
+                      </button>
+                    ) : (
+                      <div>
+                        <div id="sumup-card-widget" className="min-h-[200px] border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white"></div>
+                        <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">Enter your card details above to complete payment</p>
+                      </div>
+                    )}
+                    {settings?.sumup?.sandbox && (
+                      <p className="text-xs text-center text-amber-600 dark:text-amber-400">⚠️ Sandbox mode — use test card 4200 0000 0000 0091</p>
+                    )}
                   </div>
                 ) : paymentMethod === 'tagadapay' && settings?.tagadapay?.enabled ? (
                   <div className="space-y-3">
