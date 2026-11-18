@@ -266,6 +266,11 @@ export const adminAPI = {
   testGold: (panelIndex = 0) => api.post(`/api/admin/gold/test?panel_index=${panelIndex}`),
   getGoldPackages: (panelIndex = 0) => api.get(`/api/admin/gold/packages?panel_index=${panelIndex}`),
   refreshGoldUsers: (panelIndex = 0) => api.post(`/api/admin/gold/refresh-users?panel_index=${panelIndex}`, null, { timeout: 120000 }),
+  // Ghost Panel
+  testGhostPanel: (panelIndex = 0) => api.post(`/api/admin/ghostpanel/test?panel_index=${panelIndex}`),
+  getGhostPanelPackages: (panelIndex = 0) => api.get(`/api/admin/ghostpanel/packages?panel_index=${panelIndex}`),
+  getGhostPanelBouquets: (panelIndex = 0) => api.get(`/api/admin/ghostpanel/bouquets?panel_index=${panelIndex}`),
+  syncGhostPanelUsers: (panelIndex = 0) => api.post(`/api/admin/ghostpanel/sync-users?panel_index=${panelIndex}`, null, { timeout: 120000 }),
   // Maintenance
   deduplicateImportedUsers: () => api.post('/api/admin/imported-users/deduplicate'),
   // Staff management
@@ -281,6 +286,11 @@ export const adminAPI = {
   createKBArticle: (data) => api.post('/api/admin/kb', data),
   updateKBArticle: (id, data) => api.put(`/api/admin/kb/${id}`, data),
   deleteKBArticle: (id) => api.delete(`/api/admin/kb/${id}`),
+  // Panel Migration
+  getMigrationPanels: () => api.get('/api/admin/migration/panels'),
+  getMigrationPreview: (data) => api.post('/api/admin/migration/preview', data),
+  executeMigration: (data) => api.post('/api/admin/migration/execute', data),
+  getMigrationLogs: () => api.get('/api/admin/migration/logs'),
 };
 
 export default api;

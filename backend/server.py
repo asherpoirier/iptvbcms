@@ -63,6 +63,8 @@ from onestream_service import OneStreamService, get_onestream_service
 from nxtdash_service import NxtDashService, get_nxtdash_service
 from aether_service import AetherService, get_aether_service
 from gold_service import GoldPanelService, get_gold_service
+from ghostpanel_service import GhostPanelService, get_ghostpanel_service
+from panel_migration_service import PanelMigrationService, MigrationError
 from email_service import get_email_service
 from email_logger import EmailLogger
 from unsubscribe_manager import UnsubscribeManager
@@ -5605,6 +5607,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                         await provision_aether_service(order_id, order, user, bp_item, bp, settings, email_service)
                     elif bp_panel_type == "gold":
                         await provision_gold_service(order_id, order, user, bp_item, bp, settings, email_service)
+                    elif bp_panel_type == "ghostpanel":
+                        await provision_ghostpanel_service(order_id, order, user, bp_item, bp, settings, email_service)
                     else:
                         await provision_xtream_service(order_id, order, user, bp_item, bp, settings, email_service)
                 continue
@@ -5661,6 +5665,8 @@ async def provision_order_services(order_id: str, order: dict, user: dict):
                 await provision_aether_service(order_id, order, user, item, product, settings, email_service)
             elif panel_type == "gold":
                 await provision_gold_service(order_id, order, user, item, product, settings, email_service)
+            elif panel_type == "ghostpanel":
+                await provision_ghostpanel_service(order_id, order, user, item, product, settings, email_service)
             else:
                 await provision_xtream_service(order_id, order, user, item, product, settings, email_service)
                 
@@ -7679,6 +7685,164 @@ async def provision_gold_service(order_id: str, order: dict, user: dict, item: d
         logger.error(traceback.format_exc())
 
 
+async def provision_ghostpanel_service(order_id: str, order: dict, user: dict, item: dict, product: dict, settings: dict, email_service):
+    """Provision a Ghost Panel user via the reseller_api.php"""
+    try:
+        gp_panels = settings.get("ghostpanel_panels", [])
+        panel_index = safe_panel_index(product.get("panel_index"))
+        if not gp_panels:
+            logger.error("Ghost Panel not configured")
+            return
+        if panel_index >= len(gp_panels):
+            panel_index = 0
+        panel = gp_panels[panel_index]
+        panel_name = panel.get("name", f"Ghost Panel {panel_index + 1}")
+
+        svc = get_ghostpanel_service(panel)
+        if not svc:
+            logger.error("Ghost Panel service not available (missing url or api_key)")
+            return
+
+        if product.get("account_type", "subscriber") != "subscriber":
+            logger.error("Ghost Panel: only subscriber accounts can be provisioned via the API")
+            return
+
+        package_id = product.get("panel_package_id") or product.get("xtream_package_id") or product.get("package_id", 0)
+        if not package_id:
+            logger.error(f"Ghost Panel: product '{product.get('name')}' has no package_id")
+            return
+        action_type = item.get("action_type", "create_new")
+        renewal_service_id = item.get("renewal_service_id")
+
+        # Renewal of an existing user
+        if renewal_service_id and action_type in ("renew", "extend"):
+            existing = await services_collection.find_one({
+                "_id": str_to_objectid(renewal_service_id),
+                "user_id": order["user_id"],
+            })
+            if not existing:
+                logger.error(f"Ghost Panel renewal: service {renewal_service_id} not found")
+                return
+            line_user = existing.get("xtream_username") or existing.get("username", "")
+            try:
+                result = await svc.extend_user(int(package_id), username=line_user)
+            except Exception as e:
+                logger.error(f"Ghost Panel extend failed: {e}")
+                return
+            new_exp = None
+            if result.get("expiry"):
+                try:
+                    new_exp = datetime.strptime(result["expiry"], "%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    pass
+            if not new_exp and result.get("expiry_ts"):
+                try:
+                    new_exp = datetime.utcfromtimestamp(result["expiry_ts"])
+                except (ValueError, TypeError, OSError):
+                    pass
+            if new_exp:
+                await services_collection.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"expiry_date": new_exp, "status": "active", "updated_at": datetime.utcnow()}}
+                )
+            logger.info(f"Ghost Panel user renewed: {line_user} -> {new_exp}")
+            if email_service and new_exp:
+                try:
+                    await email_service.send_service_renewed(
+                        customer_email=user["email"], customer_name=user.get("name", "Customer"),
+                        service_name=existing.get("product_name", product.get("name", "Ghost Panel Service")),
+                        username=line_user, new_expiry_date=new_exp.strftime("%Y-%m-%d"),
+                        customer_id=order["user_id"]
+                    )
+                except Exception as email_err:
+                    logger.warning(f"Ghost Panel renewal email failed: {email_err}")
+            return
+
+        username = item.get("reseller_username") or generate_username()
+        password = item.get("reseller_password") or generate_password()
+        product_bouquets = product.get("bouquets") or None
+
+        try:
+            result = await svc.create_user(
+                package_id=int(package_id), username=username, password=password,
+                bouquets=[int(b) for b in product_bouquets] if product_bouquets else None,
+            )
+        except Exception as e:
+            logger.error(f"Ghost Panel create user failed: {e}")
+            return
+
+        api_user = result.get("username") or username
+        api_pass = result.get("password") or password
+        expiry_dt = None
+        if result.get("expiry"):
+            try:
+                expiry_dt = datetime.strptime(result["expiry"], "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                pass
+        if not expiry_dt and result.get("expiry_ts"):
+            try:
+                expiry_dt = datetime.utcfromtimestamp(result["expiry_ts"])
+            except (ValueError, TypeError, OSError):
+                pass
+        streaming_url = svc.streaming_url or svc.origin
+
+        service_doc = {
+            "user_id": order["user_id"],
+            "order_id": order_id,
+            "product_id": str(product.get("_id", item.get("product_id", ""))),
+            "product_name": product.get("name", "Ghost Panel Service"),
+            "username": api_user,
+            "password": api_pass,
+            "xtream_username": api_user,
+            "xtream_password": api_pass,
+            "panel_type": "ghostpanel",
+            "panel_name": panel_name,
+            "panel_index": panel_index,
+            "ghost_user_id": str(result.get("user_id", "")),
+            "ghost_package_id": int(package_id),
+            "account_type": "subscriber",
+            "term_months": item.get("term_months", 1),
+            "max_connections": product.get("max_connections", 1),
+            "is_trial": product.get("is_trial", False),
+            "streaming_url": streaming_url,
+            "start_date": datetime.utcnow(),
+            "expiry_date": expiry_dt,
+            "status": "active",
+            "created_at": datetime.utcnow(),
+        }
+        await services_collection.insert_one(service_doc)
+        logger.info(f"Ghost Panel subscriber provisioned: {api_user} (user_id {result.get('user_id')})")
+
+        if email_service:
+            try:
+                await email_service.send_service_activated(
+                    customer_email=user["email"],
+                    customer_name=user.get("name", "Customer"),
+                    service_name=product.get("name", "Ghost Panel Service"),
+                    username=api_user,
+                    password=api_pass,
+                    streaming_url=streaming_url,
+                    max_connections=product.get("max_connections", 1),
+                    expiry_date=expiry_dt.strftime("%Y-%m-%d") if expiry_dt else "N/A",
+                    customer_id=order["user_id"]
+                )
+            except Exception as email_err:
+                logger.warning(f"Ghost Panel activation email failed: {email_err}")
+
+    except Exception as e:
+        logger.error(f"Ghost Panel provisioning error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+def _ghostpanel_for_service(service: dict, settings: dict):
+    panels = settings.get("ghostpanel_panels", [])
+    idx = safe_panel_index(service.get("panel_index"))
+    if idx >= len(panels):
+        return None
+    return get_ghostpanel_service(panels[idx])
+
+
 def _xtream_panel(settings: dict, panel_index) -> Optional[dict]:
     panels = settings.get("xtream", {}).get("panels", [])
     idx = safe_panel_index(panel_index)
@@ -7812,6 +7976,12 @@ async def suspend_service(service_id: str, current_user: dict = Depends(get_curr
         if not gd:
             raise HTTPException(status_code=500, detail="Gold Panel not configured")
         result = await _gold_set_status_for(gd, service, False)
+    elif panel_type == "ghostpanel":
+        gp = _ghostpanel_for_service(service, settings)
+        if not gp:
+            raise HTTPException(status_code=500, detail="Ghost Panel not configured")
+        result = await gp.suspend_user(username=line_user)
+        result = {"success": True, **result}
     elif panel_type == "xtream":
         xtream_service = get_xtream_service(settings.get("xtream", {}))
         if not xtream_service:
@@ -7847,6 +8017,12 @@ async def unsuspend_service(service_id: str, current_user: dict = Depends(get_cu
         if not gd:
             raise HTTPException(status_code=500, detail="Gold Panel not configured")
         result = await _gold_set_status_for(gd, service, True)
+    elif panel_type == "ghostpanel":
+        gp = _ghostpanel_for_service(service, settings)
+        if not gp:
+            raise HTTPException(status_code=500, detail="Ghost Panel not configured")
+        result = await gp.unsuspend_user(username=line_user)
+        result = {"success": True, **result}
     elif panel_type == "xtream":
         xtream_service = get_xtream_service(settings.get("xtream", {}))
         if not xtream_service:
@@ -7882,6 +8058,12 @@ async def cancel_service(service_id: str, current_user: dict = Depends(get_curre
         if not gd:
             raise HTTPException(status_code=500, detail="Gold Panel not configured")
         result = await _gold_set_status_for(gd, service, False)
+    elif panel_type == "ghostpanel":
+        gp = _ghostpanel_for_service(service, settings)
+        if not gp:
+            raise HTTPException(status_code=500, detail="Ghost Panel not configured")
+        result = await gp.suspend_user(username=line_user)
+        result = {"success": True, **result}
     elif panel_type == "xtream":
         xtream_service = get_xtream_service(settings.get("xtream", {}))
         if not xtream_service:
@@ -8260,6 +8442,127 @@ async def refresh_gold_users(panel_index: int = 0, current_user: dict = Depends(
     settings = await get_settings()
     panel, service = _get_gold_panel(settings, panel_index)
     return await _gold_refresh_panel_users(panel, panel_index, service)
+
+
+# ===== GHOST PANEL ROUTES =====
+
+def _get_ghostpanel(settings: dict, panel_index: int):
+    panels = settings.get("ghostpanel_panels", [])
+    if not panels:
+        raise HTTPException(status_code=400, detail="No Ghost panels configured")
+    if panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail=f"Panel index {panel_index} not found")
+    panel = panels[panel_index]
+    service = get_ghostpanel_service(panel)
+    if not service:
+        raise HTTPException(status_code=500, detail="Ghost Panel service not available - check url and api_key")
+    return panel, service
+
+
+@app.post("/api/admin/ghostpanel/test")
+async def test_ghostpanel_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Test connection to a Ghost Panel (account_info) and report credits"""
+    settings = await get_settings()
+    _, service = _get_ghostpanel(settings, panel_index)
+    result = await service.test_connection()
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Connection failed"))
+    msg = f"Connected as {result.get('username', 'unknown')}"
+    if result.get("credits") is not None:
+        msg += f" — Balance: {result['credits']} credits"
+    return {"success": True, "message": msg, **result}
+
+
+@app.get("/api/admin/ghostpanel/packages")
+async def get_ghostpanel_packages(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Fetch available packages from a Ghost Panel"""
+    settings = await get_settings()
+    panel, service = _get_ghostpanel(settings, panel_index)
+    try:
+        packages = await service.list_packages()
+        trial_packages = await service.list_packages(trial=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch packages: {e}")
+    return {
+        "packages": packages,
+        "trial_packages": trial_packages,
+        "count": len(packages) + len(trial_packages),
+        "panel_name": panel.get("name", f"Ghost Panel {panel_index + 1}"),
+    }
+
+
+@app.get("/api/admin/ghostpanel/bouquets")
+async def get_ghostpanel_bouquets(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Fetch available bouquets from a Ghost Panel"""
+    settings = await get_settings()
+    panel, service = _get_ghostpanel(settings, panel_index)
+    try:
+        bouquets = await service.list_bouquets()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch bouquets: {e}")
+    await db.settings.update_one({}, {"$set": {f"ghostpanel_panels.{panel_index}.bouquets": [{"id": b.get("id"), "name": b.get("name", "")} for b in bouquets]}})
+    return {"bouquets": bouquets, "count": len(bouquets), "panel_name": panel.get("name", f"Ghost Panel {panel_index + 1}")}
+
+
+@app.post("/api/admin/ghostpanel/sync-users")
+async def sync_ghostpanel_users(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
+    """Sync all users from a Ghost Panel into imported_users"""
+    settings = await get_settings()
+    panel, service = _get_ghostpanel(settings, panel_index)
+    panel_name = panel.get("name", f"Ghost Panel {panel_index + 1}")
+
+    try:
+        users = await service.sync_all_users()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {e}")
+
+    synced_count = 0
+    updated_count = 0
+    for user in users:
+        norm = service.normalize_user(user, panel_name)
+        username = norm.get("username", "")
+        if not username:
+            continue
+        doc = {
+            "panel_index": panel_index,
+            "panel_type": "ghostpanel",
+            "panel_name": panel_name,
+            "ghost_user_id": str(norm.get("panel_user_id", "")),
+            "username": username,
+            "password": norm.get("password", ""),
+            "expiry_date": datetime.fromisoformat(norm["expiry"]) if norm.get("expiry") else None,
+            "status": norm.get("status", "active"),
+            "max_connections": norm.get("max_connections", 1),
+            "account_type": "subscriber",
+            "is_trial": 1 if norm.get("is_trial") else 0,
+            "last_synced": datetime.utcnow(),
+        }
+        r = await safe_upsert_imported_user(
+            {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+            doc,
+        )
+        if r.upserted_id:
+            synced_count += 1
+        elif r.modified_count:
+            updated_count += 1
+
+    accounts_created = 0
+    try:
+        unlinked = await imported_users_collection.find({
+            "panel_name": panel_name,
+            "$or": [{"user_id": {"$exists": False}}, {"user_id": ""}, {"user_id": None}]
+        }).to_list(length=10000)
+        for iu in unlinked:
+            try:
+                if await create_customer_for_imported_user(iu):
+                    accounts_created += 1
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Ghost Panel auto-account creation failed: {e}")
+
+    return {"success": True, "synced": synced_count, "updated": updated_count,
+            "total": len(users), "accounts_created": accounts_created, "panel_name": panel_name}
 
 
 def _aether_line_to_doc(line: dict, panel_index: int, panel_name: str) -> dict:
@@ -8668,6 +8971,87 @@ async def provision_ghostsurf_service(order_id: str, order: dict, user: dict, it
         logger.error(traceback.format_exc())
 
 
+# ===== PANEL MIGRATION ROUTES =====
+
+@app.get("/api/admin/migration/panels")
+async def get_migration_panels(current_user: dict = Depends(get_current_admin_user)):
+    """Get all configured panels with user/service/product counts for migration UI."""
+    settings = await get_settings()
+    try:
+        service = PanelMigrationService(db)
+        panels = await service.get_all_panels_summary(settings)
+        return {"panels": panels}
+    except MigrationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@app.post("/api/admin/migration/preview")
+async def preview_migration(request: Request, current_user: dict = Depends(get_current_admin_user)):
+    """Preview a migration between two panels."""
+    body = await request.json()
+    source_type = body.get("source_type")
+    source_index = body.get("source_index", 0)
+    dest_type = body.get("dest_type")
+    dest_index = body.get("dest_index", 0)
+    if not source_type or not dest_type:
+        raise HTTPException(status_code=400, detail="source_type and dest_type are required")
+    settings = await get_settings()
+    try:
+        service = PanelMigrationService(db)
+        preview = await service.get_migration_preview(
+            source_type=source_type,
+            source_index=int(source_index),
+            dest_type=dest_type,
+            dest_index=int(dest_index),
+            settings=settings,
+        )
+        return preview
+    except MigrationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@app.post("/api/admin/migration/execute")
+async def execute_migration(request: Request, current_user: dict = Depends(get_current_admin_user)):
+    """Execute a migration between two panels."""
+    body = await request.json()
+    source_type = body.get("source_type")
+    source_index = body.get("source_index", 0)
+    dest_type = body.get("dest_type")
+    dest_index = body.get("dest_index", 0)
+    package_mapping = body.get("package_mapping", {})
+    migrate_users_to_panel = body.get("migrate_users_to_panel", True)
+    preserve_credentials = body.get("preserve_credentials", True)
+    if not source_type or not dest_type:
+        raise HTTPException(status_code=400, detail="source_type and dest_type are required")
+    settings = await get_settings()
+    try:
+        service = PanelMigrationService(db)
+        report = await service.execute_migration(
+            source_type=source_type,
+            source_index=int(source_index),
+            dest_type=dest_type,
+            dest_index=int(dest_index),
+            settings=settings,
+            package_mapping=package_mapping,
+            migrate_users_to_panel=migrate_users_to_panel,
+            preserve_credentials=preserve_credentials,
+        )
+        return report
+    except MigrationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@app.get("/api/admin/migration/logs")
+async def get_migration_logs(current_user: dict = Depends(get_current_admin_user)):
+    """Get migration history logs."""
+    try:
+        service = PanelMigrationService(db)
+        logs = await service.get_migration_logs()
+        return {"logs": logs}
+    except MigrationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
 # ===== PRODUCT GROUPS =====
 
 @app.get("/api/admin/product-groups")
@@ -8891,7 +9275,29 @@ async def update_admin_settings(settings_update: Settings,
                         {"panel_name": panel_name, "panel_type": panel_type_key}
                     )
                     logger.info(f"Cleaned up {del_result.deleted_count} imported users for removed panel '{panel_name}'")
-        
+
+        # Ghost Panel uses flat ghostpanel_panels key (not nested)
+        old_gp_panels = existing.get("ghostpanel_panels", [])
+        new_gp_panels = settings_dict.get("ghostpanel_panels", [])
+        old_gp_names = {p.get("name") for p in old_gp_panels if p.get("name")}
+        new_gp_names = {p.get("name") for p in new_gp_panels if p.get("name")}
+        removed_gp_names = old_gp_names - new_gp_names
+        if removed_gp_names:
+            logger.info(f"Panels removed from ghostpanel: {removed_gp_names}")
+            for panel_name in removed_gp_names:
+                orphaned = await imported_users_collection.find(
+                    {"panel_name": panel_name, "panel_type": "ghostpanel"}
+                ).to_list(length=50000)
+                for iu in orphaned:
+                    uid = iu.get("user_id")
+                    if uid:
+                        await users_collection.delete_one({"_id": str_to_objectid(uid), "created_via": "panel_sync"})
+                        await services_collection.delete_many({"user_id": uid, "panel_type": "ghostpanel", "panel_name": panel_name})
+                del_result = await imported_users_collection.delete_many(
+                    {"panel_name": panel_name, "panel_type": "ghostpanel"}
+                )
+                logger.info(f"Cleaned up {del_result.deleted_count} imported users for removed Ghost panel '{panel_name}'")
+
         await settings_collection.update_one(
             {"_id": existing["_id"]},
             {"$set": settings_dict}
@@ -12107,6 +12513,53 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
             logger.error(f"Error refreshing {panel_name}: {e}")
             results["errors"].append(f"{panel_name}: {str(e)}")
 
+    # Sync Ghost panels
+    ghostpanel_panels = settings.get("ghostpanel_panels", [])
+    for panel_index, panel in enumerate(ghostpanel_panels):
+        panel_name = panel.get("name", f"Ghost Panel {panel_index + 1}")
+        try:
+            logger.info(f"Syncing users from Ghost panel: {panel_name}")
+            gp = get_ghostpanel_service(panel)
+            if not gp:
+                results["errors"].append(f"{panel_name}: Service not available")
+                continue
+            users = await gp.sync_all_users()
+            synced_count = 0
+            updated_count = 0
+            for user in users:
+                norm = gp.normalize_user(user, panel_name)
+                username = norm.get("username", "")
+                if not username:
+                    continue
+                doc = {
+                    "panel_index": panel_index,
+                    "panel_type": "ghostpanel",
+                    "panel_name": panel_name,
+                    "ghost_user_id": str(norm.get("panel_user_id", "")),
+                    "username": username,
+                    "password": norm.get("password", ""),
+                    "expiry_date": datetime.fromisoformat(norm["expiry"]) if norm.get("expiry") else None,
+                    "status": norm.get("status", "active"),
+                    "max_connections": norm.get("max_connections", 1),
+                    "account_type": "subscriber",
+                    "is_trial": 1 if norm.get("is_trial") else 0,
+                    "last_synced": datetime.utcnow(),
+                }
+                r = await safe_upsert_imported_user(
+                    {"username": username, "panel_name": panel_name, "account_type": "subscriber"},
+                    doc,
+                )
+                if r.upserted_id:
+                    synced_count += 1
+                elif r.modified_count:
+                    updated_count += 1
+            results["panels_synced"].append({"name": panel_name, "type": "ghostpanel", "synced": synced_count, "updated": updated_count})
+            results["total_synced"] += synced_count
+            results["total_updated"] += updated_count
+        except Exception as e:
+            logger.error(f"Error syncing from {panel_name}: {e}")
+            results["errors"].append(f"{panel_name}: {str(e)}")
+
     # Check for orphaned users from removed panels (don't auto-delete — let admin decide)
     active_xtream_panel_names = [p.get("name") for p in xtream_panels]
     active_xuione_panel_names = [p.get("name") for p in xuione_panels]
@@ -12115,11 +12568,12 @@ async def sync_all_users_from_all_panels(current_user: dict = Depends(get_curren
     active_ghostsurf_panel_names = [p.get("name") for p in ghostsurf_panels]
     active_aether_panel_names = [p.get("name") for p in aether_panels]
     active_gold_panel_names = [p.get("name") for p in gold_panels]
-    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names + active_ghostsurf_panel_names + active_aether_panel_names + active_gold_panel_names
+    active_ghostpanel_panel_names = [p.get("name") for p in ghostpanel_panels]
+    all_active_panel_names = active_xtream_panel_names + active_xuione_panel_names + active_onestream_panel_names + active_nxtdash_panel_names + active_ghostsurf_panel_names + active_aether_panel_names + active_gold_panel_names + active_ghostpanel_panel_names
 
     orphaned_count = 0
     orphaned_panels = []
-    for ptype, active_names in [("xtream", active_xtream_panel_names), ("xuione", active_xuione_panel_names), ("onestream", active_onestream_panel_names), ("nxtdash", active_nxtdash_panel_names), ("ghostsurf", active_ghostsurf_panel_names), ("aether", active_aether_panel_names), ("gold", active_gold_panel_names)]:
+    for ptype, active_names in [("xtream", active_xtream_panel_names), ("xuione", active_xuione_panel_names), ("onestream", active_onestream_panel_names), ("nxtdash", active_nxtdash_panel_names), ("ghostsurf", active_ghostsurf_panel_names), ("aether", active_aether_panel_names), ("gold", active_gold_panel_names), ("ghostpanel", active_ghostpanel_panel_names)]:
         count = await imported_users_collection.count_documents({
             "panel_type": ptype,
             "panel_name": {"$nin": active_names}

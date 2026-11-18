@@ -25,6 +25,8 @@ import NxtDashPanelManagement from '../components/NxtDashPanelManagement';
 import GhostSurfPanelManagement from '../components/GhostSurfPanelManagement';
 import AetherPanelManagement from '../components/AetherPanelManagement';
 import GoldPanelManagement from '../components/GoldPanelManagement';
+import GhostPanelManagement from '../components/GhostPanelManagement';
+import PanelMigration from '../components/PanelMigration';
 import InvoiceSettings from '../components/InvoiceSettings';
 import SEOSettings from '../components/SEOSettings';
 import ShippingSettings from '../components/ShippingSettings';
@@ -41,14 +43,14 @@ export default function AdminSettings() {
   // Auto-expand the group that contains the active tab
   const groupForTab = {
     panels: 'panels', xuione: 'panels', onestream: 'panels', nxtdash: 'panels',
-    aether: 'panels', gold: 'panels', ghostsurf: 'panels',
+    aether: 'panels', gold: 'panels', ghostpanel: 'panels', ghostsurf: 'panels',
     payment: 'billing', shipping: 'billing', currency: 'billing',
     invoices: 'billing', refunds: 'billing', credits: 'billing',
     email: 'communication', notifications: 'communication', chatbot: 'communication',
     account: 'security', '2fa': 'security', recaptcha: 'security',
     branding: 'appearance', seo: 'appearance', terms: 'appearance',
     license: 'system', updates: 'system', backups: 'system',
-    timezone: 'system', launcher: 'system',
+    timezone: 'system', launcher: 'system', migration: 'system',
   };
 
   const handleTabClick = (tab) => {
@@ -70,6 +72,7 @@ export default function AdminSettings() {
         { key: 'nxtdash', label: 'NXT Dash Panels' },
         { key: 'aether', label: 'Aether Panels', testId: 'settings-tab-aether', badge: 'New', badgeColor: 'violet' },
         { key: 'gold', label: 'Gold Panels', testId: 'settings-tab-gold', badge: 'New', badgeColor: 'amber' },
+        { key: 'ghostpanel', label: 'Ghost Panels', testId: 'settings-tab-ghostpanel', badge: 'New', badgeColor: 'violet' },
         { key: 'ghostsurf', label: 'GhostSurf VPN' },
       ],
     },
@@ -121,6 +124,7 @@ export default function AdminSettings() {
         { key: 'backups', label: 'Backups' },
         { key: 'timezone', label: 'Timezone' },
         { key: 'launcher', label: 'Launcher API', badge: 'New', badgeColor: 'teal' },
+        { key: 'migration', label: 'Panel Migration', badge: 'New', badgeColor: 'violet' },
       ],
     },
   ];
@@ -253,6 +257,16 @@ export default function AdminSettings() {
             {/* Gold Tab */}
             {activeTab === 'gold' && (
               <GoldPanelManagement settings={settings} />
+            )}
+
+            {/* Ghost Panel Tab */}
+            {activeTab === 'ghostpanel' && (
+              <GhostPanelManagement settings={settings} />
+            )}
+
+            {/* Panel Migration Tab */}
+            {activeTab === 'migration' && (
+              <PanelMigration settings={settings} />
             )}
 
             {/* Shipping Tab */}
