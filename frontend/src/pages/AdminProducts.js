@@ -701,6 +701,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
   const ghostsurfPanels = settings?.ghostsurf?.panels || [];
   const aetherPanels = settings?.aether?.panels || [];
   const goldPanels = settings?.gold?.panels || [];
+  const ghostpanelPanelsModal = settings?.ghostpanel_panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
@@ -710,6 +711,7 @@ function ProductFormModal({ product, onClose, onSuccess }) {
     ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index, label: `${panel.name} (NXT Dash)` })),
     ...aetherPanels.map((panel, index) => ({ ...panel, type: 'aether', originalIndex: index, label: `${panel.name || 'Aether'} (Aether)` })),
     ...goldPanels.map((panel, index) => ({ ...panel, type: 'gold', originalIndex: index, label: `${panel.name || 'Gold'} (Gold Panel)` })),
+    ...ghostpanelPanelsModal.map((panel, index) => ({ ...panel, type: 'ghostpanel', originalIndex: index, label: `${panel.name || 'Ghost Panel'} (Ghost Panel)` })),
     ...ghostsurfPanels.map((panel, index) => ({ ...panel, type: 'ghostsurf', originalIndex: index, label: `${panel.name || 'GhostSurf VPN'} (GhostSurf)` }))
   ];
   
