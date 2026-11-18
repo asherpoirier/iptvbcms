@@ -7810,8 +7810,24 @@ async def provision_ghostpanel_service(order_id: str, order: dict, user: dict, i
             "status": "active",
             "created_at": datetime.utcnow(),
         }
+        # Generate GhostAPK login code for the new user
+        ghostapk_code = None
+        try:
+            apk_result = await svc.ghostapk_create_user(username=api_user)
+            ghostapk_code = apk_result.get("login_code")
+            if ghostapk_code:
+                service_doc["ghostapk_code"] = ghostapk_code  # field name matches frontend display
+                service_doc["ghostapk_login_code"] = ghostapk_code
+                service_doc["ghostapk_user_id"] = apk_result.get("ghostapk_user_id", "")
+                logger.info(f"Ghost Panel GhostAPK code generated for {api_user}: {ghostapk_code}")
+            else:
+                logger.warning(f"Ghost Panel GhostAPK: no login_code returned for {api_user}")
+        except Exception as apk_err:
+            # GhostAPK might not be connected — log but don't fail provisioning
+            logger.warning(f"Ghost Panel GhostAPK code generation failed for {api_user}: {apk_err}")
+
         await services_collection.insert_one(service_doc)
-        logger.info(f"Ghost Panel subscriber provisioned: {api_user} (user_id {result.get('user_id')})")
+        logger.info(f"Ghost Panel subscriber provisioned: {api_user} (user_id {result.get('user_id')}){' with GhostAPK code' if ghostapk_code else ''}")
 
         if email_service:
             try:
@@ -7864,24 +7880,50 @@ async def xtream_ghostapk_status(panel_index: int, current_user: dict = Depends(
 
 @app.post("/api/admin/services/{service_id}/ghostapk-refresh")
 async def refresh_service_ghostapk_code(service_id: str, current_user: dict = Depends(get_current_admin_user)):
-    """Fetch the GhostAPK login pin from the panel for an existing XtreamUI service"""
+    """Fetch the GhostAPK login pin from the panel for an existing service (XtreamUI or Ghost Panel)"""
     service = await services_collection.find_one({"_id": str_to_objectid(service_id)})
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    if safe_panel_type(service.get("panel_type")) != "xtream":
-        raise HTTPException(status_code=400, detail="GhostAPK pins are only available for XtreamUI services")
+    panel_type = safe_panel_type(service.get("panel_type"))
     settings = await get_settings()
-    panel = _xtream_panel(settings, service.get("panel_index"))
-    if not panel:
-        raise HTTPException(status_code=500, detail="XtreamUI panel not configured")
-    xtream_service = get_xtream_service(panel)
-    code = await run_in_threadpool(
-        xtream_service.get_ghostapk_code, service.get("xtream_username", ""), service.get("xtream_password", "")
-    )
-    if not code:
-        raise HTTPException(status_code=404, detail="No GhostAPK pin found on the panel for this line. Use 'Sync all to GhostAPK' on the panel first.")
-    await services_collection.update_one({"_id": service["_id"]}, {"$set": {"ghostapk_code": code}})
-    return {"success": True, "ghostapk_code": code}
+
+    if panel_type == "ghostpanel":
+        # Ghost Panel — use the reseller API to fetch or create GhostAPK code
+        gp_svc = _ghostpanel_for_service(service, settings)
+        if not gp_svc:
+            raise HTTPException(status_code=500, detail="Ghost Panel not configured")
+        username = service.get("xtream_username") or service.get("username", "")
+        try:
+            # Try to get existing code first
+            result = await gp_svc.ghostapk_get_code(username=username)
+            code = result.get("login_code")
+        except Exception:
+            # If no code exists, create one
+            try:
+                result = await gp_svc.ghostapk_create_user(username=username)
+                code = result.get("login_code")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"GhostAPK code generation failed: {str(e)}")
+        if not code:
+            raise HTTPException(status_code=404, detail="No GhostAPK code returned from Ghost Panel. Ensure GhostAPK is connected in the panel.")
+        await services_collection.update_one({"_id": service["_id"]}, {"$set": {"ghostapk_code": code, "ghostapk_login_code": code}})
+        return {"success": True, "ghostapk_code": code}
+
+    elif panel_type == "xtream":
+        panel = _xtream_panel(settings, service.get("panel_index"))
+        if not panel:
+            raise HTTPException(status_code=500, detail="XtreamUI panel not configured")
+        xtream_service = get_xtream_service(panel)
+        code = await run_in_threadpool(
+            xtream_service.get_ghostapk_code, service.get("xtream_username", ""), service.get("xtream_password", "")
+        )
+        if not code:
+            raise HTTPException(status_code=404, detail="No GhostAPK pin found on the panel for this line. Use 'Sync all to GhostAPK' on the panel first.")
+        await services_collection.update_one({"_id": service["_id"]}, {"$set": {"ghostapk_code": code}})
+        return {"success": True, "ghostapk_code": code}
+
+    else:
+        raise HTTPException(status_code=400, detail=f"GhostAPK pins are only available for XtreamUI and Ghost Panel services")
 
 
 async def _refresh_ghostapk_codes_for_panel(panel_index: int, panel: dict):
@@ -8238,6 +8280,39 @@ async def update_product(product_id: str, product: ProductCreate,
         {"$set": product.dict()}
     )
     return {"message": "Product updated successfully"}
+
+@app.post("/api/admin/products/bulk-migrate-panel")
+async def bulk_migrate_products_panel(request: Request, current_user: dict = Depends(get_current_admin_user)):
+    """Bulk migrate all products from one panel type to another.
+    Also migrates imported_users and services records."""
+    body = await request.json()
+    from_type = body.get("from_type", "xtream")
+    to_type = body.get("to_type", "ghostpanel")
+    to_index = int(body.get("to_index", 0))
+    to_name = body.get("to_name", "Ghost Panel")
+
+    # Migrate products
+    prod_result = await products_collection.update_many(
+        {"panel_type": from_type},
+        {"$set": {"panel_type": to_type, "panel_index": to_index}}
+    )
+    # Migrate imported users
+    user_result = await db.imported_users.update_many(
+        {"panel_type": from_type},
+        {"$set": {"panel_type": to_type, "panel_index": to_index, "panel_name": to_name}}
+    )
+    # Migrate services
+    svc_result = await services_collection.update_many(
+        {"panel_type": from_type},
+        {"$set": {"panel_type": to_type, "panel_index": to_index, "panel_name": to_name}}
+    )
+    logger.info(f"Bulk panel migration: {from_type} -> {to_type}[{to_index}]: {prod_result.modified_count} products, {user_result.modified_count} users, {svc_result.modified_count} services")
+    return {
+        "message": f"Migrated from {from_type} to {to_type}",
+        "products_updated": prod_result.modified_count,
+        "users_updated": user_result.modified_count,
+        "services_updated": svc_result.modified_count,
+    }
 
 @app.delete("/api/admin/products/{product_id}")
 async def delete_product(product_id: str, current_user: dict = Depends(get_current_admin_user)):
