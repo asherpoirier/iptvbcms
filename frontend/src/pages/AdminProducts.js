@@ -45,6 +45,7 @@ export default function AdminProducts() {
   const ghostsurfPanels = settings?.ghostsurf?.panels || [];
   const aetherPanels = settings?.aether?.panels || [];
   const goldPanels = settings?.gold?.panels || [];
+  const ghostpanelPanels = settings?.ghostpanel_panels || [];
   
   // Combine all panel types with a type indicator
   const allPanels = [
@@ -54,7 +55,8 @@ export default function AdminProducts() {
     ...nxtdashPanels.map((panel, index) => ({ ...panel, type: 'nxtdash', originalIndex: index })),
     ...ghostsurfPanels.map((panel, index) => ({ ...panel, type: 'ghostsurf', originalIndex: index })),
     ...aetherPanels.map((panel, index) => ({ ...panel, type: 'aether', originalIndex: index })),
-    ...goldPanels.map((panel, index) => ({ ...panel, type: 'gold', originalIndex: index }))
+    ...goldPanels.map((panel, index) => ({ ...panel, type: 'gold', originalIndex: index })),
+    ...ghostpanelPanels.map((panel, index) => ({ ...panel, type: 'ghostpanel', originalIndex: index }))
   ];
   
   // For components that need just XtreamUI panels (like ResellerPackageModal)
@@ -80,6 +82,9 @@ export default function AdminProducts() {
     }
     if (panelType === 'gold') {
       return goldPanels[panelIndex]?.name || `Gold Panel ${panelIndex}`;
+    }
+    if (panelType === 'ghostpanel') {
+      return ghostpanelPanels[panelIndex]?.name || `Ghost Panel ${panelIndex}`;
     }
     return xtreamPanels[panelIndex]?.name || `Panel ${panelIndex}`;
   };

@@ -99,6 +99,13 @@ export default function AdminImportedUsers() {
       value: `gold-${index}`,
       label: `${panel.name || 'Gold'} (Gold Panel)`
     })),
+    ...(settings?.ghostpanel_panels || []).map((panel, index) => ({
+      ...panel,
+      type: 'ghostpanel',
+      index: index,
+      value: `ghostpanel-${index}`,
+      label: `${panel.name || 'Ghost Panel'} (Ghost Panel)`
+    })),
     ...ghostsurfPanels.map((panel, index) => ({ 
       ...panel, 
       type: 'ghostsurf', 
@@ -366,7 +373,7 @@ export default function AdminImportedUsers() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Imported Users</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">
-              Users and resellers synced from XtreamUI, XuiOne, 1-Stream, NXT Dash, and GhostSurf panels
+              Users and resellers synced from XtreamUI, XuiOne, 1-Stream, NXT Dash, Ghost Panel, and GhostSurf panels
             </p>
           </div>
           <div className="flex items-center gap-3">
