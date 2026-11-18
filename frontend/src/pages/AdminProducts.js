@@ -760,12 +760,15 @@ function ProductFormModal({ product, onClose, onSuccess }) {
       } else if (selectedPanelInfo.type === 'gold') {
         const response = await adminAPI.getGoldPackages(selectedPanelInfo.index);
         return response.data.packages || [];
+      } else if (selectedPanelInfo.type === 'ghostpanel') {
+        const response = await adminAPI.getGhostPanelPackages(selectedPanelInfo.index);
+        return (response.data.packages || []).filter(p => !p.is_trial);
       } else {
         const response = await adminAPI.syncPackagesFromPanel(selectedPanelInfo.index);
         return response.data.packages || [];
       }
     },
-    enabled: !isEditing && panels.length > 0 && packageType === 'regular',
+    enabled: !isEditing && allPanels.length > 0 && packageType === 'regular',
   });
 
   // Fetch trial packages from selected panel (XtreamUI, XuiOne, 1-Stream, or NXT Dash)
@@ -966,12 +969,12 @@ function ProductFormModal({ product, onClose, onSuccess }) {
 
         <form onSubmit={handleSubmit} className="p-6 dark:bg-gray-900">
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Panel Selection - Show for new products or when editing if multiple panels */}
-            {panels.length > 1 && (
+            {/* Panel Selection - Show when multiple panels available, editable for reassigning products */}
+            {allPanels.length > 0 && (
               <div className="md:col-span-2">
-                <div className={`border rounded-lg p-4 mb-4 ${isEditing ? 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600'}`}>
-                  <label className={`block text-sm font-semibold mb-3 ${isEditing ? 'text-gray-700 dark:text-gray-300' : 'text-blue-900 dark:text-blue-200'}`}>
-                    {isEditing ? 'Product Panel' : 'Select Panel *'}
+                <div className={`border rounded-lg p-4 mb-4 ${isEditing ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-600' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600'}`}>
+                  <label className={`block text-sm font-semibold mb-3 ${isEditing ? 'text-amber-900 dark:text-amber-200' : 'text-blue-900 dark:text-blue-200'}`}>
+                    {isEditing ? '📋 Product Panel (changeable)' : 'Select Panel *'}
                   </label>
                   <select
                     value={`${selectedPanelInfo.type}-${selectedPanelInfo.index}`}
@@ -986,19 +989,16 @@ function ProductFormModal({ product, onClose, onSuccess }) {
                       }));
                       setSelectedPackage(null); // Reset package when panel changes
                     }}
-                    disabled={isEditing}
-                    className={`w-full px-4 py-3 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium ${
-                      isEditing ? 'border-gray-300 opacity-75 cursor-not-allowed' : 'border-blue-400'
-                    }`}
+                    className="w-full px-4 py-3 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base font-medium border-blue-400"
                   >
-                    {panels.map((panel, idx) => (
+                    {allPanels.map((panel, idx) => (
                       <option key={idx} value={`${panel.type}-${panel.originalIndex}`}>
-                        {panel.label} - {panel.panel_url}
+                        {panel.label || panel.name} {panel.panel_url ? `- ${panel.panel_url}` : panel.url ? `- ${panel.url}` : ''}
                       </option>
                     ))}
                   </select>
-                  <p className={`text-xs mt-2 ${isEditing ? 'text-gray-600' : 'text-blue-700 dark:text-blue-300'}`}>
-                    {isEditing ? 'Panel cannot be changed after product creation' : 'Choose which panel to load packages from'}
+                  <p className={`text-xs mt-2 ${isEditing ? 'text-amber-700 dark:text-amber-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                    {isEditing ? 'Change the panel this product is assigned to (e.g., migrate from XtreamUI to Ghost Panel)' : 'Choose which panel to load packages from'}
                   </p>
                 </div>
               </div>

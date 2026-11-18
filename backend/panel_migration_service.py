@@ -194,25 +194,53 @@ class PanelMigrationService:
             source_products.append(prod)
 
         for prod in source_products:
+            prod_id = str(prod["_id"])
             old_pkg_id = str(prod.get("package_id", prod.get("panel_package_id", "")))
-            new_pkg_id = package_mapping.get(old_pkg_id)
+            # Frontend sends mapping keyed by product _id; also check by source package_id as fallback
+            new_pkg_id = package_mapping.get(prod_id) or package_mapping.get(old_pkg_id)
+
+            # Always update panel_type and panel_index for every product
+            update_set = {
+                "panel_type": dest_type,
+                "panel_index": dest_index,
+                "migrated_from": {
+                    "panel_type": source_type,
+                    "panel_index": source_index,
+                    "package_id": old_pkg_id,
+                    "migrated_at": datetime.utcnow().isoformat()
+                }
+            }
+            # Also update package_id if a mapping was provided
             if new_pkg_id is not None:
-                await self.db.products.update_one(
-                    {"_id": prod["_id"]},
-                    {"$set": {
-                        "panel_type": dest_type,
-                        "panel_index": dest_index,
-                        "package_id": new_pkg_id,
-                        "panel_package_id": new_pkg_id,
-                        "migrated_from": {
-                            "panel_type": source_type,
-                            "panel_index": source_index,
-                            "package_id": old_pkg_id,
-                            "migrated_at": datetime.utcnow().isoformat()
-                        }
-                    }}
-                )
-                report["products_updated"] += 1
+                update_set["package_id"] = new_pkg_id
+                update_set["panel_package_id"] = new_pkg_id
+            else:
+                logger.warning(f"Migration: Product '{prod.get('name', prod['_id'])}' has no package mapping for pkg {old_pkg_id}, migrating panel assignment only")
+                report["errors"].append({
+                    "type": "product_no_mapping",
+                    "product": prod.get("name", str(prod["_id"])),
+                    "old_package_id": old_pkg_id,
+                    "warning": "Product migrated to new panel but package ID was not remapped — update manually in product settings"
+                })
+
+            await self.db.products.update_one(
+                {"_id": prod["_id"]},
+                {"$set": update_set}
+            )
+            report["products_updated"] += 1
+
+        # Build a normalized lookup: source_package_id → dest_package_id
+        # The frontend sends mapping keyed by product._id, so we resolve product._id → source pkg → dest pkg
+        pkg_id_mapping = {}  # source_package_id (str) → dest_package_id (str)
+        for prod in source_products:
+            prod_id = str(prod["_id"])
+            old_pkg_id = str(prod.get("package_id", prod.get("panel_package_id", "")))
+            mapped_dest = package_mapping.get(prod_id) or package_mapping.get(old_pkg_id)
+            if mapped_dest and old_pkg_id:
+                pkg_id_mapping[old_pkg_id] = str(mapped_dest)
+                # Also map by product _id for direct lookups
+                pkg_id_mapping[prod_id] = str(mapped_dest)
+        logger.info(f"Migration: Built pkg_id_mapping with {len(pkg_id_mapping)} entries from {len(source_products)} products")
 
         # 2. Migrate users
         source_users = []
@@ -237,8 +265,7 @@ class PanelMigrationService:
             panel_user_data = None
             if migrate_users_to_panel and dest_svc:
                 try:
-                    # Find matching destination package
-                    # Try to match by the user's current service package
+                    # Find matching destination package via service record
                     service = await self.db.services.find_one({
                         "panel_type": source_type,
                         "panel_index": source_index,
@@ -248,11 +275,18 @@ class PanelMigrationService:
                     dest_pkg_id = None
                     if service:
                         old_pkg = str(service.get("package_id", service.get("panel_package_id", "")))
-                        dest_pkg_id = package_mapping.get(old_pkg)
+                        # Look up in resolved mapping (source pkg_id → dest pkg_id)
+                        dest_pkg_id = pkg_id_mapping.get(old_pkg) or package_mapping.get(old_pkg)
+                        # Also try by service's product_id
+                        svc_product_id = str(service.get("product_id", ""))
+                        if not dest_pkg_id and svc_product_id:
+                            dest_pkg_id = pkg_id_mapping.get(svc_product_id) or package_mapping.get(svc_product_id)
 
                     if not dest_pkg_id:
-                        # Try first available mapping
-                        if package_mapping:
+                        # Try first available mapping value
+                        if pkg_id_mapping:
+                            dest_pkg_id = list(pkg_id_mapping.values())[0]
+                        elif package_mapping:
                             dest_pkg_id = list(package_mapping.values())[0]
 
                     if dest_pkg_id:
