@@ -1180,6 +1180,8 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
       return settings?.aether?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name || 'Aether'} (Aether)` })) || [];
     } else if (formData.panel_type === 'gold') {
       return settings?.gold?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name || 'Gold'} (Gold Panel)` })) || [];
+    } else if (formData.panel_type === 'ghostpanel') {
+      return (settings?.ghostpanel_panels || []).map((p, i) => ({ ...p, index: i, label: `${p.name || 'Ghost Panel'} (Ghost Panel)` }));
     } else {
       return settings?.xuione?.panels?.map((p, i) => ({ ...p, index: i, label: `${p.name} (XuiOne)` })) || [];
     }
@@ -1244,11 +1246,22 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
     enabled: formData.panel_type === 'gold' && formData.account_type === 'subscriber',
   });
 
+  // Fetch packages for Ghost Panel
+  const { data: ghostpanelPackages } = useQuery({
+    queryKey: ['ghostpanel-packages', formData.panel_index],
+    queryFn: async () => {
+      const response = await adminAPI.getGhostPanelPackages(formData.panel_index);
+      return response.data;
+    },
+    enabled: formData.panel_type === 'ghostpanel' && formData.account_type === 'subscriber',
+  });
+
   const packages = formData.panel_type === 'xtream' ? (xtreamPackages?.packages || []) 
     : formData.panel_type === 'onestream' ? (onestreamPackages?.packages || [])
     : formData.panel_type === 'nxtdash' ? (nxtdashPackages?.packages || [])
     : formData.panel_type === 'aether' ? ([...(aetherPackages?.packages || []), ...(aetherPackages?.trial_packages || [])])
     : formData.panel_type === 'gold' ? ((goldPackages?.bouquets || []).map((b) => ({ id: b.id, name: b.name, duration: formData.duration_months, duration_unit: 'months', max_connections: 1 })))
+    : formData.panel_type === 'ghostpanel' ? ((ghostpanelPackages?.packages || []).filter(p => !p.is_trial))
     : (xuionePackages?.packages || []);
 
   const handleSubmit = async (e) => {
@@ -1402,6 +1415,7 @@ function CreateUserModal({ panels, onClose, onSuccess }) {
               <option value="nxtdash">NXT Dash</option>
               <option value="aether">Aether</option>
               <option value="gold">Gold Panel</option>
+              <option value="ghostpanel">Ghost Panel</option>
             </select>
           </div>
 
@@ -1649,6 +1663,9 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
       } else if (panelType === 'gold') {
         const response = await adminAPI.getGoldPackages(user.panel_index || 0);
         return response.data?.terms || [];
+      } else if (panelType === 'ghostpanel') {
+        const response = await adminAPI.getGhostPanelPackages(user.panel_index || 0);
+        return (response.data?.packages || []).filter(p => !p.is_trial);
       } else {
         const response = await adminAPI.syncXuiOnePackages(user.panel_index || 0);
         return (response.data?.packages || []).filter(p => !p.is_trial);
@@ -1820,7 +1837,7 @@ function ExtendUserModal({ user, onClose, onSuccess }) {
 
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
             <p className="text-sm text-green-800 dark:text-green-200">
-              <strong>Note:</strong> This will extend the subscription on both the billing system and the {({ xtream: 'XtreamUI', onestream: '1-Stream', nxtdash: 'NXT Dash', aether: 'Aether', gold: 'Gold' })[user.panel_type] || 'XuiOne'} panel.
+              <strong>Note:</strong> This will extend the subscription on both the billing system and the {({ xtream: 'XtreamUI', xuione: 'XuiOne', onestream: '1-Stream', nxtdash: 'NXT Dash', aether: 'Aether', gold: 'Gold', ghostpanel: 'Ghost Panel', ghostsurf: 'GhostSurf' })[user.panel_type] || user.panel_name || 'panel'}.
             </p>
           </div>
 

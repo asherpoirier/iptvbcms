@@ -13193,6 +13193,23 @@ async def suspend_imported_user(user_id: str, current_user: dict = Depends(get_c
             return {"message": "Device disabled successfully on Gold Panel"}
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to suspend"))
 
+    elif panel_type == "ghostpanel":
+        panels = settings.get("ghostpanel_panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        gp = get_ghostpanel_service(panels[panel_index])
+        if not gp:
+            raise HTTPException(status_code=500, detail="Ghost Panel service not available — check URL and API key")
+        try:
+            result = await gp.suspend_user(username=user["username"])
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+            )
+            return {"message": "User suspended successfully on Ghost Panel"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ghost Panel suspend failed: {e}")
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
 
@@ -13348,6 +13365,23 @@ async def activate_imported_user(user_id: str, current_user: dict = Depends(get_
             )
             return {"message": "Device enabled successfully on Gold Panel"}
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to activate"))
+
+    elif panel_type == "ghostpanel":
+        panels = settings.get("ghostpanel_panels", [])
+        if panel_index >= len(panels):
+            raise HTTPException(status_code=400, detail="Invalid panel")
+        gp = get_ghostpanel_service(panels[panel_index])
+        if not gp:
+            raise HTTPException(status_code=500, detail="Ghost Panel service not available — check URL and API key")
+        try:
+            result = await gp.unsuspend_user(username=user["username"])
+            await imported_users_collection.update_one(
+                {"_id": str_to_objectid(user_id)},
+                {"$set": {"status": "active", "last_synced": datetime.utcnow()}}
+            )
+            return {"message": "User activated successfully on Ghost Panel"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ghost Panel unsuspend failed: {e}")
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown panel type: {panel_type}")
@@ -13765,6 +13799,22 @@ async def bulk_action_imported_users(data: dict, current_user: dict = Depends(ge
                         {"_id": str_to_objectid(uid)},
                         {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
                     )
+                elif panel_type == "ghostpanel":
+                    gp_panels = settings.get("ghostpanel_panels", [])
+                    pi = safe_panel_index(user.get("panel_index"))
+                    gp = get_ghostpanel_service(gp_panels[pi]) if pi < len(gp_panels) else None
+                    if not gp:
+                        failed += 1
+                        continue
+                    try:
+                        await gp.suspend_user(username=user["username"])
+                    except Exception:
+                        failed += 1
+                        continue
+                    await imported_users_collection.update_one(
+                        {"_id": str_to_objectid(uid)},
+                        {"$set": {"status": "suspended", "last_synced": datetime.utcnow()}}
+                    )
                 elif panel_type == "xtream":
                     try:
                         panels = settings.get("xtream", {}).get("panels", [])
@@ -13798,6 +13848,18 @@ async def bulk_action_imported_users(data: dict, current_user: dict = Depends(ge
                     pi = safe_panel_index(user.get("panel_index"))
                     ae = get_aether_service(ae_panels[pi]) if pi < len(ae_panels) else None
                     if not ae or not (await ae.unsuspend_line(user["username"])).get("success"):
+                        failed += 1
+                        continue
+                elif panel_type == "ghostpanel":
+                    gp_panels = settings.get("ghostpanel_panels", [])
+                    pi = safe_panel_index(user.get("panel_index"))
+                    gp = get_ghostpanel_service(gp_panels[pi]) if pi < len(gp_panels) else None
+                    if not gp:
+                        failed += 1
+                        continue
+                    try:
+                        await gp.unsuspend_user(username=user["username"])
+                    except Exception:
                         failed += 1
                         continue
                 elif panel_type == "gold":
@@ -14106,6 +14168,37 @@ async def extend_imported_user(user_id: str, data: ExtendImportedUserRequest, cu
             if not panel_extend_result.get("success"):
                 raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error')}")
             logger.info("✓ Gold Panel renewal successful")
+
+        elif panel_type == "ghostpanel":
+            gp_panels = settings.get("ghostpanel_panels", [])
+            if not gp_panels or panel_index >= len(gp_panels):
+                raise HTTPException(status_code=400, detail="Panel configuration not found")
+            gp = get_ghostpanel_service(gp_panels[panel_index])
+            if not gp:
+                raise HTTPException(status_code=500, detail="Ghost Panel service not available — check URL and API key")
+            # Fetch packages to determine duration for days_to_add
+            try:
+                pkg_result = await gp.list_packages()
+                pkgs = pkg_result.get("packages", [])
+                selected_pkg = next((p for p in pkgs if str(p.get("id")) == str(data.package_id)), None)
+                if selected_pkg:
+                    dur = int(selected_pkg.get("duration", 1))
+                    dur_in = selected_pkg.get("duration_in", "months")
+                    if dur_in == "days":
+                        days_to_add = dur
+                    elif dur_in == "years":
+                        days_to_add = dur * 365
+                    else:
+                        days_to_add = dur * 30
+                else:
+                    days_to_add = 30  # fallback
+            except Exception:
+                days_to_add = 30
+            # Call Ghost Panel extend_user API
+            panel_extend_result = await gp.extend_user(username=username, package_id=data.package_id)
+            if not panel_extend_result.get("success", True):
+                raise HTTPException(status_code=500, detail=f"Failed to extend on panel: {panel_extend_result.get('error', 'Unknown error')}")
+            logger.info("✓ Ghost Panel extension successful")
 
         else:
             raise HTTPException(status_code=400, detail="Invalid panel type")

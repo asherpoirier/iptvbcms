@@ -158,26 +158,36 @@ export default function CheckoutPage() {
   const createOrderMutation = useMutation({
     mutationFn: (data) => ordersAPI.create(data),
     onSuccess: (response) => {
-      const orderId = response.data.order_id;
+      const orderId = response.data.order_id || response.data.id;
       setCurrentOrderId(orderId);
+      
+      // Check if the order was auto-paid (free trial, $0 total, or fully covered by credits)
+      const orderStatus = response.data.status;
+      const finalTotal = Math.max(0, getGrandTotal() - discountAmount - creditsUsed);
+      if (orderStatus === 'paid' || finalTotal === 0) {
+        clearCart();
+        toast.success('Order placed! Your service is being provisioned.');
+        navigate('/dashboard');
+        return;
+      }
       
       if (['manual', 'emt', 'zelle', 'cashapp', 'venmo', 'wise'].includes(paymentMethod)) {
         clearCart();
         navigate('/orders');
         toast.success(paymentMethod === 'manual' ? 'Order placed! Please wait for admin to confirm payment.' : `Order placed! Please send your ${paymentMethod.toUpperCase()} payment now. Include your Order ID.`);
       }
-      
-      // Free trial / fully paid with credits
-      const finalTotal = Math.max(0, getGrandTotal() - discountAmount - creditsUsed);
-      if (finalTotal === 0) {
-        clearCart();
-        toast.success('Order placed! Your service is being provisioned.');
-        navigate('/orders');
-      }
       // For PayPal, buttons will handle the flow
     },
     onError: (error) => {
-      const msg = error.response?.data?.detail || 'Failed to create order';
+      const detail = error.response?.data?.detail || '';
+      // If the error is 'Order already paid', redirect to dashboard instead of showing error
+      if (detail.toLowerCase().includes('already paid') || detail.toLowerCase().includes('already exists')) {
+        clearCart();
+        toast.success('Your order has already been processed! Redirecting to dashboard.');
+        navigate('/dashboard');
+        return;
+      }
+      const msg = detail || 'Failed to create order';
       setError(msg);
       toast.error(msg);
     },
