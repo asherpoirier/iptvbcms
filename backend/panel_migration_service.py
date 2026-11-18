@@ -18,13 +18,25 @@ logger = logging.getLogger(__name__)
 
 # Panel types that support the full API-based migration
 API_PANELS = ["ghostpanel", "aether", "gold"]
-# Panel types where we can only read users (scraping-based)
-READ_ONLY_PANELS = ["xtreamui", "xuione", "1stream", "nxtdash"]
+# Panel types where we can only read users (record-only migration)
+READ_ONLY_PANELS = ["xtream", "xuione", "onestream", "nxtdash"]
 ALL_PANELS = API_PANELS + READ_ONLY_PANELS + ["ghostsurf"]
 
 # Panel categories — IPTV and VPN are incompatible for migration
-IPTV_PANELS = ["xtreamui", "xuione", "1stream", "nxtdash", "aether", "gold", "ghostpanel"]
+IPTV_PANELS = ["xtream", "xuione", "onestream", "nxtdash", "aether", "gold", "ghostpanel"]
 VPN_PANELS = ["ghostsurf"]
+
+# Display names for panel types (internal key → human-readable label)
+PANEL_DISPLAY_NAMES = {
+    "xtream": "XtreamUI",
+    "xuione": "XuiOne",
+    "onestream": "1-Stream",
+    "nxtdash": "NXT Dash",
+    "aether": "Aether",
+    "gold": "Gold",
+    "ghostpanel": "Ghost Panel",
+    "ghostsurf": "GhostSurf",
+}
 
 
 class MigrationError(Exception):
@@ -342,23 +354,26 @@ class PanelMigrationService:
         return report
 
     def _get_panel_config(self, panel_type: str, panel_index: int, settings: dict) -> Optional[dict]:
-        """Get panel configuration from settings."""
+        """Get panel configuration from settings.
+        Ghost Panel uses flat settings.ghostpanel_panels[].
+        All other panels use nested settings.<key>.panels[] structure.
+        """
         if panel_type == "ghostpanel":
             panels = settings.get("ghostpanel_panels", [])
-        elif panel_type == "aether":
-            panels = settings.get("aether_panels", [])
-        elif panel_type == "gold":
-            panels = settings.get("gold_panels", [])
-        elif panel_type == "xtreamui":
-            panels = settings.get("xtreamui_panels", settings.get("panels", []))
+        elif panel_type == "xtream":
+            panels = settings.get("xtream", {}).get("panels", [])
         elif panel_type == "xuione":
-            panels = settings.get("xuione_panels", [])
-        elif panel_type == "1stream":
-            panels = settings.get("onestream_panels", [])
+            panels = settings.get("xuione", {}).get("panels", [])
+        elif panel_type == "onestream":
+            panels = settings.get("onestream", {}).get("panels", [])
         elif panel_type == "nxtdash":
-            panels = settings.get("nxtdash_panels", [])
+            panels = settings.get("nxtdash", {}).get("panels", [])
+        elif panel_type == "aether":
+            panels = settings.get("aether", {}).get("panels", [])
+        elif panel_type == "gold":
+            panels = settings.get("gold", {}).get("panels", [])
         elif panel_type == "ghostsurf":
-            panels = settings.get("ghostsurf_panels", [])
+            panels = settings.get("ghostsurf", {}).get("panels", [])
         else:
             return None
 
@@ -404,14 +419,14 @@ class PanelMigrationService:
         """Get a summary of all configured panels for the migration UI."""
         panels = []
         panel_configs = [
-            ("xtreamui", settings.get("xtreamui_panels", settings.get("panels", []))),
-            ("xuione", settings.get("xuione_panels", [])),
-            ("1stream", settings.get("onestream_panels", [])),
-            ("nxtdash", settings.get("nxtdash_panels", [])),
-            ("aether", settings.get("aether_panels", [])),
-            ("gold", settings.get("gold_panels", [])),
+            ("xtream", settings.get("xtream", {}).get("panels", [])),
+            ("xuione", settings.get("xuione", {}).get("panels", [])),
+            ("onestream", settings.get("onestream", {}).get("panels", [])),
+            ("nxtdash", settings.get("nxtdash", {}).get("panels", [])),
+            ("aether", settings.get("aether", {}).get("panels", [])),
+            ("gold", settings.get("gold", {}).get("panels", [])),
             ("ghostpanel", settings.get("ghostpanel_panels", [])),
-            ("ghostsurf", settings.get("ghostsurf_panels", [])),
+            ("ghostsurf", settings.get("ghostsurf", {}).get("panels", [])),
         ]
         for panel_type, panel_list in panel_configs:
             if not isinstance(panel_list, list):

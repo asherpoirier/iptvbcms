@@ -557,6 +557,8 @@ class Settings(BaseModel):
     support_email: str = ""
     license_key: str = ""
     payment_method_order: List[str] = Field(default_factory=lambda: ["manual", "emt", "zelle", "cashapp", "venmo", "wise", "helcim", "stripe", "paypal", "square", "blockonomics"])
+    ghostpanel_panels: List[dict] = Field(default_factory=list)  # Ghost Panel configs (flat list, not nested like other panels)
+    payment_cloak: dict = Field(default_factory=dict)  # Payment cloaking settings
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

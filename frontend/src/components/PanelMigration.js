@@ -7,9 +7,9 @@ import {
 } from 'lucide-react';
 
 const PANEL_TYPE_LABELS = {
-  xtreamui: 'XtreamUI',
+  xtream: 'XtreamUI',
   xuione: 'XuiOne',
-  '1stream': '1-Stream',
+  onestream: '1-Stream',
   nxtdash: 'NXT Dash',
   aether: 'Aether',
   gold: 'Gold',
@@ -18,9 +18,9 @@ const PANEL_TYPE_LABELS = {
 };
 
 const PANEL_TYPE_COLORS = {
-  xtreamui: 'bg-blue-500',
+  xtream: 'bg-blue-500',
   xuione: 'bg-cyan-500',
-  '1stream': 'bg-green-500',
+  onestream: 'bg-green-500',
   nxtdash: 'bg-orange-500',
   aether: 'bg-purple-500',
   gold: 'bg-amber-500',

@@ -8463,10 +8463,22 @@ def _get_ghostpanel(settings: dict, panel_index: int):
 async def test_ghostpanel_connection(panel_index: int = 0, current_user: dict = Depends(get_current_admin_user)):
     """Test connection to a Ghost Panel (account_info) and report credits"""
     settings = await get_settings()
+    panels = settings.get("ghostpanel_panels", [])
+    if not panels or panel_index >= len(panels):
+        raise HTTPException(status_code=400, detail="No Ghost panels configured")
+    panel = panels[panel_index]
+    # Debug: log what we're using
+    api_key = panel.get("api_key", "")
+    panel_url = panel.get("url", "")
+    logger.info(f"Ghost Panel test: url={panel_url}, api_key_prefix={api_key[:12] if api_key else 'EMPTY'}..., key_len={len(api_key)}")
     _, service = _get_ghostpanel(settings, panel_index)
+    logger.info(f"Ghost Panel service: api_url={service.api_url}, origin={service.origin}")
     result = await service.test_connection()
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Connection failed"))
+        detail = result.get("error", "Connection failed")
+        # Include debug info for troubleshooting
+        detail += f" | API URL: {service.api_url} | Key starts with: {api_key[:12]}... | Key length: {len(api_key)}"
+        raise HTTPException(status_code=500, detail=detail)
     msg = f"Connected as {result.get('username', 'unknown')}"
     if result.get("credits") is not None:
         msg += f" — Balance: {result['credits']} credits"
