@@ -2954,6 +2954,56 @@ async def verify_sumup_payment(order_id: str, data: dict, background_tasks: Back
         return {"success": False, "status": result["status"]}
 
 
+@app.post("/api/orders/{order_id}/sumup/check")
+async def check_sumup_payment(order_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    """Check SumUp payment status by order_id — used for polling after 3DS redirect or widget completion"""
+    user_id = current_user["sub"]
+    order = await orders_collection.find_one({"_id": str_to_objectid(order_id), "user_id": user_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        return {"success": True, "status": "PAID", "already_paid": True}
+
+    # Find the SumUp checkout_id from payment_transactions
+    tx = await db.payment_transactions.find_one({"order_id": order_id, "gateway": "sumup"})
+    if not tx or not tx.get("payment_id"):
+        raise HTTPException(status_code=404, detail="No SumUp transaction found for this order")
+
+    checkout_id = tx["payment_id"]
+    settings = await get_settings()
+    from sumup_service import get_sumup_service
+    sumup = get_sumup_service(settings)
+    if not sumup:
+        raise HTTPException(status_code=400, detail="SumUp not enabled")
+
+    result = await sumup.get_checkout(checkout_id)
+    if not result["success"]:
+        return {"success": False, "status": "UNKNOWN", "error": result.get("error", "Failed to check checkout")}
+
+    logger.info(f"SumUp check for order {order_id}: checkout {checkout_id} status={result['status']}")
+
+    if result["status"] == "PAID":
+        # Mark order as paid and provision
+        await orders_collection.update_one(
+            {"_id": str_to_objectid(order_id)},
+            {"$set": {"status": "paid", "paid_at": datetime.utcnow(), "payment_method": "sumup", "payment_id": checkout_id}}
+        )
+        await invoices_collection.update_one(
+            {"order_id": order_id},
+            {"$set": {"status": "paid", "paid_date": datetime.utcnow()}}
+        )
+        await db.payment_transactions.update_one(
+            {"order_id": order_id, "gateway": "sumup"},
+            {"$set": {"payment_status": "paid"}}
+        )
+        user = await users_collection.find_one({"_id": str_to_objectid(order["user_id"])})
+        if user:
+            background_tasks.add_task(provision_order_services, order_id, order, user)
+        return {"success": True, "status": "PAID"}
+    else:
+        return {"success": False, "status": result["status"]}
+
+
 @app.post("/api/webhooks/sumup")
 async def sumup_webhook(request: Request, background_tasks: BackgroundTasks):
     """Handle SumUp CHECKOUT_STATUS_CHANGED webhook"""

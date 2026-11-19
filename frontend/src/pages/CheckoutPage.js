@@ -671,9 +671,9 @@ export default function CheckoutPage() {
 
   // Detect if returning from payment gateway
   const urlParams = new URLSearchParams(window.location.search);
-  const isPaymentReturn = urlParams.get('payment') === 'success' && urlParams.get('session_id');
+  const isPaymentReturn = urlParams.get('payment') === 'success' && (urlParams.get('session_id') || urlParams.get('order_id'));
 
-  // Poll for payment status if returning from Stripe
+  // Poll for payment status if returning from Stripe or SumUp
   React.useEffect(() => {
     const sessionId = urlParams.get('session_id');
     const orderId = urlParams.get('order_id');
@@ -685,6 +685,13 @@ export default function CheckoutPage() {
         setCurrentOrderId(orderId);
       }
       pollPaymentStatus(sessionId, orderId);
+    }
+    
+    // SumUp return handling (after 3DS redirect) — no session_id, just order_id
+    if (paymentStatus === 'success' && !sessionId && orderId && !pollingSessionId) {
+      setPollingSessionId('sumup-' + orderId);
+      setCurrentOrderId(orderId);
+      pollSumUpPaymentStatus(orderId);
     }
   }, [pollingSessionId]);
 
@@ -717,6 +724,55 @@ export default function CheckoutPage() {
     } catch (error) {
       if (attempt < 7) {
         setTimeout(() => pollPaymentStatus(sessionId, orderId, attempt + 1), 2000);
+      } else {
+        clearCart();
+        toast.success('Payment received! Check your orders page.');
+        navigate('/orders');
+      }
+    }
+  };
+
+  // Poll SumUp payment status (called on return from 3DS redirect)
+  const pollSumUpPaymentStatus = async (orderId, attempt = 0) => {
+    if (attempt >= 10) {
+      clearCart();
+      toast.success('Payment received! Your services are being set up.');
+      navigate('/orders');
+      return;
+    }
+    try {
+      const token = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.token;
+      // Check order status directly
+      const response = await axios.get(
+        `${API_URL}/api/orders/${orderId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (response.data.status === 'paid') {
+        clearCart();
+        toast.success('Payment successful! Your services are being provisioned.');
+        navigate('/orders');
+        return;
+      }
+      // Order not yet paid — try to verify via SumUp
+      const txResponse = await axios.post(
+        `${API_URL}/api/orders/${orderId}/sumup/check`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (txResponse.data.success && txResponse.data.status === 'PAID') {
+        clearCart();
+        toast.success('Payment successful! Your services are being provisioned.');
+        navigate('/orders');
+      } else if (attempt < 9) {
+        setTimeout(() => pollSumUpPaymentStatus(orderId, attempt + 1), 2500);
+      } else {
+        clearCart();
+        toast.success('Payment received! Check your orders page.');
+        navigate('/orders');
+      }
+    } catch (error) {
+      if (attempt < 9) {
+        setTimeout(() => pollSumUpPaymentStatus(orderId, attempt + 1), 2500);
       } else {
         clearCart();
         toast.success('Payment received! Check your orders page.');

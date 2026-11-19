@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MessageSquare, Plus, X, Send, Package } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Plus, X, Send, Package, ChevronLeft, ChevronRight, Filter, ArrowUpDown } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
+const TICKETS_PER_PAGE = 10;
+
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 const ticketsAPI = {
   create: (data) => axios.post(`${API_URL}/api/tickets`, data, {
@@ -26,6 +29,10 @@ export default function TicketsPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('date_desc');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: tickets, isLoading } = useQuery({
     queryKey: ['tickets'],
@@ -34,6 +41,39 @@ export default function TicketsPage() {
       return response.data;
     },
   });
+
+  // Filter, sort, and paginate tickets
+  const { paginatedTickets, totalPages, totalFiltered } = useMemo(() => {
+    let filtered = tickets || [];
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(t => t.status === statusFilter);
+    }
+    // Priority filter
+    if (priorityFilter !== 'all') {
+      filtered = filtered.filter(t => t.priority === priorityFilter);
+    }
+    // Sort
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'date_asc':
+          return new Date(a.created_at) - new Date(b.created_at);
+        case 'priority_high':
+          return (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3);
+        case 'priority_low':
+          return (PRIORITY_ORDER[b.priority] ?? 3) - (PRIORITY_ORDER[a.priority] ?? 3);
+        case 'date_desc':
+        default:
+          return new Date(b.created_at) - new Date(a.created_at);
+      }
+    });
+    const pages = Math.max(1, Math.ceil(sorted.length / TICKETS_PER_PAGE));
+    const start = (currentPage - 1) * TICKETS_PER_PAGE;
+    return { paginatedTickets: sorted.slice(start, start + TICKETS_PER_PAGE), totalPages: pages, totalFiltered: sorted.length };
+  }, [tickets, statusFilter, priorityFilter, sortBy, currentPage]);
+
+  // Reset page when filters change
+  const handleFilterChange = (setter) => (value) => { setter(value); setCurrentPage(1); };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -84,6 +124,60 @@ export default function TicketsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-8">Support Tickets</h1>
 
+        {/* Filters & Sort Controls */}
+        {tickets?.length > 0 && (
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4 mb-6">
+            <div className="flex flex-wrap gap-3 items-center">
+              {/* Status Filter */}
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-500" />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => handleFilterChange(setStatusFilter)(e.target.value)}
+                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                >
+                  <option value="all">All Status</option>
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+              {/* Priority Filter */}
+              <div>
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => handleFilterChange(setPriorityFilter)(e.target.value)}
+                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="high">🔴 High</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="low">🟢 Low</option>
+                </select>
+              </div>
+              {/* Sort */}
+              <div className="flex items-center gap-2 ml-auto">
+                <ArrowUpDown className="w-4 h-4 text-gray-500" />
+                <select
+                  value={sortBy}
+                  onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                >
+                  <option value="date_desc">Newest First</option>
+                  <option value="date_asc">Oldest First</option>
+                  <option value="priority_high">Priority: High → Low</option>
+                  <option value="priority_low">Priority: Low → High</option>
+                </select>
+              </div>
+              {/* Count */}
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {totalFiltered} ticket{totalFiltered !== 1 ? 's' : ''}
+                {(statusFilter !== 'all' || priorityFilter !== 'all') && ` (filtered from ${tickets?.length})`}
+              </span>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -101,49 +195,109 @@ export default function TicketsPage() {
               Create Ticket
             </button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {tickets?.map((ticket) => (
-              <div
-                key={ticket.id}
-                onClick={() => setSelectedTicket(ticket)}
-                className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition cursor-pointer"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex-1">
-                    {ticket.service_name && (
-                      <div className="flex items-center gap-2 mb-2">
-                        <Package className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <span className="text-xs text-gray-600 dark:text-gray-400">
-                          Re: {ticket.service_name}
-                        </span>
-                      </div>
-                    )}
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      {ticket.subject}
-                    </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {new Date(ticket.created_at).toLocaleDateString()} at {new Date(ticket.created_at).toLocaleTimeString()}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(ticket.status)}`}>
-                      {ticket.status.replace('_', ' ')}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPriorityColor(ticket.priority)}`}>
-                      {ticket.priority}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  {ticket.messages[0]?.message.substring(0, 150)}...
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  {ticket.messages.length} {ticket.messages.length === 1 ? 'message' : 'messages'}
-                </p>
-              </div>
-            ))}
+        ) : totalFiltered === 0 ? (
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+            <Filter className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No tickets match your filters</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Try adjusting status or priority filters</p>
+            <button
+              onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setCurrentPage(1); }}
+              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+            >
+              Clear filters
+            </button>
           </div>
+        ) : (
+          <>
+            <div className="space-y-4">
+              {paginatedTickets.map((ticket) => (
+                <div
+                  key={ticket.id}
+                  onClick={() => setSelectedTicket(ticket)}
+                  className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 hover:shadow-lg transition cursor-pointer"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
+                      {ticket.service_name && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <Package className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                            Re: {ticket.service_name}
+                          </span>
+                        </div>
+                      )}
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        {ticket.subject}
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {new Date(ticket.created_at).toLocaleDateString()} at {new Date(ticket.created_at).toLocaleTimeString()}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(ticket.status)}`}>
+                        {ticket.status.replace('_', ' ')}
+                      </span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPriorityColor(ticket.priority)}`}>
+                        {ticket.priority}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {ticket.messages[0]?.message.substring(0, 150)}...
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    {ticket.messages.length} {ticket.messages.length === 1 ? 'message' : 'messages'}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 bg-white dark:bg-gray-900 rounded-lg shadow px-4 py-3">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Page {currentPage} of {totalPages}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Prev
+                  </button>
+                  {/* Page numbers */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let page;
+                    if (totalPages <= 5) { page = i + 1; }
+                    else if (currentPage <= 3) { page = i + 1; }
+                    else if (currentPage >= totalPages - 2) { page = totalPages - 4 + i; }
+                    else { page = currentPage - 2 + i; }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-1.5 text-sm rounded-lg border ${
+                          page === currentPage
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600"
+                  >
+                    Next <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
