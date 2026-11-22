@@ -11830,6 +11830,8 @@ async def cleanup_orphaned_imported_users(data: dict, current_user: dict = Depen
         "nxtdash": [p.get("name") for p in settings.get("nxtdash", {}).get("panels", [])],
         "aether": [p.get("name") for p in settings.get("aether", {}).get("panels", [])],
         "gold": [p.get("name") for p in settings.get("gold", {}).get("panels", [])],
+        "ghostpanel": [p.get("name") for p in settings.get("ghostpanel_panels", [])],
+        "ghostsurf": [p.get("name") for p in settings.get("ghostsurf", {}).get("panels", [])],
     }
     all_active = sum(active_names.values(), [])
 
@@ -11886,6 +11888,61 @@ async def cleanup_orphaned_imported_users(data: dict, current_user: dict = Depen
         "removed_imported_users": removed_users,
         "removed_customers": removed_customers,
         "removed_services": removed_services,
+    }
+
+
+@app.post("/api/admin/imported-users/cleanup-migration-duplicates")
+async def cleanup_migration_duplicates(current_user: dict = Depends(get_current_admin_user)):
+    """Remove duplicate imported users created by panel migration.
+    For users with the same username but different panel_names, keeps the one with a valid panel_name.
+    Also fixes Ghost Panel users with empty panel_name."""
+    settings = await get_settings()
+    gp_panels = settings.get("ghostpanel_panels", [])
+    gp_name = gp_panels[0].get("name", "Ghost Panel") if gp_panels else "Ghost Panel"
+
+    # 1. Fix Ghost Panel users with empty/null panel_name (from bulk migration)
+    fixed = await imported_users_collection.update_many(
+        {"panel_type": "ghostpanel", "$or": [{"panel_name": ""}, {"panel_name": None}, {"panel_name": {"$exists": False}}]},
+        {"$set": {"panel_name": gp_name}}
+    )
+    fixed_count = fixed.modified_count
+    logger.info(f"Migration cleanup: Fixed {fixed_count} Ghost Panel users with empty panel_name -> '{gp_name}'")
+
+    # 2. Find duplicate usernames (same username appearing more than once)
+    pipeline = [
+        {"$group": {
+            "_id": "$username",
+            "count": {"$sum": 1},
+            "docs": {"$push": {"id": "$_id", "panel_name": "$panel_name", "panel_type": "$panel_type", "last_synced": "$last_synced"}}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    duplicates = await imported_users_collection.aggregate(pipeline).to_list(50000)
+    removed = 0
+    for dup in duplicates:
+        docs = dup["docs"]
+        # Prefer docs WITH a panel_name over those without; then prefer most recently synced
+        docs_with_name = [d for d in docs if d.get("panel_name") and d["panel_name"] != ""]
+        docs_without_name = [d for d in docs if not d.get("panel_name") or d["panel_name"] == ""]
+        
+        if docs_with_name and docs_without_name:
+            # Remove the ones without a panel_name
+            ids_to_remove = [d["id"] for d in docs_without_name]
+            result = await imported_users_collection.delete_many({"_id": {"$in": ids_to_remove}})
+            removed += result.deleted_count
+        elif len(docs_with_name) > 1:
+            # Multiple docs with panel_name — keep the most recently synced
+            sorted_docs = sorted(docs_with_name, key=lambda d: d.get("last_synced") or "", reverse=True)
+            ids_to_remove = [d["id"] for d in sorted_docs[1:]]
+            result = await imported_users_collection.delete_many({"_id": {"$in": ids_to_remove}})
+            removed += result.deleted_count
+
+    logger.info(f"Migration cleanup: Removed {removed} duplicate imported users")
+    return {
+        "success": True,
+        "fixed_empty_panel_names": fixed_count,
+        "duplicates_removed": removed,
+        "ghost_panel_name": gp_name,
     }
 
 
