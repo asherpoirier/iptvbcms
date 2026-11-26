@@ -170,8 +170,11 @@ class GhostPanelService:
         return result.get("data", {})
 
     async def create_user(self, package_id: int, username: str = None, password: str = None,
-                          bouquets: list = None) -> dict:
-        """Create a new IPTV user."""
+                          bouquets: list = None, allowed_outputs: list = None) -> dict:
+        """Create a new IPTV user.
+        allowed_outputs: list of output IDs to enable (1=HLS, 2=MPEGTS, 3=RTMP).
+                         Defaults to [1,2,3] (all enabled) if not specified.
+        """
         import json
         params = {"package_id": package_id}
         if username:
@@ -180,6 +183,13 @@ class GhostPanelService:
             params["password"] = password
         if bouquets:
             params["bouquets"] = json.dumps(bouquets)
+        # Send access outputs — default to all enabled (HLS, MPEGTS, RTMP)
+        outputs = allowed_outputs if allowed_outputs is not None else [1, 2, 3]
+        params["allowed_outputs"] = json.dumps(outputs)
+        # Also send individual flags for maximum compatibility with XtreamUI-based panels
+        params["is_e2"] = 1       # Enable Enigma2/MPEGTS output
+        params["is_mag"] = 1      # Enable MAG/MPEGTS output
+        params["is_restreamer"] = 1  # Enable restreamer/HLS output
         result = await self._post("create_user", **params)
         return result.get("data", {})
 
