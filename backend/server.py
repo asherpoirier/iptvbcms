@@ -7834,6 +7834,24 @@ async def provision_ghostpanel_service(order_id: str, order: dict, user: dict, i
                 expiry_dt = datetime.utcfromtimestamp(result["expiry_ts"])
             except (ValueError, TypeError, OSError):
                 pass
+        # If no expiry from API, calculate from product duration settings
+        if not expiry_dt:
+            if product.get("is_trial") and product.get("trial_duration"):
+                trial_dur = int(product.get("trial_duration", 1))
+                trial_unit = (product.get("trial_duration_unit") or "days").lower()
+                if trial_unit in ("hours", "hour"):
+                    expiry_dt = datetime.utcnow() + timedelta(hours=trial_dur)
+                elif trial_unit in ("months", "month"):
+                    expiry_dt = datetime.utcnow() + timedelta(days=trial_dur * 30)
+                else:
+                    expiry_dt = datetime.utcnow() + timedelta(days=trial_dur)
+                logger.info(f"Ghost Panel trial: computed expiry from product settings: {trial_dur} {trial_unit} -> {expiry_dt}")
+            else:
+                # Fallback: use term_months from the order item
+                term = item.get("term_months", 1)
+                expiry_dt = datetime.utcnow() + timedelta(days=int(term) * 30)
+                logger.info(f"Ghost Panel: computed expiry from term_months={term} -> {expiry_dt}")
+        logger.info(f"Ghost Panel user created: {api_user}, expiry={expiry_dt}, api_expiry={result.get('expiry')}, api_expiry_ts={result.get('expiry_ts')}")
         streaming_url = svc.streaming_url or svc.origin
 
         service_doc = {
@@ -15043,8 +15061,75 @@ async def create_imported_user(data: CreateImportedUserRequest, current_user: di
                      "max_connections": 1, "duration_months": sub, "m3u_url": result.get("url", "")}
         }
 
+    elif panel_type == "ghostpanel":
+        gp_panels = settings.get("ghostpanel_panels", [])
+        if not gp_panels or panel_index >= len(gp_panels):
+            raise HTTPException(status_code=400, detail="Invalid Ghost Panel index")
+        panel = gp_panels[panel_index]
+        panel_name = panel.get("name", f"Ghost Panel {panel_index + 1}")
+        svc = get_ghostpanel_service(panel)
+        if not svc:
+            raise HTTPException(status_code=500, detail="Ghost Panel service not available (missing url or api_key)")
+        if data.account_type != "subscriber":
+            raise HTTPException(status_code=400, detail="Ghost Panel only supports subscriber creation via API")
+
+        package_id = data.package_id
+        if not package_id:
+            raise HTTPException(status_code=400, detail="package_id is required for Ghost Panel")
+
+        try:
+            result = await svc.create_user(
+                package_id=int(package_id),
+                username=data.username or None,
+                password=data.password or None,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ghost Panel create user failed: {e}")
+
+        api_user = result.get("username", data.username or "")
+        api_pass = result.get("password", data.password or "")
+        expiry_dt = None
+        if result.get("expiry"):
+            try:
+                expiry_dt = datetime.strptime(result["expiry"], "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                pass
+        if not expiry_dt and result.get("expiry_ts"):
+            try:
+                expiry_dt = datetime.utcfromtimestamp(result["expiry_ts"])
+            except (ValueError, TypeError, OSError):
+                pass
+        max_conn = result.get("max_connections", 1)
+        streaming_url = svc.streaming_url or svc.origin
+
+        # Try to get GhostAPK login code
+        ghostapk_code = ""
+        try:
+            apk_result = await svc.ghostapk_create_user(username=api_user)
+            ghostapk_code = apk_result.get("login_code", "")
+        except Exception:
+            pass
+
+        user_doc = {
+            "panel_index": panel_index, "panel_type": "ghostpanel", "panel_name": panel_name,
+            "username": api_user, "password": api_pass, "expiry_date": expiry_dt, "status": "active",
+            "max_connections": max_conn, "account_type": "subscriber",
+            "ghostapk_code": ghostapk_code,
+            "streaming_url": streaming_url,
+            "last_synced": datetime.utcnow(), "created_at": datetime.utcnow()
+        }
+        await imported_users_collection.insert_one(user_doc)
+        return {
+            "success": True,
+            "message": f"User '{api_user}' created on {panel_name}",
+            "user": {"username": api_user, "password": api_pass, "panel_name": panel_name,
+                     "expiry_date": expiry_dt.strftime("%Y-%m-%d %H:%M:%S") if expiry_dt else "",
+                     "account_type": "subscriber", "max_connections": max_conn,
+                     "ghostapk_code": ghostapk_code, "streaming_url": streaming_url}
+        }
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream', 'xuione', 'onestream', 'nxtdash', 'aether', or 'gold'")
+        raise HTTPException(status_code=400, detail="Invalid panel_type. Must be 'xtream', 'xuione', 'onestream', 'nxtdash', 'aether', 'gold', or 'ghostpanel'")
 
 @app.get("/api/products/{product_id}/channels")
 async def get_product_channels(product_id: str):
